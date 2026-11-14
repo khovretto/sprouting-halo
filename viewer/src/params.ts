@@ -158,6 +158,10 @@ export const defaults = {
     planform: 0.8,
     /** 0 = stems keep their width to a blunt end, 1 = fine pointed tips. */
     taper: 0.35,
+    /** Branches steer weakly away from each other, so they spread into free space instead of bunching. */
+    repel: 0.6,
+    /** How close (plant units) another branch has to be to push. */
+    repelRadius: 0.12,
     /** Which side of a side plant carries the feathers: 1 = the upper side, -1 = the lower side. */
     featherSide: 1,
     /** How much soft / breathy singing makes a new tree droop. */

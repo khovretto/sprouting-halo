@@ -141,7 +141,7 @@ export class Plant {
     const sig = [
       pp.generator, pl.kind, pl.rMin, pl.length, pl.lengthMul ?? 1, pl.halfAngle, Math.round(pl.bend * 10), pl.taper,
       pp.attractors, pp.step, pp.influence, pp.kill, pp.jitter, pp.smoothing, pp.tipWidth, pp.maxWidth,
-      pp.pipeExponent, pp.maxNodes, pp.lift, pp.wildness, pp.overlap, pp.planform, pp.taper, pp.featherSide, pp.softDroop, pp.moodShaping,
+      pp.pipeExponent, pp.maxNodes, pp.lift, pp.wildness, pp.overlap, pp.planform, pp.taper, pp.repel, pp.repelRadius, pp.featherSide, pp.softDroop, pp.moodShaping,
       g.branching, g.sweep, a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
     if (sig === this.signature) return false;
@@ -285,6 +285,41 @@ export class Plant {
     const order: number[] = [0], tAlong: number[] = [0], limbOf: number[] = [0];
     sk.add(0, 0, -1, 0, pp.maxWidth, NodeKind.Branch);
 
+    // Branch-to-branch repulsion: a spatial grid of every node grown so far. Each new step of a
+    // limb is steered weakly away from other limbs within repelRadius, so later branches spread
+    // into free space instead of bunching (ignoring the stretch right where the limb forks off).
+    const repel = clamp(pp.repel);
+    const rR = Math.max(0.02, pp.repelRadius);
+    const grid = new Map<number, number[]>();
+    const gkey = (gx: number, gy: number) => (gx + 32768) * 65536 + (gy + 32768);
+    const gridAdd = (i: number) => {
+      const k = gkey(Math.floor(sk.x[i] / rR), Math.floor(sk.y[i] / rR));
+      let list = grid.get(k);
+      if (!list) grid.set(k, (list = []));
+      list.push(i);
+    };
+    gridAdd(0);
+    const repelVec = (x: number, y: number, limbId: number, sx: number, sy: number): [number, number] => {
+      let vx = 0, vy = 0;
+      const cx = Math.floor(x / rR), cy = Math.floor(y / rR);
+      for (let gx = cx - 1; gx <= cx + 1; gx++)
+        for (let gy = cy - 1; gy <= cy + 1; gy++) {
+          const list = grid.get(gkey(gx, gy));
+          if (!list) continue;
+          for (const j of list) {
+            if (limbOf[j] === limbId) continue;
+            const qx = sk.x[j], qy = sk.y[j];
+            if (Math.hypot(qx - sx, qy - sy) < rR * 1.5) continue; // its own fork point
+            const d = Math.hypot(x - qx, y - qy);
+            if (d >= rR || d < 1e-6) continue;
+            const w = 1 - d / rR;
+            vx += ((x - qx) / d) * w;
+            vy += ((y - qy) / d) * w;
+          }
+        }
+      return [vx, vy];
+    };
+
     // Heading h is measured from +Y, positive toward +X: direction = (sin h, cos h).
     const headingAt = (node: number) => {
       const pa = sk.parent[node];
@@ -296,6 +331,7 @@ export class Plant {
       const n = Math.max(2, Math.ceil(len / step));
       const ds = len / n;
       let x = sk.x[parent], y = sk.y[parent], prev = parent, arc = 0;
+      const sx = x, sy = y;
       const first = sk.n;
       const id = limbs.length;
       const taper = clamp(pp.taper);
@@ -309,6 +345,10 @@ export class Plant {
         if (bow && arc > f.rClear) h += bow * ds; // spine: small bow toward the feather side
         h += wild * 0.25 * noise1(t * 2.5 + noiseSeed, this.seed) * ds; // wander (gentle: more reads as lightning)
         h += lift * ds * (0.3 + 0.7 * t) * Math.sin(hUp - h); // lift toward world up
+        if (repel > 0 && ord > 0) {
+          const [vx, vy] = repelVec(x, y, id, sx, sy);
+          if (vx !== 0 || vy !== 0) h = Math.atan2(Math.sin(h) + repel * 1.5 * vx, Math.cos(h) + repel * 1.5 * vy);
+        }
         // Anti-hugging, applied where it shows: crossing the head's outline a limb must leave
         // steeply (measured from the head centre). Hidden behind the head it is free, so limbs can
         // fork wide there and come out already splayed.
@@ -334,6 +374,7 @@ export class Plant {
         order.push(ord);
         tAlong.push(t);
         limbOf.push(id);
+        gridAdd(prev);
       }
       const limb = { first, last: sk.n - 1, order: ord, len, side, attach: parent };
       limbs.push(limb);
