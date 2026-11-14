@@ -181,3 +181,113 @@ export function scopeOf(path: string): Scope {
   if (RIG_KEYS.has(path) || path.startsWith('avatar.')) return 'rig';
   return 'look';
 }
+
+/**
+ * Tooltips written for the panel. They win over the doc comments in params.ts, and cover every
+ * value that has no comment there (or shares one with its neighbour).
+ */
+export const TIPS: Record<string, string> = {
+  // Tree shape
+  'growth.reach': 'How big the canopy of trees behind you is (its width; the height follows flatten).',
+  'growth.flatten': '0 = a round canopy, 1 = wide and flat (about 40 % as tall as it is wide).',
+  'growth.branching': 'Few bold limbs (0) up to a dense, ivy-like tangle of shoots (1).',
+  'growth.spread': 'Low = limbs run straight out from behind your neck; high = they arch out more.',
+  'plants.wildness': 'How much the branches wander, how ragged the outline is, and one longer "hero" branch.',
+  'plants.clearance': 'Gap a side shoot keeps from other branches, so they spread out instead of bunching.',
+  'plants.lift': 'Branch tips curve up toward the sky (positive) or droop (negative).',
+  'plants.tipWidth': 'Thickness of the branch tips (with taper high, the finest twig ends).',
+  'plants.maxWidth': 'Thickness at the root, hidden behind you; the main limbs start at about 40 % of it.',
+  // Growing & fading
+  'growth.witherDipSemitones': 'How far the pitch has to drop (in semitones) to count as a dip that withers the twigs.',
+  'growth.witherOnPitchDip': 'A drop in pitch (by at least the semitones below) also makes the outer twigs grow back for a moment.',
+  // Leaves & decorations
+  'look.themeFrom': 'Each track: every track keeps the theme and amount set in its Sprout Tap window (presets set those for you). This preset: the theme and amount below for every track, whatever the Tap windows say.',
+  'look.theme': 'Leaves, thorns, Christmas wreath, or bare branches. Used by the fake singer, by taps set to "Viewer default", and for every track when "theme comes from" is this preset.',
+  'look.density': 'How close together the leaves (or thorns) sit. They always keep a little space, so they never pile up.',
+  'look.decoSize': 'Size of leaves, thorns, needles and blossoms.',
+  // Glow (plain wording)
+  'glow.wide': 'The wide, soft haze around everything.',
+  'glow.inkMask': 'Keeps the glow around the branches and leaves rather than on top of them, so they stay crisp.',
+  'glow.front': 'Extra glow on the tips that are growing right now.',
+  // Take commit (plain wording)
+  'commit.syncToOnset': 'Before planting, the halo waits a moment for your next note start so the hit lands on the music.',
+  'commit.stampReveal': 'How much of the new tree is already grown at the moment it is planted.',
+  'commit.spinTurns': 'How many turns the halo at least spins while it winds up.',
+  'commit.plunge': 'How far the rolled-up halo drives into the root behind you.',
+  'layout.spinSpeed': 'Carousel: the trees slowly circle round you (degrees per second; 0 = off).',
+  // Connection / test (plain wording)
+  'source.mode': 'Auto: live taps whenever Sprout.exe is running, otherwise the fake singer. Live: live taps only. Fake singer: always the built-in test singer.',
+  'scene.layers': 'Fake singer: how many layers to fake (1 live halo plus this minus 1 takes).',
+  // Colours
+  'colours.mode': 'Take colours: each take its own colour (below, or its DAW track colour). Rainbow: every take cycles through the hues.',
+  'colours.rainbowSpeed': 'How fast the rainbow hues travel (cycles per second).',
+  'colours.live': 'Colour of the live halo (further live tracks get it hue-shifted). Tracks using their DAW colour ignore it.',
+  'colours.take1': 'Colour of the 1st take (unless its track uses its DAW colour).',
+  'colours.take2': 'Colour of the 2nd take.',
+  'colours.take3': 'Colour of the 3rd take.',
+  'colours.take4': 'Colour of the 4th take.',
+  'colours.take5': 'Colour of the 5th take.',
+  'colours.take6': 'Colour of the 6th take.',
+  'colours.take7': 'Colour of the 7th take (the 8th starts again at the 1st).',
+  // Live halo
+  'halo.idleSpeed': 'How fast the vine creeps round the ring while you are quiet (degrees per second).',
+  'halo.singSpeed': 'Extra speed round the ring at full voice (degrees per second, added to the quiet speed).',
+  'halo.spawnSeconds': 'How long a new halo takes to pop in.',
+  'halo.ringWidth': 'Thickness of the plain ring line.',
+  'halo.vineWidth': 'Thickness of the vine that loops round the ring.',
+  'halo.sproutWidth': 'Thickness of the side shoots that sprout from the vine.',
+  'halo.restY': 'Height of the small resting halo (above the head when nothing is recorded).',
+  'halo.openY': 'Height of the centre of the open halo while recording.',
+  'halo.restRadius': 'Size of the small resting halo on top of the head (when nothing is being recorded).',
+  'halo.openRadius': 'Size of the open halo around head and shoulders while recording.',
+  // Glow
+  'glow.strength': 'Overall strength of the glow around everything.',
+  'glow.radius': 'How far the glow spreads.',
+  'glow.base': 'Glow that is always there, even when silent.',
+  'glow.levelGain': 'Extra glow with loudness.',
+  'glow.onsetGain': 'A flash of glow on every note start.',
+  'glow.pitchShine': 'High, loud notes make everything shine brighter.',
+  // Wind & shiver
+  'motion.shiverDeg': 'How far twigs and leaves shimmer at full vibrato (degrees). See tremble sensitivity for how easily it starts.',
+  // Take commit
+  'commit.enabled': 'When a take finishes recording, its halo winds up and is planted as the new tree. Off: the halo simply fades and the tree grows in.',
+  'commit.shockRing': 'A ring of light spreading from behind you at the moment the tree is planted.',
+  'commit.syncWindow': 'Longest the planting waits for the next note start (seconds), so the hit lands on the music.',
+  // Many takes
+  'layout.spinFrom': 'The carousel spin (if its speed is not 0) starts from this many takes.',
+  'layout.tierFrom': 'From this many takes, the trees form two rows: an outer one and a smaller inner one.',
+  'layout.innerScale': 'Size of the inner row of trees compared with the outer row.',
+  'layout.ease': 'How quickly trees glide to their new places when takes are added or removed (higher = faster).',
+  // Fit to avatar
+  'scene.showGuides': 'Preview: draw the canopy outline, each tree\'s area and the keep-out region.',
+  'scene.viewRadius': 'Preview zoom: how much of the scene fits the window (higher = further away).',
+  'scene.centerX': 'Moves the whole picture left or right in the frame.',
+  'scene.centerY': 'Moves the whole picture up or down in the frame.',
+  'layout.lowOriginY': 'With one take, the height its trunk starts from (hidden behind the body).',
+  'avatar.avoid': 'Keep branches, shoots and leaves off the region of your head and body below.',
+  'avatar.headX': 'Head centre, left / right (the keep-out circle).',
+  'avatar.headY': 'Head centre height (the keep-out circle).',
+  'avatar.headR': 'Head radius (the keep-out circle).',
+  'avatar.bodyTopY': 'Height of the shoulders (top of the body keep-out).',
+  'avatar.bodyBottomY': 'Bottom of the body keep-out (usually below the frame).',
+  'avatar.bodyR': 'Half the width of the body keep-out.',
+  // Connection
+  'source.useTrackColours': 'Use each track\'s DAW colour for its tree or halo, for taps set to "Viewer palette" too.',
+  // Test & preview
+  'scene.backdrop': 'Preview background: checkerboard, black, or transparent (as in OBS).',
+  'scene.showAvatar': 'Preview: show the placeholder avatar (or your PNG) in the middle. Never shown in OBS.',
+  'avatar.opacity': 'Preview: how solid the placeholder avatar or your PNG is drawn.',
+  'avatar.imageX': 'Moves your avatar picture left or right.',
+  'avatar.imageY': 'Moves your avatar picture up or down.',
+  'avatar.imageHeight': 'Height of your avatar picture (its width follows).',
+  'scene.paused': 'Preview: freeze the animation (OBS always runs).',
+  'scene.timeScale': 'Preview: play the animation slower or faster (OBS always runs in real time).',
+  'fake.seed': 'Fake singer: a different number gives a different song and different trees.',
+  'fake.phraseMin': 'Fake singer: shortest phrase (seconds).',
+  'fake.phraseMax': 'Fake singer: longest phrase (seconds).',
+  'fake.gapMin': 'Fake singer: shortest pause between phrases (seconds).',
+  'fake.gapMax': 'Fake singer: longest pause between phrases (seconds).',
+  'fake.highNotes': 'Fake singer: how often it jumps to very high notes (up to F6).',
+  'plants.step': 'Length of each branch segment. Smaller = smoother curves, more work per frame.',
+  'plants.maxNodes': 'Upper limit of branch points per tree, which caps the cost of very dense trees.',
+};

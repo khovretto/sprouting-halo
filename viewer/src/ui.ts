@@ -8,7 +8,7 @@
 import { FolderApi, ListBladeApi, Pane } from 'tweakpane';
 import { defaults, Params } from './params';
 import paramsSource from './params.ts?raw';
-import { FOLDER_HINTS, FOLDERS, LABELS, scopeOf } from './panel-layout';
+import { FOLDER_HINTS, FOLDERS, LABELS, scopeOf, TIPS } from './panel-layout';
 import { installTooltips, tip } from './tooltip';
 import {
   applyPreset, BUILTIN_PRESETS, getPath, isDirty, loadStore, lookDiff, PATHS, Preset, presetValue, same, saveStore, slug, Values,
@@ -261,7 +261,7 @@ function parseHints(src: string): Record<string, string> {
     }
     const key = /^ {4}(\w+):/.exec(raw);
     if (key && section) {
-      if (pending) out[`${section}.${key[1]}`] = pending;
+      if (pending) out[`${section}.${key[1]}`] = pending.replace(/\s+/g, ' ').trim();
       pending = '';
     } else if (line && !line.startsWith('//')) pending = '';
   }
@@ -386,6 +386,8 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     ...(store.stash ? [{ text: 'Unsaved tweaks', value: STASH }] : []),
   ];
   let list = pf.addBlade({ view: 'list', label: 'preset', options: listOptions(), value: active ?? CUSTOM }) as ListBladeApi<string>;
+  const LIST_TIP = 'Pick a look. Built-in presets first, then your own (·). It also sets the theme in every Sprout Tap window.';
+  tip(list.element, LIST_TIP);
   let suppressList = false;
   // Description: a plain line under the list (a readonly text binding scrolls sideways).
   const descEl = document.createElement('div');
@@ -396,6 +398,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   btnTip(saveBtn, 'Overwrite this saved preset with the current values.');
   const nameObj = { name: 'My look' };
   const nameRow = pf.addBinding(nameObj, 'name', { label: 'new name' });
+  tip(nameRow.element, 'Name for "Save as new preset".');
   let namedFor: string | null | undefined;
   const saveAsBtn = pf.addButton({ title: 'Save as new preset' });
   btnTip(saveAsBtn, 'Save the current look under the name above. It is kept in this browser; use Export to move it.');
@@ -406,6 +409,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     active = null;
     afterPresetChange(false);
   });
+  btnTip(delBtn, 'Delete this saved preset (asks for a second click). The values stay on screen.');
   const exportBtn = pf.addButton({ title: 'Export preset (.json)' });
   btnTip(exportBtn, 'Save the current look as a preset file to share or move to another browser.');
   exportBtn.on('click', () => {
@@ -448,6 +452,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       if (!suppressList) choose(ev.value);
     });
     placeDesc();
+    tip(list.element, LIST_TIP);
     if (valuesChanged) {
       quietUntil = performance.now() + 200;
       pane.refresh();
@@ -554,7 +559,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       opts.max = Math.max(1, v * 4);
     }
     const binding = folder.addBinding(obj, key, opts) as unknown as Binding;
-    tip(binding.element, HINTS[path]);
+    tip(binding.element, TIPS[path] ?? HINTS[path]);
     const button = document.createElement('button');
     button.className = 'sprout-rv';
     button.textContent = '↺';
@@ -611,15 +616,18 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       btnTip(folder.addButton({ title: 'Load avatar PNG…' }).on('click', () => actions.loadAvatar()),
         'Show your own avatar picture (PNG with transparency) instead of the grey shape, to judge the look. Stays in this browser; never shown in OBS.');
       btnTip(folder.addButton({ title: 'Remove avatar PNG' }).on('click', () => actions.clearAvatar()), 'Back to the grey placeholder shape.');
-      folder.addButton({ title: 'Restart growth' }).on('click', () => actions.restart());
-      folder.addButton({ title: 'Export everything (.json)' }).on('click', () =>
-        download('sprout-settings.json', { sprout: 'settings', version: 1, params: p, presets: store.user }));
-      folder.addButton({ title: 'Import…' }).on('click', importFile);
-      confirmButton(folder, 'Reset everything', 'Click again to reset everything', () => {
+      btnTip(folder.addButton({ title: 'Restart growth' }).on('click', () => actions.restart()),
+        'Start the fake singer and all trees from the beginning.');
+      btnTip(folder.addButton({ title: 'Export everything (.json)' }).on('click', () =>
+        download('sprout-settings.json', { sprout: 'settings', version: 1, params: p, presets: store.user })),
+        'Save every setting and your own presets to one file (a backup, or to move to another browser).');
+      btnTip(folder.addButton({ title: 'Import…' }).on('click', importFile), 'Load a settings file or a preset file.');
+      const resetAll = confirmButton(folder, 'Reset everything', 'Click again to reset everything', () => {
         deepMerge(p as unknown as Record<string, unknown>, structuredClone(defaults));
         active = 'default';
         afterPresetChange(true);
       });
+      btnTip(resetAll, 'Every setting back to factory defaults, including the fit to your avatar and colours (asks for a second click).');
     }
   }
 
@@ -708,6 +716,7 @@ Shift-click: factory default ${fmt(d)}`));
       if (!suppressList) choose(ev.value);
     });
     placeDesc();
+    tip(list.element, LIST_TIP);
     updateMarks();
   }
 
