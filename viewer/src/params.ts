@@ -157,9 +157,10 @@ export const defaults = {
     spawnSeconds: 0.9,
     /** Several live tracks: each gets its own halo, nested inside the first, this much smaller. */
     ringSpacing: 0.14,
-    /** Flatten the halo vertically, like a ring seen from slightly above (0 = flat-on circle). */
+    /** Flatten the resting halo vertically, like a ring seen from slightly above (0 = flat-on
+     *  circle). The recording halo opens round. */
     squish: 0,
-    /** Tilt of the squished halo (degrees, follows a tilted head). */
+    /** Tilt of the squished resting halo (degrees, follows a tilted head). */
     tilt: 0,
   },
   plants: {

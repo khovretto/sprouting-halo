@@ -152,7 +152,7 @@ export const LABELS: Record<string, string> = {
   'motion.swayDeg': 'sway (deg)', 'motion.kickDeg': 'push on note starts (deg)', 'motion.springiness': 'springiness',
   'motion.idle': 'wind when silent', 'motion.flutterDeg': 'leaf flutter (deg)', 'motion.shiver': 'shiver on vibrato',
   'motion.shiverDeg': 'shiver (deg)', 'motion.shiverSensitivity': 'tremble sensitivity',
-  'halo.squish': 'halo squish (3D)', 'halo.tilt': 'halo tilt (deg)', 'avatar.useImage': 'use my avatar PNG',
+  'halo.squish': 'idle halo squish (3D)', 'halo.tilt': 'idle halo tilt (deg)', 'avatar.useImage': 'use my avatar PNG',
   'avatar.imageX': 'picture x', 'avatar.imageY': 'picture y', 'avatar.imageHeight': 'picture height', 'motion.speed': 'wind tempo', 'motion.twigs': 'twigs move on their own',
   'commit.enabled': 'plant the halo', 'commit.duration': 'pace', 'commit.impact': 'impact',
   'commit.burst': 'leaves thrown', 'commit.shockRing': 'shock ring', 'commit.plunge': 'plunge depth',

@@ -74,8 +74,8 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   switches as if you had set it there (saved with the project, undoable in the DAW), and you can
   change single tracks afterwards. Leaves & decorations → "theme comes from: this preset" forces
   the viewer's theme for every track instead (for taps that are not connected).
-- **Halo squish and tilt** (Setup: fit to avatar) flatten the ring like a halo seen slightly
-  from above, for a 3D look.
+- **Idle halo squish and tilt** (Setup: fit to avatar) flatten the resting ring like a halo seen slightly
+  from above, for a 3D look. The recording halo opens round.
 
 ## Use with OBS
 

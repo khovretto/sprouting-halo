@@ -44,6 +44,8 @@ export interface HaloSnapshot {
   lead: { angle: number; sign: number };
   /** Leaf size factor the halo had. */
   sizeMul: number;
+  /** 0..1 how closed (idle) the halo was: the share of halo squish / tilt it had. */
+  idle?: number;
   /** How the take was sung (the planted tree's character). */
   mood: { effort: number; pitch: number; soft: number; vibrato: number };
 }

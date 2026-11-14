@@ -440,6 +440,7 @@ function start() {
       cx: 0, cy: h.cy, R: h.R, theme: h.look.theme, density: h.look.density, colour: hexToRgb(h.look.colour),
       seed: h.vine.seed, lead: h.vine.leadTip(),
       sizeMul: Math.pow(clamp(h.R / Math.max(0.05, params.halo.openRadius), 0.25, 1), 0.7),
+      idle: 1 - smooth(clamp(h.open)),
       mood: { effort: h.drive.effort, pitch: h.drive.pitch, soft: h.drive.softness, vibrato: h.drive.vibrato },
     };
   }
@@ -461,8 +462,9 @@ function start() {
         const L = nextLayer();
         if (L < 0) return;
         // It starts with the halo's squish and tilt and turns round as it winds up and spins.
-        const sq = 1 - clamp(params.halo.squish, 0, 0.95) * (1 - windE);
-        layerU.set(L, cx, cy, Math.PI / 2 + rot + params.halo.tilt * deg * (1 - windE), R, STILL, 1, sq);
+        const k = (snap.idle ?? 1) * (1 - windE);
+        const sq = 1 - clamp(params.halo.squish, 0, 0.95) * k;
+        layerU.set(L, cx, cy, Math.PI / 2 + rot + params.halo.tilt * deg * k, R, STILL, 1, sq);
         const lk = strandLook(look);
         pushRing(front, L, look.colour, lk, ringAlpha * look.alpha, R, 0);
         pushTree(front, snap.sk, snap.vis, L, look.colour, lk, look.alpha, R, params.glow.front, nodeAlpha);
@@ -711,7 +713,9 @@ function start() {
       if (layer >= MAX_LAYERS) return;
       const spawn = Math.max(0.001, easeOutBack(clamp((t - h.spawnT0) / Math.max(0.05, hp.spawnSeconds))));
       const R = h.R * spawn;
-      layerU.set(layer, 0, h.cy, Math.PI / 2 + hp.tilt * deg, R, h.motion, 1, 1 - clamp(hp.squish, 0, 0.95));
+      // Squish and tilt are for the small resting halo only; the recording halo opens round.
+      const idle = 1 - smooth(clamp(h.open));
+      layerU.set(layer, 0, h.cy, Math.PI / 2 + hp.tilt * deg * idle, R, h.motion, 1, 1 - clamp(hp.squish, 0, 0.95) * idle);
       const base = hexToRgb(h.look.colour);
       const look = lookOf(h.drive);
       pushRing(front, layer, base, look, fade, R, h.drive.energy);
