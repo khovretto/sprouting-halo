@@ -141,7 +141,7 @@ export class Plant {
     const sig = [
       pp.generator, pl.kind, pl.rMin, pl.length, pl.lengthMul ?? 1, pl.halfAngle, Math.round(pl.bend * 10), pl.taper,
       pp.attractors, pp.step, pp.influence, pp.kill, pp.jitter, pp.smoothing, pp.tipWidth, pp.maxWidth,
-      pp.pipeExponent, pp.maxNodes, pp.lift, pp.wildness, pp.featherSide, pp.softDroop, pp.moodShaping,
+      pp.pipeExponent, pp.maxNodes, pp.lift, pp.wildness, pp.overlap, pp.featherSide, pp.softDroop, pp.moodShaping,
       g.branching, g.sweep, a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
     if (sig === this.signature) return false;
@@ -278,6 +278,7 @@ export class Plant {
     const branching = clamp(g.branching);
     const lift = (pp.lift + 0.5 * (mood.pitch - 0.5) - 0.9 * mood.soft * pp.softDroop) * 0.9; // rad per unit
     const fan = f.fan * lerp(0.85, 1.2, mood.effort);
+    const overlap = clamp(pp.overlap);
     const hUp = Math.atan2(f.upX, f.upY);
 
     const limbs: Limb[] = [];
@@ -361,17 +362,19 @@ export class Plant {
       const u = lerp(uStart, 0.88, Math.pow(clamp((j + 0.5 + (r() - 0.5) * 0.6) / N1), 1.35));
       const node = spine.first + Math.round(u * (spine.last - spine.first));
       const oneSided = Math.abs(f.side) >= 0.15;
+      // overlap: more feathers cross to the other side of the spine at full length, and angles vary
+      // more, so limbs lie over one another instead of forming a neat comb.
       const onLift = !oneSided
         ? (j % 2 ? 1 : -1) * firstSide
-        : (r() < 0.5 + 0.5 * Math.abs(f.side) ? 1 : -1) * Math.sign(f.side);
+        : (r() < (0.5 + 0.5 * Math.abs(f.side)) * (1 - 0.45 * overlap) ? 1 : -1) * Math.sign(f.side);
       const offSide = oneSided && onLift !== Math.sign(f.side);
-      // Splayed: feathers stay open toward the tip (the consult's 1.0 → 0.35 read as a swept plume).
-      const delta = fan * lerp(1.0, 0.55, Math.pow(u, 0.9)) * (0.85 + 0.3 * r());
+      // Splayed: feathers stay wide open toward the tip, with a lot of variety between them.
+      const delta = fan * lerp(1.15, 0.75, Math.pow(u, 0.9)) * (0.6 + 0.8 * r()) + (r() - 0.5) * overlap * 40 * deg;
       let len = spineLen * chord * plan(u) * (1 + wild * (r() * 0.5 - 0.25));
       if (mood.effort > 0.5) len *= 1 + 0.2 * (mood.effort - 0.5);
       if (j === hero) len *= 1.25;
-      if (offSide) len *= 0.35; // short "coverts" on the bare side
-      feathers.push(grow(node, headingAt(node) + onLift * delta, len, 1, -onLift * delta * 0.15,
+      if (offSide) len *= lerp(0.35, 0.9, overlap); // the bare side: short coverts, or full feathers with overlap
+      feathers.push(grow(node, headingAt(node) + onLift * delta, len, 1, -onLift * delta * 0.1,
         Math.min(sk.w[node] * 0.62, pp.maxWidth * 0.5), onLift, r() * 10));
     }
 

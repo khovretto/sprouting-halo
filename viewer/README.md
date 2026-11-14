@@ -25,7 +25,7 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   the avatar and must leave the head's outline steeply, so nothing runs along the silhouette. The
   reveal grows the spine first, then the feathers from the base out, then the twigs. A tree keeps
   its form when the layout changes. Sliders: Growth → branching, reach, spread (fan aperture),
-  sweep; Take plants → lift (tips up / droop), wildness, featherSide, moodShaping (each new tree
+  sweep; Take plants → lift (tips up / droop), wildness, overlap (feathers on both sides, crossing), featherSide, moodShaping (each new tree
   takes its character from the phrase: effort, pitch, softness, vibrato). Layout → downGap keeps
   3+ takes out from behind the body. `generator = colonise` brings back the old trees to compare.
   Console check: `sprout.metrics()`.

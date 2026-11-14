@@ -37,7 +37,7 @@ export const defaults = {
     /** Overall length: multiplies each plant's spine (and with it every feather). */
     reach: 1.0,
     /** Fan aperture: how far the feathers open from the spine. */
-    spread: 1.0,
+    spread: 1.25,
     /** 0 = every plant a symmetric tree; 1 = side plants are one-sided wings (feathers on the upper side). */
     sweep: 0.75,
     /** Brightness of a tree between phrases (it never ungrows). */
@@ -152,6 +152,8 @@ export const defaults = {
     lift: 0.25,
     /** Length jitter, wander and the longer "hero" feather. */
     wildness: 0.5,
+    /** Feathers cross over one another: more on both sides of the spine, more varied angles. */
+    overlap: 0.5,
     /** Which side of a side plant carries the feathers: 1 = the upper side, -1 = the lower side. */
     featherSide: 1,
     /** How much soft / breathy singing makes a new tree droop. */
