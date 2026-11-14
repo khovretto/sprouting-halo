@@ -10,6 +10,7 @@ import { FakeSource } from './sources/fake';
 import { LiveSource, ViewerMessage } from './sources/live';
 import { HaloVine } from './growth/halo';
 import { Plant } from './growth/plant';
+import { plantMetrics } from './debug';
 import { Generations } from './growth/generations';
 import { Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
@@ -394,10 +395,19 @@ function start() {
       const existing = slots.find((s) => s.id === id);
       if (existing) return existing;
       const seed0 = params.fake.seed * 1000 + plantSeed++ * 97;
-      return {
-        id, gens: new Generations<Plant>((seed) => new Plant(seed), seed0),
+      const slot: Slot = {
+        id, gens: undefined as unknown as Generations<Plant>,
         place: { ...targets[k] }, drive: new Drive(), alpha: 0, colour: takeColour(k, takes[k]), ...themeOf(takes[k]),
       };
+      // Each tree: plumage from its own seed, gesture (spine) from the take's seed, character from
+      // the phrase that grows it.
+      slot.gens = new Generations<Plant>((seed) => {
+        const plant = new Plant(seed, seed0);
+        const d = slot.drive;
+        plant.mood = { effort: d.effort, pitch: d.pitch, soft: d.softness, vibrato: d.vibrato };
+        return plant;
+      }, seed0);
+      return slot;
     });
     for (const s of slots) if (!ids.includes(s.id)) dying.push({ slot: s, t0: t });
     slots = next;
@@ -415,7 +425,7 @@ function start() {
       s.drive.update(f, dt, params);
       s.gens.update(s.drive, dt, params);
       for (const g of s.gens.gens) {
-        g.tree.ensureBuilt(tg, params, blocked);
+        g.tree.ensureBuilt(tg, params, blocked, n);
         g.tree.computeReveal(g.reveal, s.drive.pitch, params, g.retired ? 0 : g.wither, dt);
       }
       s.alpha = Math.min(1, s.alpha + realDt * 2);
@@ -539,6 +549,12 @@ function start() {
     advance,
     action: (name: string) => runAction(name, true),
     slots: () => slots,
+    /** Shape checks for each take's newest tree (docs/fable-consult.md, A7). */
+    metrics: () => slots.map((s, k) => {
+      const g = s.gens.current ?? s.gens.gens[s.gens.gens.length - 1];
+      const m = g ? plantMetrics(g.tree, layoutTakes(slots.length, params)[k], blocked) : null;
+      return m && Object.fromEntries(Object.entries(m).map(([key, v]) => [key, +v.toFixed(3)]));
+    }),
     stats: () => ({
       t,
       feed: status.feed,

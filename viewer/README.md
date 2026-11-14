@@ -19,8 +19,16 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   tree (Growth → secondsToFull). With newTreeEachPhrase on, each phrase grows a new tree on a new
   seed; older trees stay and only start fading growth.fadeAfter seconds after their own phrase
   ended (fadeSeconds for the fade). Off: one tree keeps growing and rests dimmer between phrases.
-- **Shape:** Growth → branching (few long limbs … bushy), reach (branch length), spread (fan
-  width; lower = narrower, wing-like) and sweep (how much plants curve up / around the body).
+- **Tree shape (Take plants → generator = gesture):** each take is one dominant, nearly straight
+  spine with a fan of "feather" limbs and sparse twigs (docs/fable-consult.md, Part A). Side plants
+  carry their feathers on the upper side (Growth → sweep; 0 = symmetric trees). Limbs fork behind
+  the avatar and must leave the head's outline steeply, so nothing runs along the silhouette. The
+  reveal grows the spine first, then the feathers from the base out, then the twigs. A tree keeps
+  its form when the layout changes. Sliders: Growth → branching, reach, spread (fan aperture),
+  sweep; Take plants → lift (tips up / droop), wildness, featherSide, moodShaping (each new tree
+  takes its character from the phrase: effort, pitch, softness, vibrato). Layout → downGap keeps
+  3+ takes out from behind the body. `generator = colonise` brings back the old trees to compare.
+  Console check: `sprout.metrics()`.
 - **Pauses and dips:** in a pause shorter than a phrase gap (Response → phraseGap, 1 s) the outer
   twigs and their leaves fade (leaves first) and grow back from their stubs when singing resumes;
   the main limbs stay. Optional: pitch dips do the same (Growth → witherOnPitchDip). Depth and

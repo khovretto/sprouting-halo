@@ -21,6 +21,8 @@ export interface Placement {
   halfAngle: number;
   bend: number;
   taper: number;
+  /** Length multiplier for alternate plants in a crowded tier, so the outline is a star, not a disc. */
+  lengthMul?: number;
 }
 
 export function layoutTakes(n: number, p: Params): Placement[] {
@@ -58,17 +60,23 @@ export function layoutTakes(n: number, p: Params): Placement[] {
   // a gap: odd counts then put one plant straight up, even counts form an X-like spread.
   // The inner tier (many takes) is turned a further quarter step so it doesn't hide behind the
   // outer one and still keeps clear of straight down.
+  // With downGap (and no spin) the plants share the arc above, leaving the space behind the body
+  // free: e.g. six takes sit at 90 ± 22, 65 and 108 degrees.
   const tiers = n >= L.tierFrom ? [Math.ceil(n / 2), Math.floor(n / 2)] : [n];
   const shrink = Math.max(0.5, 1 - E.shrinkPerTake * (n - 3));
+  const gap = L.spinSpeed === 0 ? Math.min(300, Math.max(0, L.downGap)) : 0;
   tiers.forEach((m, ti) => {
-    const step = 360 / m;
-    const phi0 = 270 + step / 2 + (ti === 0 ? 0 : step / 4);
+    const step = gap > 0 ? (360 - gap) / m : 360 / m;
+    const phi0 = gap > 0
+      ? 90 + ((m - 1) / 2) * step + (ti === 0 ? 0 : step / 2)
+      : 270 + step / 2 + (ti === 0 ? 0 : step / 4);
     for (let k = 0; k < m; k++) {
       const phi = phi0 - k * step;
       out.push({
+        lengthMul: m >= 5 && k % 2 ? 0.82 : 1,
         ox: 0, oy: L.midOriginY, angle: phi * deg,
         scale: shrink * (ti === 0 ? 1 : L.innerScale), tierDir: ti === 0 ? 1 : -1, kind: 'wedge',
-        rMin: E.wedgeMin, length: E.wedgeLength * reach, halfAngle: Math.min(70, (E.wedgeFill * step) / 2) * spread,
+        rMin: E.wedgeMin, length: E.wedgeLength * reach, halfAngle: Math.min(55, (E.wedgeFill * step) / 2) * spread,
         bend: E.wedgeBend * sweep * upward(phi), taper: E.wedgeTaper,
       });
     }

@@ -8,7 +8,7 @@ import { defaults, Params } from './params';
 
 const STORAGE_KEY = 'sprout.viewer.params.v2';
 
-type Spec = { min?: number; max?: number; step?: number; options?: Record<string, string> };
+type Spec = { min?: number; max?: number; step?: number; options?: Record<string, string | number> };
 
 const RANGES: Record<string, Spec> = {
   'source.mode': { options: { 'Auto (live when connected)': 'auto', 'Live taps only': 'live', 'Fake singer': 'fake' } },
@@ -22,10 +22,16 @@ const RANGES: Record<string, Spec> = {
   'scene.backdrop': { options: { Checker: 'checker', Black: 'black', 'None (transparent)': 'none' } },
   'growth.secondsToFull': { min: 0.5, max: 15 },
   'growth.branching': { min: 0, max: 1 },
-  'growth.reach': { min: 0.3, max: 1.6 },
+  'growth.reach': { min: 0.4, max: 1.6 },
   'growth.restBrightness': { min: 0, max: 1 },
-  'growth.spread': { min: 0.2, max: 1.5 },
-  'growth.sweep': { min: 0, max: 1.5 },
+  'growth.spread': { min: 0.4, max: 1.5 },
+  'growth.sweep': { min: 0, max: 1 },
+  'plants.generator': { options: { 'Gesture (spine + feathers)': 'gesture', 'Space colonisation (old)': 'colonise' } },
+  'plants.lift': { min: -1, max: 1 },
+  'plants.wildness': { min: 0, max: 1 },
+  'plants.featherSide': { options: { 'Upper side': 1, 'Lower side': -1 } },
+  'plants.softDroop': { min: 0, max: 2 },
+  'layout.downGap': { min: 0, max: 200 },
   'growth.witherDipSemitones': { min: 1, max: 12, step: 1 },
   'growth.witherDepth': { min: 0.05, max: 1.5 },
   'growth.witherSeconds': { min: 0.1, max: 5 },

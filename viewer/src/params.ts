@@ -32,14 +32,14 @@ export const defaults = {
     newTreeEachPhrase: true,
     /** Seconds of full voice to grow a whole tree (higher = slower). */
     secondsToFull: 3.5,
-    /** 0 = few long limbs, 1 = bushy: many short branches. */
-    branching: 0.7,
-    /** Overall branch length (1 = reach the envelope edge). */
-    reach: 1.05,
-    /** How wide each take's plant fans out (1 = the envelope angles; lower = narrower, wing-like). */
-    spread: 0.7,
-    /** How much plants sweep upward / around the model (0 = straight out from the body). */
-    sweep: 0.4,
+    /** 0 = a spine with a few bare feathers; 1 = many feathers with twigs and twiglets. */
+    branching: 0.55,
+    /** Overall length: multiplies each plant's spine (and with it every feather). */
+    reach: 1.0,
+    /** Fan aperture: how far the feathers open from the spine. */
+    spread: 1.0,
+    /** 0 = every plant a symmetric tree; 1 = side plants are one-sided wings (feathers on the upper side). */
+    sweep: 0.75,
     /** Brightness of a tree between phrases (it never ungrows). */
     restBrightness: 0.55,
     /** A tree starts fading this many seconds after it stopped growing (its phrase ended). */
@@ -146,6 +146,18 @@ export const defaults = {
     ringSpacing: 0.14,
   },
   plants: {
+    /** gesture: spine + feathers + twigs (the redesign). colonise: the old space-colonisation trees. */
+    generator: 'gesture' as 'gesture' | 'colonise',
+    /** Tips curve toward the sky (positive) or droop (negative). */
+    lift: 0.25,
+    /** Length jitter, wander and the longer "hero" feather. */
+    wildness: 0.5,
+    /** Which side of a side plant carries the feathers: 1 = the upper side, -1 = the lower side. */
+    featherSide: 1,
+    /** How much soft / breathy singing makes a new tree droop. */
+    softDroop: 1,
+    /** Each new tree takes its character from the phrase that grows it (effort, pitch, softness, vibrato). */
+    moodShaping: true,
     attractors: 220,
     step: 0.03,
     influence: 0.32,
@@ -156,21 +168,21 @@ export const defaults = {
     tipWidth: 0.008,
     maxWidth: 0.035,
     pipeExponent: 2.4,
-    maxNodes: 1500,
+    maxNodes: 900,
   },
   envelope: {
     crownMin: 0.75,
-    crownLength: 1.8,
+    crownLength: 1.9,
     crownHalfAngle: 70,
     crownTaper: 0.15,
     wingMin: 0.45,
-    wingLength: 1.6,
-    wingHalfAngle: 30,
+    wingLength: 1.7,
+    wingHalfAngle: 50,
     wingBend: 22,
     wingTaper: 0.6,
     wedgeMin: 0.45,
     wedgeLength: 1.5,
-    wedgeFill: 0.65,
+    wedgeFill: 0.8,
     wedgeBend: 14,
     wedgeTaper: 0.4,
     shrinkPerTake: 0.02,
@@ -178,7 +190,10 @@ export const defaults = {
   layout: {
     lowOriginY: -0.35,
     midOriginY: 0.05,
-    wingTilt: 14,
+    wingTilt: 20,
+    /** 3+ takes: leave this many degrees free straight down (behind the body); 0 = spread all round.
+     *  Only used while spin is off. */
+    downGap: 100,
     tierFrom: 7,
     innerScale: 0.8,
     spinFrom: 3,

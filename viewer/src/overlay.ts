@@ -83,7 +83,11 @@ export class Overlay {
       ctx.setLineDash([]);
 
       // Envelopes and origins.
-      for (const g of plants) {
+      for (const g0 of plants) {
+        // The gesture generator has no envelope: show its fan (spine length and feather spread).
+        const g = p.plants.generator === 'gesture'
+          ? { ...g0, pl: { ...g0.pl, rMin: 0, taper: 0, bend: 0, length: g0.pl.length * (g0.pl.lengthMul ?? 1) } }
+          : g0;
         const pts: [number, number][] = [];
         const N = 24;
         for (let i = 0; i <= N; i++) pts.push(envelopePoint(i / N, -1, g.pl));
