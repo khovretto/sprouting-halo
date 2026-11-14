@@ -28,7 +28,7 @@ void main() {
     float w = 0.34 * pow(max(sin(PI * clamp(y, 0.0, 1.0)), 0.0), 0.7);
     d = max(abs(x) - w, outsideSpan(y));
     float rib = 1.0 - smoothstep(0.0, 0.035, abs(x));
-    col *= 1.0 - 0.35 * rib * step(0.04, y) * step(y, 0.92);
+    col *= 1.0 - 0.5 * rib * step(0.04, y) * step(y, 0.92);
   } else if (shape == 1) {
     // Thorn: curved, tapering hook.
     float xx = x - 0.16 * y * y;
@@ -49,7 +49,7 @@ void main() {
     float w = 0.4 * pow(max(sin(PI * clamp(y, 0.0, 1.0)), 0.0), 0.85) * (0.78 + 0.22 * cos(y * 2.0 * PI * 3.0));
     d = max(abs(x) - w, outsideSpan(y));
     float rib = 1.0 - smoothstep(0.0, 0.03, abs(x));
-    col *= 1.0 - 0.3 * rib;
+    col *= 1.0 - 0.45 * rib;
   } else {
     // Five-petal blossom with a warm centre.
     vec2 q = vec2(x, y - 0.5);
@@ -59,6 +59,13 @@ void main() {
     col = mix(col, vec3(1.0, 0.95, 0.7), 1.0 - smoothstep(0.05, 0.11, r));
   }
 
+  // Leaves (and holly): a dark rim so overlapping leaves separate, darker at the stalk and lighter
+  // at the tip (docs/fable-consult-2.md, R3). The glow uses the same colour, so rims do not glow.
+  if (shape == 0 || shape == 4) {
+    float inside = clamp(-d / v_uvPerPx, 0.0, 4.0); // pixels in from the edge
+    col *= mix(0.45, 1.0, smoothstep(0.0, 2.5, inside));
+    col *= mix(0.70, 1.12, smoothstep(0.0, 1.0, y));
+  }
   float cov = clamp(0.5 - d / v_uvPerPx, 0.0, 1.0) * v_col.a;
   if (cov <= 0.0) discard;
   o_colour = vec4(col, 1.0) * cov;

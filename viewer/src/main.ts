@@ -11,6 +11,7 @@ import { LiveSource, ViewerMessage } from './sources/live';
 import { HaloVine } from './growth/halo';
 import { Plant } from './growth/plant';
 import { plantMetrics } from './debug';
+import { inkMetrics, pixelMetrics } from './debug-ink';
 import { Generations } from './growth/generations';
 import { Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
@@ -439,6 +440,8 @@ function start() {
   }
 
   // ---- Drawing -----------------------------------------------------------------------------------
+  let plantLayerCount = 0;
+  let lastView: View | null = null;
   function draw() {
     document.body.className = obs ? '' : `backdrop-${params.scene.backdrop}`;
     back.reset();
@@ -451,6 +454,9 @@ function start() {
       const pl = s.place;
       const angle = pl.angle + spin * pl.tierDir;
       const base = hexToRgb(s.colour);
+      // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
+      const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
+      look = { ...look, glow: look.glow * clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4) };
       const [dx, dy] = localDown(angle, pl.scale);
       for (const g of s.gens.gens) {
         const a = alpha * g.alpha;
@@ -469,6 +475,7 @@ function start() {
       drawPlant(s, s.alpha, lookOf(s.drive), 0);
       layer++;
     });
+    plantLayerCount = layer;
 
     // Deleted takes: a brief flash, then the plant fades away while its leaves fall.
     dying.forEach((d) => {
@@ -514,6 +521,7 @@ function start() {
     }
     const view: View = { s: Math.min(W, H) / 2 / params.scene.viewRadius, cx: params.scene.centerX, cy: params.scene.centerY, W, H };
     renderer.render(batches, layerU, view, t, params.glow);
+    lastView = view;
 
     if (!obs) {
       const guides: GuidePlant[] = slots.map((s) => ({ pl: s.place, extraAngle: spin * s.place.tierDir, colour: s.colour }));
@@ -555,6 +563,26 @@ function start() {
       const m = g ? plantMetrics(g.tree, layoutTakes(slots.length, params)[k], blocked) : null;
       return m && Object.fromEntries(Object.entries(m).map(([key, v]) => [key, +v.toFixed(3)]));
     }),
+    /** Bunching / blobbing of the plants as drawn (docs/fable-consult-2.md 5.1). */
+    ink: () => {
+      const g = params.growth as unknown as Record<string, number>;
+      const flatten = g.flatten ?? 0.55;
+      const a = 2.15 * params.growth.reach, b = a * (1 - 0.6 * flatten);
+      const gap = params.layout.spinSpeed === 0 ? params.layout.downGap : 0;
+      return inkMetrics({
+        strokes: batches.filter((x) => x.kind === 'stroke').map((x) => x.inst),
+        sprites: batches.filter((x) => x.kind === 'sprite').map((x) => x.inst),
+        layers: layerU, isPlantLayer: (L) => L < plantLayerCount, blocked,
+        hubX: params.avatar.headX, hubY: params.layout.midOriginY, a, b, bDown: 0.85 * b,
+        arcLo: (-90 + gap / 2) * deg, arcHi: (270 - gap / 2) * deg,
+      });
+    },
+    /** Clipped pixels and local contrast in the rendered frame (draws once, then reads back). */
+    pixels: () => {
+      draw();
+      const v = lastView!;
+      return pixelMetrics(renderer.gl, v.W, v.H, (px, py) => [(px - v.W / 2) / v.s + v.cx, (v.H / 2 - py) / v.s + v.cy], blocked);
+    },
     stats: () => ({
       t,
       feed: status.feed,

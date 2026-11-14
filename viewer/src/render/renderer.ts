@@ -100,6 +100,12 @@ export interface GlowSettings {
   strength: number;
   radius: number;
   wide: number;
+  /** Glow reduction where ink is dense (0 = off). */
+  crowd: number;
+  /** How much glow is kept off the ink itself (0..1). */
+  inkMask: number;
+  /** Soft roll-off of bright glow instead of clipping (0 = off). */
+  knee: number;
 }
 
 export class Renderer {
@@ -221,6 +227,9 @@ export class Renderer {
       u_g3: this.levels[2].t.tex[0],
       u_strength: glow.strength,
       u_wide: glow.wide,
+      u_crowd: glow.crowd,
+      u_inkMask: glow.inkMask,
+      u_knee: glow.knee,
     });
   }
 }

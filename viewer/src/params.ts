@@ -85,7 +85,7 @@ export const defaults = {
     /** Decoration size multiplier. */
     decoSize: 1.8,
     /** How much decorations glow, relative to the branches (dense themes blow out above ~0.6). */
-    decoGlow: 0.3,
+    decoGlow: 0.2,
     /** 0 = decorations in the take colour, 1 = natural colours (green, red berries…). */
     naturalTint: 0.35,
     /** Blossoms open on full / high singing (leaves theme). */
@@ -242,7 +242,7 @@ export const defaults = {
     strength: 1.6,
     radius: 1.8,
     /** Weight of the widest bloom level (the heavy haze). */
-    wide: 1.0,
+    wide: 0.8,
     base: 0.3,
     levelGain: 0.8,
     onsetGain: 0.7,
@@ -251,6 +251,12 @@ export const defaults = {
     front: 0.8,
     /** Soft singing glows more diffusely (0 = ignore softness). */
     softGlow: 0.4,
+    /** Where branches and leaves are dense the glow steps back, so the detail shows (0 = off). */
+    crowd: 0.7,
+    /** Glow lies around the ink, not on top of it (0..1). */
+    inkMask: 0.7,
+    /** Bright glow rolls off softly instead of clipping to a flat colour (0 = off). */
+    knee: 0.8,
   },
   fake: {
     seed: 7,
