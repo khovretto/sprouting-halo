@@ -7,11 +7,12 @@ import spriteFS from '../shaders/sprite.frag?raw';
 import copyFS from '../shaders/copy.frag?raw';
 import blurFS from '../shaders/blur.frag?raw';
 import compositeFS from '../shaders/composite.frag?raw';
+import motionGLSL from '../shaders/motion.glsl?raw';
 
 export const MAX_LAYERS = 32;
-export const FLOATS_PER_INSTANCE = 16;
+export const FLOATS_PER_INSTANCE = 20;
 
-/** Growable instance buffer. Strokes and sprites share the 16-float layout. */
+/** Growable instance buffer. Strokes and sprites share the 20-float layout. */
 export class Instances {
   data = new Float32Array(FLOATS_PER_INSTANCE * 4096);
   count = 0;
@@ -37,13 +38,16 @@ export class Instances {
     glow: number, layer: number,
     /** 0 = round caps; 1 = flat start (a chain link), round end; 2 = flat at both ends. */
     join = 0,
+    /** Motion: branch order (< 2 = limb), and the shoot's pivot x, y, flex and heading. */
+    order = 1, px = ax, py = ay, pf = fa, heading = 0,
   ) {
     const d = this.data;
     let o = this.slot();
     d[o++] = ax; d[o++] = ay; d[o++] = bx; d[o++] = by;
     d[o++] = ra; d[o++] = rb; d[o++] = fa; d[o++] = fb;
     d[o++] = r; d[o++] = g; d[o++] = b; d[o++] = a;
-    d[o++] = glow; d[o++] = layer; d[o++] = join; d[o++] = 0;
+    d[o++] = glow; d[o++] = layer; d[o++] = join; d[o++] = order;
+    d[o++] = px; d[o++] = py; d[o++] = pf; d[o++] = heading;
   }
 
   /** A decoration at (x, y) pointing along `angle`, `size` long (local units). */
@@ -52,13 +56,15 @@ export class Instances {
     shape: number, flex: number, seed: number,
     r: number, g: number, b: number, a: number,
     glow: number, layer: number,
+    order = 1, px = x, py = y, pf = flex, heading = 0,
   ) {
     const d = this.data;
     let o = this.slot();
     d[o++] = x; d[o++] = y; d[o++] = angle; d[o++] = size;
     d[o++] = shape; d[o++] = flex; d[o++] = 0; d[o++] = seed;
     d[o++] = r; d[o++] = g; d[o++] = b; d[o++] = a;
-    d[o++] = glow; d[o++] = layer; d[o++] = 0; d[o++] = 0;
+    d[o++] = glow; d[o++] = layer; d[o++] = order; d[o++] = 0;
+    d[o++] = px; d[o++] = py; d[o++] = pf; d[o++] = heading;
   }
 }
 
@@ -67,25 +73,36 @@ export interface Batch {
   inst: Instances;
 }
 
+/** A layer's motion state (motion.ts LayerMotion): see shaders/motion.glsl for the layout. */
+export interface MotionState {
+  a: ArrayLike<number>;
+  b: ArrayLike<number>;
+  c: ArrayLike<number>;
+}
+export const STILL: MotionState = { a: [0, 0, 0, 0], b: [0, 0, 0, 0], c: [0, 0, 0, 0] };
+
 /** Per-layer placement and motion, filled by the app each frame. */
 export class LayerUniforms {
   org = new Float32Array(4 * MAX_LAYERS);
   mat = new Float32Array(4 * MAX_LAYERS);
-  motion = new Float32Array(4 * MAX_LAYERS);
+  mA = new Float32Array(4 * MAX_LAYERS);
+  mB = new Float32Array(4 * MAX_LAYERS);
+  mC = new Float32Array(4 * MAX_LAYERS);
 
   /**
    * Local +Y of layer i points along `angle` (radians, 0 = right, pi/2 = up), scaled by `scale`.
    * `sx`/`sy` squash the local axes before rotation (used to fold the halo into a stem).
    */
-  set(i: number, ox: number, oy: number, angle: number, scale: number,
-      motion: [number, number, number, number], sx = 1, sy = 1) {
+  set(i: number, ox: number, oy: number, angle: number, scale: number, motion: MotionState = STILL, sx = 1, sy = 1) {
     if (i < 0 || i >= MAX_LAYERS) return;
     const th = angle - Math.PI / 2;
     const c = Math.cos(th) * scale, s = Math.sin(th) * scale;
     this.org.set([ox, oy, 0, 0], i * 4);
     // world = org + [a c; b d] * local, stored as (a, b, c, d).
     this.mat.set([c * sx, s * sx, -s * sy, c * sy], i * 4);
-    this.motion.set(motion, i * 4);
+    this.mA.set(motion.a, i * 4);
+    this.mB.set(motion.b, i * 4);
+    this.mC.set(motion.c, i * 4);
   }
 }
 
@@ -131,8 +148,8 @@ export class Renderer {
     const hdr = !!gl.getExtension('EXT_color_buffer_float');
     this.fmt = hdr ? { internal: gl.RGBA16F, type: gl.HALF_FLOAT } : { internal: gl.RGBA8, type: gl.UNSIGNED_BYTE };
 
-    this.stroke = new Program(gl, strokeVS, strokeFS, 'stroke');
-    this.sprite = new Program(gl, spriteVS, spriteFS, 'sprite');
+    this.stroke = new Program(gl, strokeVS.replace('//#motion', motionGLSL), strokeFS, 'stroke');
+    this.sprite = new Program(gl, spriteVS.replace('//#motion', motionGLSL), spriteFS, 'sprite');
     this.copy = new Program(gl, fullscreenVS, copyFS, 'copy');
     this.blur = new Program(gl, fullscreenVS, blurFS, 'blur');
     this.composite = new Program(gl, fullscreenVS, compositeFS, 'composite');
@@ -143,7 +160,7 @@ export class Renderer {
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
     const stride = FLOATS_PER_INSTANCE * 4;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < FLOATS_PER_INSTANCE / 4; i++) {
       gl.enableVertexAttribArray(i);
       gl.vertexAttribPointer(i, 4, gl.FLOAT, false, stride, i * 16);
       gl.vertexAttribDivisor(i, 1);
@@ -179,7 +196,7 @@ export class Renderer {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  render(batches: Batch[], layers: LayerUniforms, view: View, time: number, glow: GlowSettings) {
+  render(batches: Batch[], layers: LayerUniforms, view: View, windT: number, glow: GlowSettings) {
     const gl = this.gl;
     this.ensureTargets(view.W, view.H);
     const scene = this.scene!;
@@ -193,9 +210,11 @@ export class Renderer {
     const common = {
       u_org: layers.org,
       u_mat: layers.mat,
-      u_motion: layers.motion,
+      u_mA: layers.mA,
+      u_mB: layers.mB,
+      u_mC: layers.mC,
+      u_windT: windT,
       u_view: [(2 * view.s) / view.W, (2 * view.s) / view.H, view.cx, view.cy],
-      u_time: time,
       u_px: 1 / view.s,
     };
     gl.bindVertexArray(this.vao);

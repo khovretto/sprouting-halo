@@ -24,6 +24,8 @@ export class Drive {
   pitch = 0;
   vibrato = 0;
   vibratoRate = 5.5;
+  /** A note started this frame. */
+  onset = false;
   /** Singing right now. */
   voice = false;
   level = 0;
@@ -77,6 +79,7 @@ export class Drive {
 
     this.energy = damp(this.energy, level, level > this.energy ? 30 : 6, dt);
     this.slow = damp(this.slow, level, 1.0, dt);
+    this.onset = !!f?.onset;
     this.flash = f?.onset ? 1 : this.flash * Math.exp(-dt / 0.25);
     this.effort = damp(this.effort, f?.effort ?? 0.5, 6, dt);
     this.breath = damp(this.breath, f?.breath ?? 0, 6, dt);

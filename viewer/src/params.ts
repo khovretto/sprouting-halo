@@ -25,6 +25,12 @@ export const defaults = {
     backdrop: 'checker' as 'checker' | 'black' | 'none',
     showAvatar: true,
     showGuides: false,
+    /** Rolling graphs of the voice and how the visuals read it (G toggles). */
+    showScope: false,
+    /** Which layer the scope follows: 0 = the live halo, 1.. = takes. */
+    scopeLayer: 0,
+    /** Seconds of history shown. */
+    scopeSeconds: 12,
   },
   /** High-level growth controls. Start here; the "plants" section holds the fine detail. */
   growth: {
@@ -187,6 +193,26 @@ export const defaults = {
     spinSpeed: 0,
     ease: 2.5,
   },
+  /** A live take that finishes recording winds into a staff and is planted as its tree. */
+  commit: {
+    enabled: true,
+    /** Overall pace (1 = about 1.4 s to the impact). */
+    duration: 1,
+    /** Flash, shock ring and quiver at the impact. */
+    impact: 1,
+    /** How much of the tree the stamp leaves grown. */
+    stampReveal: 0.6,
+    /** Leaves thrown along the tree at the impact. */
+    burst: 36,
+    /** The staff waits (up to syncWindow s) for the next note start, so the hit lands on the music. */
+    syncToOnset: true,
+    syncWindow: 0.3,
+    /** How far the staff drives into the root (world units). */
+    plunge: 0.28,
+    /** Minimum spin of the winding ring (turns). */
+    spinTurns: 0.75,
+    shockRing: true,
+  },
   transitions: {
     /** A live track stopped being live (recording done): its halo fades out (s). */
     liveEndSeconds: 0.8,
@@ -204,15 +230,25 @@ export const defaults = {
     bodyBottomY: -2.5,
     bodyR: 0.55,
   },
+  /** Wind, push and shiver (docs/fable-consult-3-motion.md). */
   motion: {
-    /** Shiver on vibrato. */
-    tremble: true,
-    /** Tip bend in degrees at rest and per unit of slow loudness. */
-    swayDeg: 5,
-    swayFromLevel: 1.5,
-    swayHz: 0.3,
-    /** Tip shiver in degrees at full vibrato. */
-    trembleDeg: 2.5,
+    /** How far the tips lean in a full-voice gust (degrees). */
+    swayDeg: 8,
+    /** Share of the wind that stays when nobody sings (0 = stands still). */
+    idle: 0.35,
+    /** Wind tempo: how quickly gusts, sway and flutter change. */
+    speed: 1,
+    /** Push from every note start, degrees at the tips (scaled by effort and loudness). */
+    kickDeg: 6,
+    /** After a push: 0 settles at once, 1 swings back and forth for a while. */
+    springiness: 0.5,
+    /** How much thin shoots move on their own compared with the limbs. */
+    twigs: 1,
+    /** Leaf flutter about the stalk (degrees). */
+    flutterDeg: 14,
+    /** Shimmer of twigs and leaves on vibrato. */
+    shiver: true,
+    shiverDeg: 3,
   },
   glow: {
     strength: 1.6,

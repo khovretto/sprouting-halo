@@ -47,15 +47,25 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   what sprouts: loudness = how often, effort = longer/thicker shoots, softness = curlier tendrils,
   pitch = outward (high) or inward (low). Leaf amount on the vine is divided by the number of
   origins. A share of the ring's leaves is always there, spread evenly (alwaysLeaves).
-- **Tremble** on vibrato can be switched off (Sway & tremble → tremble).
+- **Wind, push and shiver** (docs/fable-consult-3-motion.md): the plants move like plants, not
+  like a wave. Wind is a vector in the world, so the whole canopy leans the same way instead of
+  turning about its root; trunks are stiff, limbs flex, every shoot bends on its own about where it
+  joins. Three springs per plant (limb, shoot, twig) give the response: loudness is the wind,
+  every note start is a push that swings back, a swelling note lifts the boughs and a fading one
+  lets them sag, soft singing damps the ringing. Vibrato makes twigs and leaves shimmer at the
+  sung rate. Leaves trail downwind, flutter and turn edge-on now and then. The halo ring goes
+  slightly oval on a push instead of wobbling. Panel: Wind & shiver.
 - **Halo size follows recording.** Small on top of the head while nothing is being recorded. When
   the DAW records the live take, it opens with the first phrase and stays open until recording
   stops (the tap reports the DAW's record state; the fake singer has fake.recording).
 - **Several live tracks** get concentric halos (the first outermost, Live halo → ringSpacing),
   each in its own colour (hue-shifted from the live colour unless the track colour is used).
-- **Recording finished → playback:** the halo fades out (Transitions → liveEndSeconds) and the
-  take's plant grows in its place in the layout. A richer "unwind and stamp" animation is being
-  designed (docs/fable-brief.md).
+- **Recording finished → the halo is planted** (docs/fable-consult.md, Part B): the ring winds up
+  and travels round the head to the new take's place, unrolls along the tree's main limb like a
+  fern crozier, pulls back, waits up to 0.3 s for the next note start and drives into the root.
+  On the impact the new tree flashes, jolts and grows out fast, a shock ring spreads from behind
+  the avatar and the halo's leaves fly out along the branches. Panel: Take commit & removal
+  (turn it off with "plant the halo" to get the plain fade).
 - **Take deleted:** after a short hold (Audio source → holdSeconds) the plant flashes and fades
   away while its leaves fall.
 - **Looks per track:** Theme, Amount and Colour in each track's **Sprout Tap window**. The
@@ -97,20 +107,38 @@ Open http://localhost:5173. Saving any `.ts` or shader file reloads the page. On
 changed are saved in the browser, so improved defaults still reach the rest. The dev page connects
 to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
 
-- **Panel:** every value in `src/params.ts` has a control. **H** hides the panel.
-- **Actions:** restart, presets (.json), reset, and two fake-singer tests: *Commit live take*
-  (the recording-finished transition) and *Delete last take* (pruning).
+- **Panel:** every value in `src/params.ts` has a control, grouped for the artist
+  (`src/panel-layout.ts`, docs/fable-consult-3-panel.md): Preset, Tree shape, Growing & fading,
+  Leaves, Colours, Live halo, Voice response, Glow, Wind & shiver, Take commit, Many takes, then
+  the setup folders (fit to avatar, connection, test & preview). Rarely needed values sit in each
+  folder's Advanced fold. Hover a row for its description. **H** hides the panel.
+- **Presets:** eight built-in looks (Sprout, Calm garden, Lush ivy, Winter branches, Festive
+  wreath, Stage, Minimal, Bramble). Presets only change the look, never the fit to the avatar or
+  the colour palette. Changed rows get a **↺** button: click returns the value to the active
+  preset, Shift-click to the factory default; folders with changes show a dot and the preset
+  title a star. *Save as new preset* stores your own (in this browser); Export / Import move them
+  as .json. Switching away from unsaved tweaks keeps them as "Unsaved tweaks" in the list.
+- **Voice scope:** **G** (or Test & preview → voice scope) shows rolling graphs of the followed
+  layer: loudness, pitch, effort / breath / softness, vibrato, note starts and phrases, growth.
+  Thin lines are what the tap sends, bold lines what the viewer makes of it. Click to freeze,
+  hover to read values at any moment.
 - **Guides:** Scene → showGuides draws the canopy outline split into each plant's territory, and the avatar keep-out.
 - **OBS mode:** `?obs` hides the panel and the placeholder avatar and leaves a transparent background.
 - **Console:** `sprout.params`, `sprout.restart()`, `sprout.advance(60)` (fast-forward),
-  `sprout.action('commit' | 'delete' | 'restart')`, `sprout.stats()`.
+  `sprout.action('commit' | 'delete' | 'restart')`, `sprout.stats()`. `sprout.advance(3, 1/8)`
+  steps at 8 fps (frame-rate independence checks).
 
 ## Layout
 
 | Path | What it does |
 | --- | --- |
 | `src/params.ts` | All tweakable values. Add a value here and it appears in the panel, presets and sync. |
-| `src/ui.ts` | Panel (auto-generated from params), slider ranges, presets, localStorage. |
+| `src/ui.ts` | Panel (auto-generated from params), slider ranges, revert buttons, preset folder, localStorage. |
+| `src/panel-layout.ts` | Folder grouping, labels, look / rig / local scopes. |
+| `src/presets.ts` | Built-in presets, saved presets, apply / compare. |
+| `src/scope.ts` | Voice scope: rolling graphs of features and drives. |
+| `src/motion.ts` | Wind clock and per-layer springs (push, sway, shiver phase). |
+| `src/growth/commit.ts` | The commit animation: wind-up, unfurl, plunge, impact. |
 | `src/features.ts` | `FeatureFrame`: the audio features per layer that drive everything. |
 | `src/drive.ts` | Per-layer phrase detection, halo open envelope, energy, flash, effort/softness. |
 | `src/growth/generations.ts` | Trees per layer: grow with the voice, new tree per phrase, fade the old. |
@@ -129,7 +157,8 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
 
 1. **Strokes and decorations:** instanced draws of tapered capsules (every branch segment) and
    decoration shapes (leaf, thorn, berry, needle, holly, blossom as signed distances), back to
-   front, with sway and tremble in the vertex shaders. Written to two targets at once: colour and
+   front, with the motion (shaders/motion.glsl: wind, springs, per-shoot bend, shiver, leaf
+   flutter) in the vertex shaders. Written to two targets at once: colour and
    glow emission.
 2. **Bloom:** glow emission at ½, ¼ and ⅛ resolution, separable Gaussian blur on each.
 3. **Composite:** strokes + bloom, premultiplied alpha, glow cut to exactly zero where negligible.

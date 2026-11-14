@@ -30,6 +30,9 @@ export interface Generation<T extends Structure> {
   idle: number;
   /** 0..1 how far the outer twigs have withered (pauses, pitch dips); they regrow as it falls. */
   wither: number;
+  /** Planted by the commit animation: it does not fade while idle, and the take's first phrase
+   *  keeps growing it instead of starting a new tree. */
+  stamped?: boolean;
 }
 
 const MAX_GENERATIONS = 5;
@@ -59,6 +62,7 @@ export class Generations<T extends Structure> {
     const g = p.growth;
     if (d.voice) {
       if (!this.current) this.regrow();
+      else if (this.current.stamped) this.current.stamped = false; // the first phrase grows the planted tree
       else if (d.newPhrase && g.newTreeEachPhrase && this.current.reveal > 0.05) this.regrow();
     }
 
@@ -80,8 +84,9 @@ export class Generations<T extends Structure> {
     for (const gen of this.gens) {
       const growing = gen === cur && d.voice;
       if (!growing) gen.idle += dt;
-      const canFade = g.newTreeEachPhrase || gen.retired;
-      if (canFade && gen.idle > fadeAfter) gen.alpha -= dt / fade;
+      const canFade = (g.newTreeEachPhrase || gen.retired) && !gen.stamped;
+      if (gen.stamped) gen.alpha = Math.max(gen.alpha, g.restBrightness);
+      else if (canFade && gen.idle > fadeAfter) gen.alpha -= dt / fade;
       else {
         const target = growing || (gen === cur && !d.phraseOver(p)) ? 1 : g.restBrightness;
         gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));

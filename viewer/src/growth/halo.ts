@@ -17,7 +17,7 @@
 import type { Drive } from '../drive';
 import type { Params } from '../params';
 import { angleLerp, clamp, deg, noise1, rng, Rng, TAU } from '../math';
-import { NodeKind, Skeleton } from './skeleton';
+import { bendFrames, NodeKind, Skeleton } from './skeleton';
 
 interface VNode {
   id: number;
@@ -50,6 +50,9 @@ export class HaloVine {
   vis = new Float32Array(0);
   alpha = new Float32Array(0);
   ids = new Int32Array(0);
+  /** Per node: 1 runner, 2 sprout (motion), and the bend frames for the sprouts' own bend. */
+  order = new Uint8Array(0);
+  bend = new Float32Array(0);
   private nodes: VNode[] = [];
   private tips: Tip[] = [];
   private nextId = 1;
@@ -77,6 +80,13 @@ export class HaloVine {
         this.tips.push({ node, heading: a + (sign * Math.PI) / 2, sign, arc: 0, budget: 0 });
       }
     }
+  }
+
+  /** The growing tip that has travelled furthest: its ring angle and direction (+1 ccw, -1 cw). */
+  leadTip() {
+    let best = this.tips[0];
+    for (const tip of this.tips) if (tip.arc > best.arc) best = tip;
+    return best ? { angle: Math.atan2(best.node.y, best.node.x), sign: best.sign } : { angle: 0, sign: 1 };
   }
 
   /** Restart from the origins if their layout changed. */
@@ -179,6 +189,9 @@ export class HaloVine {
       this.alpha[j] = 1 - f * f * (3 - 2 * f);
     }
     sk.computeChildren();
+    if (this.order.length < sk.n) this.order = new Uint8Array(sk.n * 2);
+    for (let i = 0; i < sk.n; i++) this.order[i] = sk.kind[i] === NodeKind.Sprout ? 2 : 1;
+    this.bend = bendFrames(sk, this.order, this.bend);
   }
 
   /**

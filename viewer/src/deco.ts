@@ -65,6 +65,8 @@ function tint(base: RGB, natural: RGB, amount: number, intensity: number): [numb
 class Placer {
   /** Extra per-node opacity (the halo vine's fading tail). */
   nodeAlpha = 1;
+  /** Motion frame of the current node: order and the shoot's pivot x, y, flex, heading (null = rigid at the point). */
+  frame: [number, number, number, number, number] | null = null;
 
   constructor(private out: Instances, private st: DecoStyle) {}
 
@@ -80,7 +82,9 @@ class Placer {
       a *= 1 - st.fall;
     }
     if (a <= 0.01 || size <= 0) return;
-    this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer);
+    const f = this.frame;
+    if (f) this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer, f[0], f[1], f[2], f[3], f[4]);
+    else this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer);
   }
 }
 
@@ -97,6 +101,9 @@ export interface TreeExtras {
   tone?: ArrayLike<number>;
   /** Where to put dim, larger under-leaves drawn beneath the branches (R6). */
   under?: Instances;
+  /** Motion: per-node branch order and bend frames (4 floats per node). */
+  order?: ArrayLike<number>;
+  bend?: ArrayLike<number>;
 }
 
 export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: DecoStyle, out: Instances, extras: TreeExtras = {}) {
@@ -117,6 +124,11 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     place.nodeAlpha = extras.alpha ? extras.alpha[i] : 1;
     if (place.nodeAlpha <= 0.01) continue;
     const id = extras.ids ? extras.ids[i] : i;
+    if (extras.bend && extras.order) {
+      const b = extras.bend, o = i * 4;
+      place.frame = [extras.order[i], b[o], b[o + 1], b[o + 2], b[o + 3]];
+      if (underPlace) underPlace.frame = place.frame;
+    }
     const pa = sk.parent[i];
     const dx = sk.x[i] - sk.x[pa], dy = sk.y[i] - sk.y[pa];
     const dir = Math.atan2(dy, dx);

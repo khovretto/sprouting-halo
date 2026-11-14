@@ -7,6 +7,46 @@ export const enum NodeKind {
   Branch = 2, // take plant
 }
 
+/**
+ * Per node (4 floats): the pivot of the shoot it belongs to (x, y, flex) and the shoot's heading
+ * at its base, for the shoot's own bend (shaders/motion.glsl). Nodes with order < 2 are limbs: they
+ * carry their own position and heading 0. Parents must come before children.
+ */
+export function bendFrames(sk: Skeleton, order: ArrayLike<number>, out: Float32Array): Float32Array {
+  const n = sk.n;
+  if (out.length < n * 4) out = new Float32Array(n * 8);
+  const grp = new Int32Array(n); // first node of this node's shoot, -1 on limbs
+  const hx = new Float32Array(n), hy = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const pa = sk.parent[i];
+    const g = order[i] < 2 || pa < 0 ? -1 : order[pa] < 2 || grp[pa] < 0 ? i : grp[pa];
+    grp[i] = g;
+    if (g < 0) continue;
+    const b = sk.parent[g];
+    if (sk.flex[i] - sk.flex[b] <= 0.12) {
+      // Heading = mean direction of the first 0.12 of the shoot (a curled tendril bends one way).
+      hx[g] += sk.x[i] - sk.x[b];
+      hy[g] += sk.y[i] - sk.y[b];
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const g = grp[i], o = i * 4;
+    if (g < 0) {
+      out[o] = sk.x[i];
+      out[o + 1] = sk.y[i];
+      out[o + 2] = sk.flex[i];
+      out[o + 3] = 0;
+      continue;
+    }
+    const b = sk.parent[g];
+    out[o] = sk.x[b];
+    out[o + 1] = sk.y[b];
+    out[o + 2] = sk.flex[b];
+    out[o + 3] = Math.atan2(hy[g], hx[g]);
+  }
+  return out;
+}
+
 export class Skeleton {
   n = 0;
   x: Float32Array;

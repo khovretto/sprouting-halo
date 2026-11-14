@@ -23,7 +23,7 @@
 import type { Params } from '../params';
 import { outlineOf, Placement, rOutAt, toLocal, toWorld } from '../layout';
 import { clamp, deg, hash1, lerp, noise1, rng, Rng } from '../math';
-import { NodeKind, Skeleton } from './skeleton';
+import { bendFrames, NodeKind, Skeleton } from './skeleton';
 
 type Blocked = (wx: number, wy: number) => boolean;
 
@@ -100,6 +100,8 @@ export class Plant {
   order = new Uint8Array(0);
   /** Per-node brightness: dim inside, bright at the rim, plus per-limb variety. */
   tone = new Float32Array(0);
+  /** Per node: pivot x, y, flex and heading of the shoot it belongs to (motion; bendFrames). */
+  bend = new Float32Array(0);
   /** Per-node: the lowest leaf density at which this node carries a leaf (2 = never). */
   leafRank = new Float32Array(0);
   /** Per-node distance to the farthest tip below it, used for withering. */
@@ -114,6 +116,14 @@ export class Plant {
   private thr = new Float32Array(0);
   private signature = '';
   private r: Rng;
+  /** The spine (Part B commit): root -> hub -> the territory's middle primary limb. */
+  private spine = new Int32Array(0);
+  private spineCum = new Float32Array(0);
+  spineLength = 0;
+  /** Arc length along the spine where it leaves the avatar. */
+  rClear = 0;
+  /** Multiplier on growth.regrowSpeed (the commit stamp's growth burst). */
+  boost = 1;
 
   /**
    * @param seed      this tree (limbs and plumage change every generation)
@@ -192,8 +202,39 @@ export class Plant {
       if (dt <= 0) this.vis[i] = this.life[i] > 0 ? this.target[i] : 0; // paused: show the allowed growth
       else if (ready && this.life[i] > 0 && this.vis[i] < this.target[i]) {
         const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
-        this.vis[i] = Math.min(this.target[i], this.vis[i] + (dt * g.regrowSpeed) / seg);
+        this.vis[i] = Math.min(this.target[i], this.vis[i] + (dt * g.regrowSpeed * this.boost) / seg);
       }
+    }
+  }
+
+  /** Point, unit tangent and width at arc length d along the spine (extended straight past both ends). */
+  spineAt(d: number) {
+    const sk = this.sk, sp = this.spine, cum = this.spineCum, m = sp.length;
+    if (m < 2) return { x: 0, y: d, tx: 0, ty: 1, w: this.sk.w[0] ?? 0.01 };
+    let k = 0;
+    if (d >= cum[m - 1]) k = m - 2;
+    else if (d > 0) {
+      let lo = 0, hi = m - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (cum[mid] <= d) lo = mid;
+        else hi = mid;
+      }
+      k = lo;
+    }
+    const a = sp[k], b = sp[k + 1];
+    const len = Math.max(1e-6, cum[k + 1] - cum[k]);
+    const tx = (sk.x[b] - sk.x[a]) / len, ty = (sk.y[b] - sk.y[a]) / len;
+    const u = (d - cum[k]) / len;
+    const w = sk.w[a] + (sk.w[b] - sk.w[a]) * Math.min(1, Math.max(0, u));
+    return { x: sk.x[a] + tx * (d - cum[k]), y: sk.y[a] + ty * (d - cum[k]), tx, ty, w };
+  }
+
+  /** Show the whole spine at once (the strand that landed on it is now it). */
+  revealSpine() {
+    for (const i of this.spine) {
+      this.vis[i] = this.target[i] = 1;
+      this.life[i] = 1;
     }
   }
 
@@ -504,6 +545,7 @@ export class Plant {
     this.order = Uint8Array.from(order.slice(0, n));
     this.branchId = Int32Array.from(limbOf.slice(0, n));
     const height = this.finish(limbs.length);
+    this.bend = bendFrames(sk, this.order, new Float32Array(n * 4));
     // The trunk never withers; limbs hold a little longer than shoots.
     for (let i = 0; i < n; i++) this.witherH[i] = height[i] + (this.order[i] === 0 ? 99 : this.order[i] === 1 ? 0.12 : 0);
 
@@ -543,6 +585,27 @@ export class Plant {
         }
     }
     this.trunkFrac = clamp(tf, 0, 0.6);
+
+    // Spine for the commit animation: trunk + the primary nearest the territory's middle.
+    {
+      let best: Limb | undefined;
+      for (const lb of limbs)
+        if (lb.prim >= 0 && lb.last >= lb.first && (!best || Math.abs(lb.prim - (nPrim - 1) / 2) < Math.abs(best.prim - (nPrim - 1) / 2))) best = lb;
+      const path: number[] = [];
+      for (let i = hub; i >= 0; i = sk.parent[i]) path.unshift(i);
+      if (best) for (let i = best.first; i <= best.last; i++) path.push(i);
+      this.spine = Int32Array.from(path);
+      this.spineCum = new Float32Array(path.length);
+      for (let k = 1; k < path.length; k++)
+        this.spineCum[k] = this.spineCum[k - 1] + Math.hypot(sk.x[path[k]] - sk.x[path[k - 1]], sk.y[path[k]] - sk.y[path[k - 1]]);
+      this.spineLength = path.length ? this.spineCum[path.length - 1] : 0;
+      this.rClear = this.spineLength * 0.4;
+      for (let k = 0; k < path.length; k++)
+        if (!hidden(sk.x[path[k]], sk.y[path[k]])) {
+          this.rClear = this.spineCum[k];
+          break;
+        }
+    }
 
     // 7. Pitch steering by world height: high notes open the higher limbs first.
     let lo = Infinity, hi = -Infinity;

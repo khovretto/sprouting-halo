@@ -4,8 +4,11 @@
 
 import { buildUI, deepMerge, loadParams, saveParams, UI, UIStatus } from './ui';
 import type { FeatureFrame, LayerFeatures, Theme } from './features';
-import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, View } from './render/renderer';
+import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
+import { Scope } from './scope';
+import { LayerMotion, Wind } from './motion';
+import { CommitAnimation, CommitHooks, CommitTarget, HaloSnapshot, StrandLook } from './growth/commit';
 import { FakeSource } from './sources/fake';
 import { LiveSource, ViewerMessage } from './sources/live';
 import { HaloVine } from './growth/halo';
@@ -17,7 +20,7 @@ import { Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
 import { decorateRing, decorateTree, DecoStyle } from './deco';
 import { layoutTakes, outlineOf, Placement, plantArc } from './layout';
-import { angleLerp, clamp, deg, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
+import { angleLerp, clamp, deg, hash1, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
 
 interface Slot {
   id: string;
@@ -28,6 +31,11 @@ interface Slot {
   colour: string;
   theme: Theme;
   density: number;
+  /** Being planted by a commit animation (not drawn as a tree until the impact). */
+  commit?: CommitAnimation;
+  /** Sim time of the commit impact (flash, quiver, growth burst). */
+  stampT?: number;
+  motion: LayerMotion;
 }
 
 /** A deleted take: fades away while its leaves fall (no ungrowing). */
@@ -50,6 +58,7 @@ interface LiveHalo {
   R: number;
   look: { theme: Theme; density: number; colour: string };
   f?: LayerFeatures;
+  motion: LayerMotion;
 }
 
 const errorBox = document.getElementById('error')!;
@@ -84,6 +93,9 @@ function start() {
 
   const renderer = new Renderer(glCanvas);
   const overlay = new Overlay(ovCanvas);
+  const scopeCanvas = document.getElementById('scope') as HTMLCanvasElement;
+  const scope = new Scope(scopeCanvas);
+  let scopeTarget = '';
   const fake = new FakeSource(params.fake.seed);
   const live = new LiveSource();
   const status: UIStatus = { feed: '', layers: '', pitch: '', voice: '' };
@@ -109,6 +121,9 @@ function start() {
   let haloSeed = 1;
   let halos: LiveHalo[] = [];
   let endingHalos: LiveHalo[] = [];
+  let commits: CommitAnimation[] = [];
+  const wind = new Wind();
+  const commitDrive = new Drive();
 
   function newHalo(id: string): LiveHalo {
     haloSeed += 1000;
@@ -116,6 +131,7 @@ function start() {
       id, vine: new HaloVine(haloSeed, params), drive: new Drive(), open: 0, spawnT0: t,
       cy: params.halo.restY, R: params.halo.restRadius,
       look: { theme: params.look.theme, density: params.look.density, colour: params.colours.live },
+      motion: new LayerMotion(haloSeed),
     };
   }
 
@@ -127,6 +143,7 @@ function start() {
     fake.reset(params.fake.seed);
     halos = [];
     endingHalos = [];
+    commits = [];
     slots = [];
     dying = [];
   }
@@ -141,15 +158,20 @@ function start() {
   // Shared: everything that changes the look. Per viewer: the audio source, the fake singer and
   // preview-only scene switches (so a test or preview page can never pause or reframe OBS).
   const syncable = () => {
-    const { source: _source, fake: _fake, ...rest } = structuredClone(params);
-    const scene = rest.scene as Partial<typeof params.scene>;
+    const { source, fake: _fake, ...rest } = structuredClone(params);
+    // The OBS page has no panel: it must receive the track-colour fallback and dropout hold too.
+    const shared = { ...rest, source: { useTrackColours: source.useTrackColours, holdSeconds: source.holdSeconds } };
+    const scene = shared.scene as Partial<typeof params.scene>;
     delete scene.paused;
     delete scene.timeScale;
     delete scene.layers;
     delete scene.backdrop;
     delete scene.showAvatar;
     delete scene.showGuides;
-    return rest;
+    delete scene.showScope;
+    delete scene.scopeLayer;
+    delete scene.scopeSeconds;
+    return shared;
   };
   const sendParams = () => {
     if (params.source.syncSettings) live.send({ type: 'params', from: clientId, ts: Date.now(), params: syncable() });
@@ -191,6 +213,11 @@ function start() {
   }
   window.addEventListener('keydown', (e) => {
     if (e.key === 'h' || e.key === 'H') panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    if ((e.key === 'g' || e.key === 'G') && !obs) {
+      params.scene.showScope = !params.scene.showScope;
+      saveParams(params);
+      ui?.refresh();
+    }
   });
 
   // ---- Helpers ---------------------------------------------------------------------------------
@@ -271,22 +298,13 @@ function start() {
     };
   }
 
-  function motionOf(d: Drive, scale = 1): [number, number, number, number] {
-    const m = params.motion;
-    // Angles are per unit of branch length; ~1.6 units from root to tip.
-    return [
-      ((m.swayDeg * deg * (1 + m.swayFromLevel * d.slow)) / 1.6) * scale,
-      m.swayHz * TAU,
-      m.tremble ? ((m.trembleDeg * deg * d.vibrato) / 1.6) * scale : 0,
-      d.vibratoRate || 5.5,
-    ];
-  }
+
 
   let shown = new Uint8Array(0);
   /** Push a skeleton's visible segments. */
   function pushTree(out: Instances, sk: Skeleton, vis: Float32Array, layer: number, base: RGB,
                     look: Look, alpha: number, unit: number, frontGlow = params.glow.front, nodeAlpha?: ArrayLike<number>,
-                    tone?: ArrayLike<number>) {
+                    tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>) {
     const u = Math.max(1e-3, unit);
     if (alpha <= 0.005) return;
     // shown[i]: a child segment of node i is drawn (so the segment ending at i can end flat).
@@ -315,6 +333,8 @@ function start() {
         // Chain links tile: a flat start where the parent segment meets this one, and a flat end
         // where a drawn child continues it (tips and growing ends stay round).
         sk.parent[pa] >= 0 ? (shown[i] ? 2 : 1) : 0,
+        order ? order[i] : 1,
+        bend ? bend[i * 4] : ax, bend ? bend[i * 4 + 1] : ay, bend ? bend[i * 4 + 2] : sk.flex[pa], bend ? bend[i * 4 + 3] : 0,
       );
     }
   }
@@ -323,17 +343,16 @@ function start() {
     const h = params.halo;
     const N = 160;
     const w = (h.ringWidth * look.width * (1 + 0.6 * level)) / Math.max(1e-3, unit);
-    const wob = 0.006 * (0.3 + level);
-    const rAt = (a: number) => 1 + wob * (Math.sin(a * 5 + t * 0.9) + 0.5 * Math.sin(a * 9 - t * 1.3));
+    // A clean circle: its oval / trefoil motion comes from the layer's ring mode (shaders/motion.glsl).
     for (let k = 0; k < N; k++) {
       const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU;
-      const r0 = rAt(a0), r1 = rAt(a1);
       const c = colourAt(base, layer, a0);
       const s = look.shine, i = brighten(look);
-      out.stroke(r0 * Math.cos(a0), r0 * Math.sin(a0), r1 * Math.cos(a1), r1 * Math.sin(a1), w, w, 0, 0,
+      out.stroke(Math.cos(a0), Math.sin(a0), Math.cos(a1), Math.sin(a1), w, w, 0, 0,
         lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * fadeOf(look), look.glow, layer);
     }
   }
+
 
   /** World "down" in a layer's local frame (for falling leaves). */
   function localDown(angle: number, scale: number): [number, number] {
@@ -351,9 +370,95 @@ function start() {
     };
   }
 
+  /** One scope sample for the followed layer: raw tap values next to what the drive makes of them. */
+  function sampleScope(takes: LayerFeatures[]) {
+    const k = Math.round(params.scene.scopeLayer);
+    const slot = k > 0 ? slots[k - 1] : undefined;
+    const halo = k === 0 ? halos[0] : undefined;
+    const d = slot?.drive ?? halo?.drive;
+    const f = slot ? takes[k - 1] : halo?.f;
+    const key = slot ? slot.id : halo ? 'halo:' + halo.id : 'none';
+    if (key !== scopeTarget) {
+      scopeTarget = key;
+      scope.clear();
+    }
+    scope.title = slot ? `take ${k}  (${f?.name || slot.id})` : halo ? `live halo  (${f?.name || halo.id})` : `layer ${k}: none`;
+    if (!d) return;
+    const g = slot?.gens.current ?? slot?.gens.gens[slot.gens.gens.length - 1];
+    scope.push(t, {
+      level: f?.level ?? 0, energy: d.energy, slow: d.slow,
+      midi: f?.pitch ?? 0, pitchHeld: d.pitch > 0 ? 48 + d.pitch * 41 : 0,
+      effortRaw: f?.effort ?? 0.5, effort: d.effort, breath: d.breath, softness: d.softness,
+      vibRaw: f?.vibrato ?? 0, vib: d.vibrato, vibRate: (f?.vibratoRate ?? 0) / 10,
+      flash: d.flash, voice: d.voice ? 1 : 0, phraseOn: d.phraseOver(params) ? 0 : 0.9,
+      open: halo ? halo.open : g?.reveal ?? 0, wither: g?.wither ?? 0, alpha: halo ? 1 : g?.alpha ?? 0,
+    }, { phrase: d.newPhrase, onset: !!f?.onset, dip: d.pitchDip });
+  }
+
+  // ---- Commit (Part B) ---------------------------------------------------------------------------
+  function snapshotOf(h: LiveHalo): HaloSnapshot {
+    const sk = h.vine.sk.clone();
+    const n = sk.n;
+    return {
+      sk, vis: h.vine.vis.slice(0, n), alpha: h.vine.alpha.slice(0, n), ids: h.vine.ids.slice(0, n),
+      cx: 0, cy: h.cy, R: h.R, theme: h.look.theme, density: h.look.density, colour: hexToRgb(h.look.colour),
+      seed: h.vine.seed, lead: h.vine.leadTip(),
+      sizeMul: Math.pow(clamp(h.R / Math.max(0.05, params.halo.openRadius), 0.25, 1), 0.7),
+      mood: { effort: h.drive.effort, pitch: h.drive.pitch, soft: h.drive.softness, vibrato: h.drive.vibrato },
+    };
+  }
+
+  function targetOf(s: Slot, layer: number): CommitTarget | undefined {
+    const g = s.gens.current ?? s.gens.gens[s.gens.gens.length - 1];
+    if (!g) return undefined;
+    return { place: s.place, spinAngle: spin * s.place.tierDir, plant: g.tree, layer, colour: hexToRgb(s.colour) };
+  }
+
+  /** A strand look as a regular Look (multipliers on a moderately loud voice). */
+  const strandLook = (sl: StrandLook): Look => ({
+    intensity: 1, glow: (params.glow.base + 0.5 * params.glow.levelGain) * sl.glow, shine: sl.shine, width: sl.width, bloom: 0,
+  });
+
+  function commitHooks(fxLayer: number, nextLayer: () => number): CommitHooks {
+    return {
+      ring(snap, cx, cy, R, rot, look, ringAlpha, nodeAlpha) {
+        const L = nextLayer();
+        if (L < 0) return;
+        layerU.set(L, cx, cy, Math.PI / 2 + rot, R, STILL);
+        const lk = strandLook(look);
+        pushRing(front, L, look.colour, lk, ringAlpha * look.alpha, R, 0);
+        pushTree(front, snap.sk, snap.vis, L, look.colour, lk, look.alpha, R, params.glow.front, nodeAlpha);
+        const st = styleOf(L, look.colour, lk, look.alpha, R, snap.seed, commitDrive, 0, 0, -1 / R, snap.theme, snap.density);
+        st.sizeMul = snap.sizeMul;
+        decorateTree(snap.sk, snap.vis, params, st, frontDeco, { ids: snap.ids, alpha: nodeAlpha });
+      },
+      strand(sk, vis, nodeAlpha, ids, L, look, snap, unit) {
+        const lk = strandLook(look);
+        pushTree(back, sk, vis, L, look.colour, lk, look.alpha, 1, params.glow.front, nodeAlpha);
+        const s = slots.find((x) => x.commit && x.commit.snap === snap);
+        const [dx, dy] = s ? localDown(s.place.angle + spin * s.place.tierDir, s.place.scale) : [0, -1];
+        const st = styleOf(L, look.colour, lk, look.alpha, unit, snap.seed, commitDrive, 0, dx, dy, snap.theme, snap.density);
+        st.sizeMul = snap.sizeMul;
+        decorateTree(sk, vis, params, st, backDeco, { ids, alpha: nodeAlpha });
+      },
+      stroke(L, ax, ay, bx, by, ra, rb, fa, fb, look) {
+        const c = look.colour, sh = look.shine;
+        back.stroke(ax, ay, bx, by, ra * look.width, rb * look.width, fa, fb,
+          lerp(c[0], 1, sh), lerp(c[1], 1, sh), lerp(c[2], 1, sh), look.alpha, strandLook(look).glow, L);
+      },
+      fxStroke(ax, ay, bx, by, w, rgb, a, glow) {
+        if (fxLayer >= 0) front.stroke(ax, ay, bx, by, w, w, 0, 0, rgb[0], rgb[1], rgb[2], a, glow, fxLayer);
+      },
+      fxSprite(x, y, angle, size, shape, rgb, a, seed) {
+        if (fxLayer >= 0) frontDeco.sprite(x, y, angle, size, shape, 0, seed, rgb[0], rgb[1], rgb[2], a, 0.6, fxLayer);
+      },
+    };
+  }
+
   // ---- Simulation ------------------------------------------------------------------------------
   function simulate(dt: number, realDt: number): FeatureFrame {
     t += dt;
+    wind.update(dt, params);
     const ff = pickFrame(dt);
     const lives = ff.layers.filter((l) => l.role === 'live' && l.id !== 'live-none');
     const takes = ff.layers.filter((l) => l.role === 'take').slice(0, 16);
@@ -373,10 +478,18 @@ function start() {
       }
       return newHalo(id);
     });
+    // A live track that became a take: its halo is planted as the tree (Part B); otherwise it fades.
+    let started = 0;
     for (const h of halos) if (!nextHalos.includes(h)) {
-      h.endT0 = t;
-      endingHalos.push(h);
+      if (params.commit.enabled && ids.includes(h.id) && !slots.some((s) => s.id === h.id) && commits.length < 4) {
+        commits.push(new CommitAnimation(h.id, snapshotOf(h), t + 0.09 * started++, params));
+      } else {
+        h.endT0 = t;
+        endingHalos.push(h);
+      }
     }
+    // A new resting halo would sit exactly where the departing ring winds up: let it wait.
+    if (started) for (const h of nextHalos) if (!halos.includes(h)) h.spawnT0 = t + 0.5;
     halos = nextHalos;
 
     const hp = params.halo;
@@ -384,6 +497,7 @@ function start() {
       const f = lives.length ? lives[k] : undefined;
       h.f = f;
       h.drive.update(f, dt, params);
+      h.motion.update(h.drive, wind, dt, params, 0.6, true);
       h.vine.update(dt, h.drive, !!f?.onset, params);
       // Track colour if the tap asks for it; otherwise the live colour, hue-shifted for each extra
       // live track so nested halos stay distinguishable.
@@ -414,7 +528,7 @@ function start() {
       const seed0 = params.fake.seed * 1000 + plantSeed++ * 97;
       const slot: Slot = {
         id, gens: undefined as unknown as Generations<Plant>,
-        place: { ...targets[k] }, drive: new Drive(), alpha: 0, colour: takeColour(k, takes[k]), ...themeOf(takes[k]),
+        place: { ...targets[k] }, drive: new Drive(), motion: new LayerMotion(seed0), alpha: 0, colour: takeColour(k, takes[k]), ...themeOf(takes[k]),
       };
       // Each tree: plumage from its own seed, gesture (spine) from the take's seed, character from
       // the phrase that grows it.
@@ -424,6 +538,12 @@ function start() {
         plant.mood = { effort: d.effort, pitch: d.pitch, soft: d.softness, vibrato: d.vibrato };
         return plant;
       }, seed0);
+      const c = commits.find((x) => x.slotId === id);
+      if (c) {
+        slot.commit = c;
+        slot.gens.regrow();
+        slot.gens.gens[0].tree.mood = c.snap.mood;
+      }
       return slot;
     });
     for (const s of slots) if (!ids.includes(s.id)) dying.push({ slot: s, t0: t });
@@ -440,18 +560,46 @@ function start() {
       Object.assign(pl, { tierDir: tg.tierDir, kind: tg.kind, lengthMul: tg.lengthMul, sectorLo: tg.sectorLo, sectorHi: tg.sectorHi });
       const f = takes[k];
       s.drive.update(f, dt, params);
-      s.gens.update(s.drive, dt, params);
+      s.motion.update(s.drive, wind, dt, params, 1, false);
+      const pending = !!s.commit && s.commit.stampedAt < 0;
+      if (!pending) s.gens.update(s.drive, dt, params);
       for (const g of s.gens.gens) {
+        g.tree.boost = s.stampT !== undefined ? 1 + 5 * Math.exp(-(t - s.stampT) / 0.2) : 1;
         g.tree.ensureBuilt(tg, params, blocked, n);
         g.tree.computeReveal(g.reveal, s.drive.pitch, params, g.retired ? 0 : g.wither, dt);
       }
-      s.alpha = Math.min(1, s.alpha + realDt * 2);
+      s.alpha = pending ? 0 : Math.min(1, s.alpha + realDt * 2);
       s.colour = takeColour(k, f);
       Object.assign(s, themeOf(f));
     });
     if (n >= params.layout.spinFrom) spin += params.layout.spinSpeed * deg * dt;
 
+    // Commit animations: plunge timing, impact.
+    const onsetAny = ff.layers.some((l) => l.onset && l.level > 0.1);
+    for (const c of commits) {
+      const s = slots.find((x) => x.id === c.slotId);
+      if (c.step(t, s ? targetOf(s, 0) : undefined, onsetAny) && s) {
+        s.alpha = 1;
+        s.stampT = t;
+        // The impact jolts the new tree: a push up and to one side, then it springs back.
+        const j = 12 * deg * params.commit.impact;
+        s.motion.push((hash1(t * 7.3) < 0.5 ? -0.5 : 0.5) * j, j);
+        const g = s.gens.current ?? s.gens.gens[s.gens.gens.length - 1];
+        if (g) {
+          g.stamped = true;
+          g.reveal = Math.max(g.reveal, params.commit.stampReveal);
+          g.tree.revealSpine();
+        }
+      }
+    }
+    commits = commits.filter((c) => {
+      if (!c.done) return true;
+      for (const s of slots) if (s.commit === c) s.commit = undefined;
+      return false;
+    });
+
     dying = dying.filter((d) => t - d.t0 < params.transitions.pruneSeconds);
+    if (params.scene.showScope && !obs && dt > 0) sampleScope(takes);
     return ff;
   }
 
@@ -477,19 +625,31 @@ function start() {
       const [dx, dy] = localDown(angle, pl.scale);
       for (const g of s.gens.gens) {
         const a = alpha * g.alpha;
-        pushTree(back, g.tree.sk, g.tree.vis, layer, base, look, a, 1, params.glow.front, g.tree.life, g.tree.tone);
+        pushTree(back, g.tree.sk, g.tree.vis, layer, base, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend);
         decorateTree(g.tree.sk, g.tree.vis, params,
           styleOf(layer, base, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density), backDeco,
-          { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder });
+          { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend });
       }
     };
 
-    // Take plants.
+    // Take plants. A plant being planted by a commit is not drawn until the impact; just after it,
+    // it flashes and quivers.
+    const slotLayer = new Map<string, number>();
     slots.forEach((s) => {
       if (layer >= MAX_LAYERS) return;
       const pl = s.place;
-      layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir, pl.scale, motionOf(s.drive));
-      drawPlant(s, s.alpha, lookOf(s.drive), 0);
+      const since = s.stampT !== undefined ? t - s.stampT : Infinity;
+      const imp = params.commit.impact;
+      layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir, pl.scale, s.motion);
+      slotLayer.set(s.id, layer);
+      if (!(s.commit && s.commit.stampedAt < 0)) {
+        let look = lookOf(s.drive);
+        if (since < 1) {
+          const e = Math.exp(-since / 0.12) * imp;
+          look = { ...look, shine: Math.max(look.shine, Math.min(1, 0.8 * e)), glow: look.glow * (1 + 2 * e), width: look.width * (1 + 0.8 * e) };
+        }
+        drawPlant(s, s.alpha, look, 0);
+      }
       layer++;
     });
     plantLayerCount = layer;
@@ -499,7 +659,7 @@ function start() {
       if (layer >= MAX_LAYERS) return;
       const u = clamp((t - d.t0) / Math.max(0.05, params.transitions.pruneSeconds));
       const pl = d.slot.place;
-      layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir, pl.scale, motionOf(d.slot.drive, 0.3));
+      layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir, pl.scale, d.slot.motion);
       const look = { ...lookOf(d.slot.drive), glow: params.glow.base + 1.2 * Math.max(0, 1 - u * 4) };
       drawPlant(d.slot, 1 - smooth(u), look, Math.min(1, u * 1.2));
       layer++;
@@ -512,7 +672,7 @@ function start() {
       if (layer >= MAX_LAYERS) return;
       const spawn = Math.max(0.001, easeOutBack(clamp((t - h.spawnT0) / Math.max(0.05, hp.spawnSeconds))));
       const R = h.R * spawn;
-      layerU.set(layer, 0, h.cy, Math.PI / 2, R, motionOf(h.drive, 0.4));
+      layerU.set(layer, 0, h.cy, Math.PI / 2, R, h.motion);
       const base = hexToRgb(h.look.colour);
       const look = lookOf(h.drive);
       pushRing(front, layer, base, look, fade, R, h.drive.energy);
@@ -520,12 +680,23 @@ function start() {
       const origins = Math.max(1, Math.round(hp.origins));
       const style = styleOf(layer, base, look, fade, R, h.vine.seed, h.drive, 0, 0, -1 / R, h.look.theme, h.look.density / origins);
       style.sizeMul = Math.pow(clamp(R / Math.max(0.05, hp.openRadius), 0.25, 1), 0.7);
-      pushTree(front, h.vine.sk, h.vine.vis, layer, base, look, fade, R, params.glow.front, h.vine.alpha);
-      decorateTree(h.vine.sk, h.vine.vis, params, style, frontDeco, { ids: h.vine.ids, alpha: h.vine.alpha });
+      pushTree(front, h.vine.sk, h.vine.vis, layer, base, look, fade, R, params.glow.front, h.vine.alpha, undefined, h.vine.order, h.vine.bend);
+      decorateTree(h.vine.sk, h.vine.vis, params, style, frontDeco, { ids: h.vine.ids, alpha: h.vine.alpha, order: h.vine.order, bend: h.vine.bend });
       decorateRing(params, { ...style, density: h.look.density }, (a) => h.vine.coverage(a, params), frontDeco, hp.alwaysLeaves);
       layer++;
     };
     halos.forEach((h) => drawHalo(h, 1));
+    // Commit animations: their own layers for the flying ring, one identity layer for effects.
+    if (commits.length) {
+      const fxLayer = layer < MAX_LAYERS ? layer++ : -1;
+      if (fxLayer >= 0) layerU.set(fxLayer, 0, 0, Math.PI / 2, 1, STILL);
+      const hooks = commitHooks(fxLayer, () => (layer < MAX_LAYERS ? layer++ : -1));
+      for (const c of commits) {
+        const s = slots.find((x) => x.id === c.slotId);
+        const L = s ? slotLayer.get(s.id) : undefined;
+        c.draw(t, s && L !== undefined ? targetOf(s, L) : undefined, hooks);
+      }
+    }
     endingHalos.forEach((h) => drawHalo(h, 1 - smooth(clamp((t - (h.endT0 ?? t)) / Math.max(0.05, params.transitions.liveEndSeconds)))));
 
     // Render.
@@ -537,12 +708,14 @@ function start() {
       glCanvas.height = H;
     }
     const view: View = { s: Math.min(W, H) / 2 / params.scene.viewRadius, cx: params.scene.centerX, cy: params.scene.centerY, W, H };
-    renderer.render(batches, layerU, view, t, params.glow);
+    renderer.render(batches, layerU, view, wind.t, params.glow);
     lastView = view;
 
     if (!obs) {
       const guides: GuidePlant[] = slots.map((s) => ({ pl: s.place, extraAngle: spin * s.place.tierDir, colour: s.colour }));
       overlay.draw(view, params, guides);
+      scopeCanvas.style.display = params.scene.showScope ? 'block' : 'none';
+      if (params.scene.showScope) scope.draw(params.scene.scopeSeconds);
     }
   }
 
@@ -563,8 +736,8 @@ function start() {
   }
 
   /** Fast-forward the simulation (debugging / screenshots): sprout.advance(30). */
-  function advance(seconds: number) {
-    const dt = 1 / 60;
+  function advance(seconds: number, step = 1 / 60) {
+    const dt = Math.max(1e-3, step);
     for (let s = 0; s < seconds; s += dt) simulate(dt, dt);
     draw();
   }
@@ -605,6 +778,7 @@ function start() {
       endingHalos: endingHalos.length,
       plants: slots.map((s) => ({ id: s.id, theme: s.theme, gens: s.gens.gens.map((g) => ({ seed: g.seed, reveal: +g.reveal.toFixed(2), alpha: +g.alpha.toFixed(2), retired: g.retired, idle: +g.idle.toFixed(1), wither: +g.wither.toFixed(2), nodes: g.tree.sk.n })) })),
       dying: dying.length,
+      commits: commits.map((c) => ({ slot: c.slotId, plungeAt: +c.plungeAt.toFixed(2), stampedAt: +c.stampedAt.toFixed(2), aborted: c.abortedAt >= 0 })),
       instances: { backUnder: backUnder.count, back: back.count, backDeco: backDeco.count, front: front.count, frontDeco: frontDeco.count },
     }),
   };
