@@ -1,89 +1,87 @@
-// Automated shape checks for take trees (docs/fable-consult.md, A7). Used from the console:
-// sprout.metrics() after sprout.advance(…). Each check has a pass threshold from the consult.
+// Automated shape checks for take trees (docs/fable-consult.md A7, revised in fable-consult-2.md
+// for the hub layout). Used from the console: sprout.metrics() after sprout.advance(…).
+// Directions are measured from the shared hub behind the neck; outline checks use limbs
+// (order <= 1) only, since shoots end inside the canopy on purpose.
 
+import type { Params } from './params';
 import type { Placement } from './layout';
-import { toWorld } from './layout';
+import { outlineOf, rOutAt, toLocal, toWorld } from './layout';
 import type { Plant } from './growth/plant';
 
 export interface PlantMetrics {
-  /** Spread of tip distances of spine and feathers (std / mean). Above 0.15 = not an arc. */
+  /** Limb tips' distance to the outline (std / mean of r / rOut). 0.06 to 0.20: ragged, one canopy. */
   outlineCoV: number;
-  /** Share of stroke length heading more than 60° off radial. Below 0.05 = nothing hugs. */
+  /** Spread of the angular gaps between neighbouring limb tips (std / mean). <= 0.35 = no clumps. */
+  tipGapCoV: number;
+  /** Share of visible limb length (order <= 1) heading more than 60° off radial from the hub. <= 0.12. */
   tangentialShare: number;
   /** Share of stroke length near the silhouette (within 0.2) more than 35° off radial. Should be ~0. */
   hugNearSilhouette: number;
   /** Share of stroke length visible (not behind the avatar). Above 0.75. */
   visibleShare: number;
-  /** Share of angles on a circle of radius 1.25 (world) within 0.04 of a stroke. Below 0.6. */
-  coveredAt125: number;
+  limbTips: number;
   nodes: number;
 }
 
-export function plantMetrics(plant: Plant, pl: Placement, blocked: (x: number, y: number) => boolean): PlantMetrics {
+export function plantMetrics(plant: Plant, pl: Placement, p: Params, blocked: (x: number, y: number) => boolean): PlantMetrics {
   const sk = plant.sk;
   const n = sk.n;
-  // Tips of order 0/1 limbs (or all tips for the old generator).
-  const tips: number[] = [];
+  const [cx, cy] = toLocal(p.avatar.headX, p.layout.midOriginY, pl);
+  const o = outlineOf(p, 1, pl.lengthMul ?? 1);
+  const worldPhi = (x: number, y: number) => pl.angle - Math.atan2(x - cx, y - cy);
+
+  const ratios: number[] = [];
+  const phis: number[] = [];
   for (let i = 1; i < n; i++) {
-    if (sk.children[i] !== 0) continue;
-    if (plant.order.length === n && plant.order[i] > 1) continue;
-    tips.push(Math.hypot(sk.x[i], sk.y[i]));
+    if (sk.children[i] !== 0 || plant.order[i] > 1) continue;
+    const [wx, wy] = toWorld(sk.x[i], sk.y[i], pl);
+    if (blocked(wx, wy)) continue;
+    const phi = worldPhi(sk.x[i], sk.y[i]);
+    ratios.push(Math.hypot(sk.x[i] - cx, sk.y[i] - cy) / rOutAt(phi, o));
+    phis.push(phi);
   }
-  const mean = tips.reduce((a, b) => a + b, 0) / Math.max(1, tips.length);
-  const sd = Math.sqrt(tips.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, tips.length));
+  const cov = (v: number[]) => {
+    const m = v.reduce((a, b) => a + b, 0) / Math.max(1, v.length);
+    const sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / Math.max(1, v.length));
+    return m > 0 ? sd / m : 0;
+  };
+  const mid = (pl.sectorLo + pl.sectorHi) / 2;
+  const un = phis.map((f) => mid + Math.atan2(Math.sin(f - mid), Math.cos(f - mid))).sort((a, b) => a - b);
+  const gaps: number[] = [];
+  for (let k = 1; k < un.length; k++) gaps.push(un[k] - un[k - 1]);
 
   let total = 0, tangential = 0, nearTotal = 0, nearBad = 0, visible = 0;
-  const segs: [number, number, number, number][] = [];
   for (let i = 1; i < n; i++) {
     const pa = sk.parent[i];
     if (pa < 0) continue;
     const len = Math.hypot(sk.x[i] - sk.x[pa], sk.y[i] - sk.y[pa]);
     const mx = (sk.x[i] + sk.x[pa]) / 2, my = (sk.y[i] + sk.y[pa]) / 2;
     const [wx, wy] = toWorld(mx, my, pl);
-    const [ax, ay] = toWorld(sk.x[pa], sk.y[pa], pl);
-    const [bx, by] = toWorld(sk.x[i], sk.y[i], pl);
-    segs.push([ax, ay, bx, by]);
     total += len;
     const hidden = blocked(wx, wy);
     if (!hidden) visible += len;
-    const rr = Math.hypot(mx, my);
-    if (rr < 0.12 || len < 1e-6) continue;
-    const off = Math.abs(Math.atan2(Math.sin(Math.atan2(sk.x[i] - sk.x[pa], sk.y[i] - sk.y[pa]) - Math.atan2(mx, my)),
-      Math.cos(Math.atan2(sk.x[i] - sk.x[pa], sk.y[i] - sk.y[pa]) - Math.atan2(mx, my))));
-    if (hidden) continue;
-    if (off > (60 * Math.PI) / 180) tangential += len;
+    if (hidden || Math.hypot(mx - cx, my - cy) < 0.12 || len < 1e-6) continue;
+    const dh = Math.atan2(sk.x[i] - sk.x[pa], sk.y[i] - sk.y[pa]) - Math.atan2(mx - cx, my - cy);
+    const off = Math.abs(Math.atan2(Math.sin(dh), Math.cos(dh)));
+    if (plant.order[i] <= 1 && off > (60 * Math.PI) / 180) tangential += len;
     let near = false;
     for (let k = 0; k < 8 && !near; k++) {
       const a = (k / 8) * Math.PI * 2;
       if (blocked(wx + Math.cos(a) * 0.2, wy + Math.sin(a) * 0.2)) near = true;
     }
-    if (near) {
+    if (near && plant.order[i] <= 1) {
       nearTotal += len;
       if (off > (35 * Math.PI) / 180) nearBad += len;
     }
   }
 
-  let covered = 0;
-  const N = 360;
-  for (let k = 0; k < N; k++) {
-    const a = (k / N) * Math.PI * 2;
-    const px = pl.ox + Math.cos(a) * 1.25, py = pl.oy + Math.sin(a) * 1.25;
-    for (const [ax, ay, bx, by] of segs) {
-      const dx = bx - ax, dy = by - ay;
-      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / Math.max(1e-9, dx * dx + dy * dy)));
-      if (Math.hypot(ax + dx * t - px, ay + dy * t - py) < 0.04) {
-        covered++;
-        break;
-      }
-    }
-  }
-
   return {
-    outlineCoV: mean > 0 ? sd / mean : 0,
+    outlineCoV: cov(ratios),
+    tipGapCoV: cov(gaps),
     tangentialShare: tangential / Math.max(1e-6, visible),
     hugNearSilhouette: nearBad / Math.max(1e-6, nearTotal),
     visibleShare: visible / Math.max(1e-6, total),
-    coveredAt125: covered / N,
+    limbTips: ratios.length,
     nodes: n,
   };
 }

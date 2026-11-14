@@ -19,17 +19,24 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   tree (Growth → secondsToFull). With newTreeEachPhrase on, each phrase grows a new tree on a new
   seed; older trees stay and only start fading growth.fadeAfter seconds after their own phrase
   ended (fadeSeconds for the fade). Off: one tree keeps growing and rests dimmer between phrases.
-- **Tree shape (Take plants → generator = gesture):** each take is one dominant, nearly straight
-  spine with a fan of limbs that throw ivy-like alternating side shoots, up to three levels deep (docs/fable-consult.md, Part A). Side plants
-  carry their feathers on the upper side (Growth → sweep; 0 = symmetric trees). Limbs fork behind
-  the avatar and must leave the head's outline steeply, so nothing runs along the silhouette. The
-  reveal grows the spine first, then the feathers from the base out, then the twigs. A tree keeps
-  its form when the layout changes. Sliders: Growth → branching, reach, spread (fan aperture),
-  sweep; Take plants → lift (tips up / droop), wildness, overlap (feathers on both sides, crossing), planform (pointed … broad ends), taper
-  (blunt … fine tips), featherSide, moodShaping (each new tree
-  takes its character from the phrase: effort, pitch, softness, vibrato). Layout → downGap keeps
-  3+ takes out from behind the body. `generator = colonise` brings back the old trees to compare.
-  Console check: `sprout.metrics()`.
+- **Tree shape (docs/fable-consult-2.md):** all take plants grow from one hub behind the neck
+  and end on one shared, flattened canopy outline, so several takes read as one wide canopy that
+  cradles the avatar. Each plant fills its own territory (an angular sector of the arc outside
+  Layout → downGap). Tip targets are spaced evenly along the outline first; a few limbs leave the
+  hub, cross the silhouette steeply and fork on the way out, each fork taking a share of the tips,
+  so the density stays level instead of bunching. Ivy side shoots are only placed into free space
+  and stop short of other branches (Take plants → clearance). Leaves keep a guaranteed spacing
+  (density = how close), the inside of a plant is dimmer than its rim, and some leaves sit dim
+  under the branches for depth. Sliders: Growth → branching, reach (canopy size), flatten (round …
+  flat), spread (how much limbs arch out); Take plants → lift (tips up / droop), wildness,
+  overlap (how far neighbours interleave at the seams), taper, clearance, moodShaping (each new
+  tree takes its character from its phrase); Look → variety, depthShade; Layout → shrinkPerTake.
+  A tree keeps its form when the layout eases; a change in take count rebuilds it for its new
+  territory. Console checks: `sprout.metrics()` (shape), `sprout.ink()` (bunching and blobbing),
+  `sprout.pixels()` (clipping and contrast).
+- **Glow that keeps the detail:** where branches and leaves are dense the bloom steps back
+  (Glow → crowd), glow lies around the ink rather than on it (inkMask), bright glow rolls off
+  softly (knee), and every take colour glows about equally.
 - **Pauses and dips:** in a pause shorter than a phrase gap (Response → phraseGap, 1 s) the outer
   twigs and their leaves fade (leaves first) and grow back from their stubs when singing resumes;
   the main limbs stay. Optional: pitch dips do the same (Growth → witherOnPitchDip). Depth and
@@ -93,7 +100,7 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
 - **Panel:** every value in `src/params.ts` has a control. **H** hides the panel.
 - **Actions:** restart, presets (.json), reset, and two fake-singer tests: *Commit live take*
   (the recording-finished transition) and *Delete last take* (pruning).
-- **Guides:** Scene → showGuides draws each plant's envelope, its origin and the avatar keep-out.
+- **Guides:** Scene → showGuides draws the canopy outline split into each plant's territory, and the avatar keep-out.
 - **OBS mode:** `?obs` hides the panel and the placeholder avatar and leaves a transparent background.
 - **Console:** `sprout.params`, `sprout.restart()`, `sprout.advance(60)` (fast-forward),
   `sprout.action('commit' | 'delete' | 'restart')`, `sprout.stats()`.
@@ -109,9 +116,9 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
 | `src/growth/generations.ts` | Trees per layer: grow with the voice, new tree per phrase, fade the old. |
 | `src/sources/fake.ts` | Fake singer (phrases, soft/full notes, melody up to F6, vibrato, commit/delete tests). |
 | `src/sources/live.ts` | Sprout.exe connection: tap → layer mapping, reconnect, dropout hold, viewer messages. |
-| `src/layout.ts` | Take layout rule: crown (1 take), wings (2), equiangular wedges (3+), two tiers (7+). |
+| `src/layout.ts` | Take territories: crown (1 take), wings (2), equal sectors (3+), two tiers (7+); the shared canopy outline. |
 | `src/growth/halo.ts` | Live halo vine (unit circle): runners + curling sprouts, revealed by the voice. |
-| `src/growth/plant.ts` | Take plants: space colonisation in the layout envelope, smoothing, pipe-model widths, reveal order. |
+| `src/growth/plant.ts` | Take plants: hub, territory and sector subdivision, ivy shoots on an occupancy grid, reveal order, tone and leaf spacing. |
 | `src/growth/skeleton.ts` | Shared node tree. |
 | `src/deco.ts` | Theme decorations on branches and the halo ring. |
 | `src/render/` | WebGL2 helpers and the pass pipeline. |

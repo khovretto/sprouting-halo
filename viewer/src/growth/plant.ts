@@ -2,25 +2,27 @@
 // *revealed* by the take's voice. Growth only moves forward: a revealed branch stays revealed
 // (outer twigs can wither in pauses and regrow).
 //
-// Two generators (plants.generator):
-//
-// - gesture (default; docs/fable-consult.md, Part A): one dominant, nearly straight spine; a fan of
-//   "feather" limbs hung off it with a wing-planform length profile (longest about a third of the
-//   way out, a "hero" feather, ragged outline); then sparse twigs. Side plants carry their feathers
-//   on the world-up side (growth.sweep), straight-up plants are symmetric. No envelope and no
-//   routing round the avatar: near the silhouette every limb is held close to radial, so limbs
-//   cross the avatar's edge steeply instead of hugging it. The reveal grows the spine first, then
-//   the feathers from the root outward, then the twigs.
-// - colonise: the earlier space-colonisation trees (Runions et al. 2007) inside the layout
-//   envelope, kept for comparison.
+// Hub, territory and sector subdivision (docs/fable-consult-2.md, section 2):
+// - Every plant grows from one hub behind the neck and ends on one shared, flattened outline (a
+//   superellipse about the hub, layout.outlineOf). Each plant fills its own angular territory of the
+//   band between the avatar's silhouette and that outline, so several plants read as one wide
+//   canopy that cradles the avatar.
+// - Tip targets are placed evenly along the outline first. A few primary limbs leave the hub
+//   radially (straight while hidden, so they cross the silhouette steeply), then home to their
+//   targets and fork on the way out; each fork takes a share of its parent's tips. The number of
+//   limbs therefore rises with distance and the density stays level: nothing bunches.
+// - Ivy shoots are only spawned into free space: a shoot probes a few directions on an occupancy
+//   grid, takes the freest, and stops short of other branches (plants.clearance).
+// - A moat: no shoot or leaf comes within 0.08 of the silhouette. Only limbs cross it, steeply, so
+//   the foliage holds the avatar at an even distance without anything hugging it.
 //
 // Everything is in the plant's local frame (root at 0, growing along +Y). Placement, spin and sway
-// are applied on the GPU. A tree keeps the form it was built with: re-layout never rebuilds it
-// (the next tree picks up the new form); only a shape setting change rebuilds.
+// are applied on the GPU. Re-layout never rebuilds a tree; a change of territory (take count) or of
+// a shape setting does.
 
 import type { Params } from '../params';
-import { envelopePoint, Placement, toWorld } from '../layout';
-import { clamp, deg, lerp, noise1, rng, Rng } from '../math';
+import { outlineOf, Placement, rOutAt, toLocal, toWorld } from '../layout';
+import { clamp, deg, hash1, lerp, noise1, rng, Rng } from '../math';
 import { NodeKind, Skeleton } from './skeleton';
 
 type Blocked = (wx: number, wy: number) => boolean;
@@ -34,59 +36,43 @@ export interface Mood {
 }
 export const NEUTRAL_MOOD: Mood = { effort: 0.5, pitch: 0.5, soft: 0, vibrato: 0 };
 
-/**
- * Space-colonisation settings after the high-level growth.branching control (colonise generator).
- */
-export function plantShape(p: Params) {
-  const b = clamp(p.growth.branching);
-  const pp = p.plants;
-  return {
-    ...pp,
-    attractors: Math.round(pp.attractors * lerp(0.6, 2.4, b)),
-    influence: pp.influence * lerp(1.35, 0.6, b),
-    kill: pp.kill * lerp(1.25, 0.6, b),
-    step: pp.step * lerp(1.15, 0.72, b),
-  };
-}
-
-/** Per-plant form for the gesture generator, derived once per build from the placement. */
 interface PlantForm {
-  kind: Placement['kind'];
-  /** Spine length (plant units). */
-  L: number;
-  /** Widest feather divergence (radians). */
-  fan: number;
-  /** -1..1: local-X side that carries the feathers, and how one-sided (0 = symmetric). */
-  side: number;
   /** World up in the local frame. */
   upX: number;
   upY: number;
-  /** Spine arc length at which it leaves the avatar (plant units). */
-  rClear: number;
   /** 0..1 complexity budget (fewer details with many takes). */
   detail: number;
-  /** Avatar head centre and radius in the plant's local frame. */
+  /** Avatar head (local). */
   hx: number;
   hy: number;
   headR: number;
+  /** Hub (local). */
+  cx: number;
+  cy: number;
+  /** Territory (world radians) and its middle. */
+  lo: number;
+  hi: number;
+  mid: number;
+  /** Outline half-width / top / bottom (plant units). */
+  a: number;
+  b: number;
+  bDown: number;
+  /** Silhouette radius from the hub (plant units) at a world angle. */
+  rIn: (phi: number) => number;
 }
 
 interface Limb {
+  id: number;
   first: number;
   last: number;
+  /** 0 trunk, 1 limb or fork, 2 shoot, 3 sub-shoot. */
   order: number;
   len: number;
-  side: number;
   attach: number;
-}
-
-/** The avatar's head centre and radius in a plant's local frame. */
-function headLocal(pl: Placement, p: Params) {
-  const th = pl.angle - Math.PI / 2;
-  const c = Math.cos(th), s = Math.sin(th);
-  const dx = p.avatar.headX - pl.ox, dy = p.avatar.headY - pl.oy;
-  const sc = Math.max(1e-3, pl.scale);
-  return { hx: (c * dx + s * dy) / sc, hy: (-s * dx + c * dy) / sc, headR: p.avatar.headR / sc };
+  /** Arc length at which it left the silhouette (0 if it started outside). */
+  emerge: number;
+  /** Index among the primaries, -1 otherwise. */
+  prim: number;
 }
 
 const smooth01 = (a: number, b: number, x: number) => {
@@ -95,59 +81,64 @@ const smooth01 = (a: number, b: number, x: number) => {
 };
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
+const CELL = 0.06; // occupancy cell (two steps)
+const MOAT = 0.08; // gap between silhouette and foliage
+
 export class Plant {
   sk = new Skeleton(1024);
   maxFlex = 1;
   /** Set by the creator before the first build (the phrase that grows this tree). */
   mood: Mood = NEUTRAL_MOOD;
-  /** Share of the reveal taken by the bare trunk (hidden behind the avatar). */
+  /** Share of the reveal taken by the hidden part (trunk, primaries behind the avatar). */
   private trunkFrac = 0;
   /** Per-node growth 0..1 along its segment (computeReveal). */
   vis = new Float32Array(0);
   /** Per-node opacity of the branch segment and of its leaves (withering). */
   life = new Float32Array(0);
   leafLife = new Float32Array(0);
-  /** Per-node branch order (0 spine, 1 feather, 2+ twigs) — gesture generator only. */
+  /** Per-node branch order (0 trunk, 1 limbs and forks, 2 shoots, 3 sub-shoots). */
   order = new Uint8Array(0);
+  /** Per-node brightness: dim inside, bright at the rim, plus per-limb variety. */
+  tone = new Float32Array(0);
+  /** Per-node: the lowest leaf density at which this node carries a leaf (2 = never). */
+  leafRank = new Float32Array(0);
   /** Per-node distance to the farthest tip below it, used for withering. */
   private witherH = new Float32Array(0);
   private target = new Float32Array(0);
-  /** Per-node -1..1 for pitch steering (gesture: world height; colonise: across the envelope). */
+  /** Per-node -1..1 world height (pitch steering). */
   private side = new Float32Array(0);
   private branchId = new Int32Array(0);
   private branchRand = new Float32Array(0);
-  /** Gesture: build-time reveal threshold per node (spine, then feathers, then twigs). */
-  private baseThr: Float32Array | null = null;
+  /** Build-time reveal threshold per node. */
+  private baseThr = new Float32Array(0);
   private thr = new Float32Array(0);
   private signature = '';
   private r: Rng;
 
   /**
-   * @param seed      this tree (plumage changes every generation)
-   * @param slotSeed  the take (gesture: spine tilt and bow stay the same for every tree of a take)
+   * @param seed      this tree (limbs and plumage change every generation)
+   * @param slotSeed  the take (the hero tip stays the same for every tree of a take)
    */
   constructor(private seed: number, private slotSeed = seed) {
     this.r = rng(seed * 7 + 3);
   }
 
   /**
-   * Build for this placement, or rebuild after a shape setting changed. The placement's angle,
-   * origin and scale are not part of the signature: re-layout never rebuilds a tree.
-   * `takeCount` sets the detail budget at build time only.
+   * Build for this placement, or rebuild after a shape setting or the territory changed. The
+   * placement's angle, origin and scale are not part of the signature: re-layout never rebuilds.
    */
   ensureBuilt(pl: Placement, p: Params, blocked: Blocked, takeCount = 1) {
-    const pp = p.plants, g = p.growth;
-    const a = p.avatar;
+    const pp = p.plants, g = p.growth, a = p.avatar, L = p.look;
     const sig = [
-      pp.generator, pl.kind, pl.rMin, pl.length, pl.lengthMul ?? 1, pl.halfAngle, Math.round(pl.bend * 10), pl.taper,
-      pp.attractors, pp.step, pp.influence, pp.kill, pp.jitter, pp.smoothing, pp.tipWidth, pp.maxWidth,
-      pp.pipeExponent, pp.maxNodes, pp.lift, pp.wildness, pp.overlap, pp.planform, pp.taper, pp.repel, pp.repelRadius, pp.featherSide, pp.softDroop, pp.moodShaping,
-      g.branching, g.sweep, a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
+      pl.kind, Math.round(pl.sectorLo * 1000), Math.round(pl.sectorHi * 1000), pl.lengthMul ?? 1,
+      g.branching, g.reach, g.flatten, g.spread, pp.lift, pp.wildness, pp.taper, pp.clearance, pp.softDroop,
+      pp.moodShaping, pp.step, pp.tipWidth, pp.maxWidth, pp.maxNodes, L.decoSize, L.variety, L.depthShade,
+      p.layout.midOriginY, p.layout.spinSpeed !== 0,
+      a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
     if (sig === this.signature) return false;
     this.signature = sig;
-    if (pp.generator === 'colonise') this.buildColonise(pl, p, blocked);
-    else this.buildGesture(pl, p, blocked, takeCount);
+    this.buildGesture(pl, p, blocked, takeCount);
     return true;
   }
 
@@ -173,14 +164,7 @@ export class Plant {
     const level = (this.trunkFrac + reveal * (1 - this.trunkFrac)) * (1 + band);
     const base = this.baseThr;
     for (let i = 0; i < sk.n; i++) {
-      let t: number;
-      if (base) {
-        // Spine never shuffled; feathers and twigs open in a slightly varied order.
-        t = base[i] + (this.order[i] > 0 ? variety * 0.3 * (this.branchRand[this.branchId[i]] - 0.5) : 0);
-      } else {
-        const v = variety * 0.6;
-        t = (sk.flex[i] / this.maxFlex) * (1 - v) + v * this.branchRand[this.branchId[i]];
-      }
+      let t = base[i] + (this.order[i] > 0 ? variety * 0.3 * (this.branchRand[this.branchId[i]] - 0.5) : 0);
       t = clamp(t - steer * this.side[i]);
       const pa = sk.parent[i];
       if (pa >= 0) t = Math.max(t, this.thr[pa] + 0.002);
@@ -213,8 +197,6 @@ export class Plant {
     }
   }
 
-  // ---- Shared post-processing ----------------------------------------------------------------
-
   /** flex, maxFlex, height (distance to the farthest tip below), per-node arrays. */
   private finish(branches: number) {
     const sk = this.sk;
@@ -242,231 +224,308 @@ export class Plant {
     return height;
   }
 
-  // ---- Gesture generator (Part A) ------------------------------------------------------------
+  // ---- Form ------------------------------------------------------------------------------------
 
-  private formOf(pl: Placement, p: Params, blocked: Blocked, takeCount: number): PlantForm {
+  private formOf(pl: Placement, p: Params, blocked: Blocked, takeCount: number, mood: Mood): PlantForm {
     const upX = -Math.cos(pl.angle), upY = Math.sin(pl.angle);
-    // Where the plant's axis leaves the avatar silhouette.
-    let rClear = 0.3;
-    for (let d = 0; d <= 1.0; d += 0.03) {
-      const [wx, wy] = toWorld(0, d / pl.scale, pl);
-      if (blocked(wx, wy)) rClear = d / pl.scale + 0.05;
+    const [cx, cy] = toLocal(p.avatar.headX, p.layout.midOriginY, pl);
+    const [hx, hy] = toLocal(p.avatar.headX, p.avatar.headY, pl);
+    const o = outlineOf(p, lerp(0.95, 1.08, mood.effort), pl.lengthMul ?? 1);
+    // A world angle phi is the local heading pl.angle - phi; direction = (sin h, cos h).
+    const N = 49;
+    const table = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      const h = pl.angle - lerp(pl.sectorLo, pl.sectorHi, k / (N - 1));
+      const dx = Math.sin(h), dy = Math.cos(h);
+      let last = 0.2;
+      for (let r = 0; r <= 1.6; r += 0.02) {
+        const [wx, wy] = toWorld(cx + dx * r, cy + dy * r, pl);
+        if (blocked(wx, wy)) last = r + 0.02;
+      }
+      table[k] = last;
     }
+    const span = Math.max(1e-6, pl.sectorHi - pl.sectorLo);
+    const rIn = (phi: number) => {
+      const x = clamp((phi - pl.sectorLo) / span) * (N - 1);
+      const i = Math.min(N - 2, Math.floor(x));
+      return lerp(table[i], table[i + 1], x - i);
+    };
     return {
-      kind: pl.kind,
-      L: pl.length * (pl.lengthMul ?? 1),
-      fan: pl.halfAngle * deg,
-      side: pl.kind === 'crown' ? 0 : clamp(p.growth.sweep * upX * 1.3, -1, 1) * (p.plants.featherSide < 0 ? -1 : 1),
-      upX,
-      upY,
-      rClear: Math.min(rClear, 1.0),
-      detail: clamp(1.25 - 0.07 * takeCount, 0.35, 1),
-      ...headLocal(pl, p),
+      upX, upY, detail: clamp(1.25 - 0.07 * takeCount, 0.35, 1),
+      hx, hy, headR: p.avatar.headR / Math.max(1e-3, pl.scale), cx, cy,
+      lo: pl.sectorLo, hi: pl.sectorHi, mid: (pl.sectorLo + pl.sectorHi) / 2, ...o, rIn,
     };
   }
 
+  // ---- Generator ---------------------------------------------------------------------------------
+
   private buildGesture(pl: Placement, p: Params, blocked: Blocked, takeCount: number) {
-    const f = this.formOf(pl, p, blocked, takeCount);
     const mood = p.plants.moodShaping ? this.mood : NEUTRAL_MOOD;
+    const f = this.formOf(pl, p, blocked, takeCount, mood);
     const pp = p.plants, g = p.growth;
-    const rs = rng(this.slotSeed * 131 + 7); // gesture: stable for the take
-    const r = rng(this.seed); // plumage: new every generation
+    const rs = rng(this.slotSeed * 131 + 7); // stable for the take
+    const r = rng(this.seed); // new every generation
     const sk = this.sk;
     sk.reset();
     const step = Math.max(0.01, pp.step);
     const wild = pp.wildness * (1 + 0.5 * mood.vibrato);
     const branching = clamp(g.branching);
     const lift = (pp.lift + 0.5 * (mood.pitch - 0.5) - 0.9 * mood.soft * pp.softDroop) * 0.9; // rad per unit
-    const fan = f.fan * lerp(0.85, 1.2, mood.effort);
-    const overlap = clamp(pp.overlap);
     const hUp = Math.atan2(f.upX, f.upY);
+
+    const rOut = (phi: number) => rOutAt(phi, f);
+    const hOf = (phi: number) => pl.angle - phi; // world angle -> local heading
+    /** Polar position about the hub: [radius, world angle unwrapped around the territory's middle]. */
+    const polar = (x: number, y: number): [number, number] => {
+      const phi = pl.angle - Math.atan2(x - f.cx, y - f.cy);
+      return [Math.hypot(x - f.cx, y - f.cy), f.mid + wrap(phi - f.mid)];
+    };
+    const hidden = (x: number, y: number) => {
+      const [wx, wy] = toWorld(x, y, pl);
+      return blocked(wx, wy);
+    };
+
+    // Occupancy: which limb claimed each cell first.
+    const occ = new Map<number, number>();
+    const key = (x: number, y: number) => (Math.floor(x / CELL) + 32768) * 65536 + (Math.floor(y / CELL) + 32768);
+    const claim = (x: number, y: number, id: number) => {
+      const k = key(x, y);
+      if (!occ.has(k)) occ.set(k, id);
+    };
+    const taken = (x: number, y: number, self: number, host: number) => {
+      const o = occ.get(key(x, y));
+      return o !== undefined && o !== self && o !== host;
+    };
+    // Shoots may spill a little past the territory's edge, so neighbouring plants interleave.
+    const seam = 0.04 + 0.16 * clamp(pp.overlap);
+    /** May a shoot or leaf be here? Inside the band, outside the moat, not hidden. */
+    const inBand = (x: number, y: number) => {
+      const [rr, phi] = polar(x, y);
+      if (phi < f.lo - seam || phi > f.hi + seam) return false;
+      return rr >= f.rIn(phi) + MOAT && rr <= rOut(phi) * 1.04 && !hidden(x, y);
+    };
+    /** Free here, with `clearance` to both sides of the direction of travel. */
+    const free = (x: number, y: number, h: number, self: number, host: number) => {
+      if (!inBand(x, y)) return false;
+      const nx = Math.cos(h) * pp.clearance, ny = -Math.sin(h) * pp.clearance;
+      return !taken(x, y, self, host) && !taken(x + nx, y + ny, self, host) && !taken(x - nx, y - ny, self, host);
+    };
+    /** How far a shoot could run from (x, y) along heading h before it meets something. */
+    const freeRun = (x: number, y: number, h: number, max: number, host: number) => {
+      let d = 1.5 * CELL; // skip the host's own cells at the base
+      for (; d < max; d += CELL / 2) if (!free(x + Math.sin(h) * d, y + Math.cos(h) * d, h, -1, host)) break;
+      return d;
+    };
 
     const limbs: Limb[] = [];
     const order: number[] = [0], tAlong: number[] = [0], limbOf: number[] = [0];
     sk.add(0, 0, -1, 0, pp.maxWidth, NodeKind.Branch);
-
-    // Branch-to-branch repulsion: a spatial grid of every node grown so far. Each new step of a
-    // limb is steered weakly away from other limbs within repelRadius, so later branches spread
-    // into free space instead of bunching (ignoring the stretch right where the limb forks off).
-    const repel = clamp(pp.repel);
-    const rR = Math.max(0.02, pp.repelRadius);
-    const grid = new Map<number, number[]>();
-    const gkey = (gx: number, gy: number) => (gx + 32768) * 65536 + (gy + 32768);
-    const gridAdd = (i: number) => {
-      const k = gkey(Math.floor(sk.x[i] / rR), Math.floor(sk.y[i] / rR));
-      let list = grid.get(k);
-      if (!list) grid.set(k, (list = []));
-      list.push(i);
-    };
-    gridAdd(0);
-    const repelVec = (x: number, y: number, limbId: number, sx: number, sy: number): [number, number] => {
-      let vx = 0, vy = 0;
-      const cx = Math.floor(x / rR), cy = Math.floor(y / rR);
-      for (let gx = cx - 1; gx <= cx + 1; gx++)
-        for (let gy = cy - 1; gy <= cy + 1; gy++) {
-          const list = grid.get(gkey(gx, gy));
-          if (!list) continue;
-          for (const j of list) {
-            if (limbOf[j] === limbId) continue;
-            const qx = sk.x[j], qy = sk.y[j];
-            if (Math.hypot(qx - sx, qy - sy) < rR * 1.5) continue; // its own fork point
-            const d = Math.hypot(x - qx, y - qy);
-            if (d >= rR || d < 1e-6) continue;
-            const w = 1 - d / rR;
-            vx += ((x - qx) / d) * w;
-            vy += ((y - qy) / d) * w;
-          }
-        }
-      return [vx, vy];
-    };
-
-    // Heading h is measured from +Y, positive toward +X: direction = (sin h, cos h).
     const headingAt = (node: number) => {
       const pa = sk.parent[node];
       if (pa < 0) return 0;
       return Math.atan2(sk.x[node] - sk.x[pa], sk.y[node] - sk.y[pa]);
     };
-    const grow = (parent: number, h: number, len: number, ord: number, curl: number, w0: number,
-                  side: number, noiseSeed: number, bow = 0): Limb => {
+
+    // Heading h is measured from +Y, positive toward +X: direction = (sin h, cos h).
+    const grow = (parent: number, h: number, len: number, ord: number, w0: number,
+                  noiseSeed: number, aim?: { x: number; y: number }, host = -1, prim = -1): Limb => {
       const n = Math.max(2, Math.ceil(len / step));
       const ds = len / n;
       let x = sk.x[parent], y = sk.y[parent], prev = parent, arc = 0;
-      const sx = x, sy = y;
-      const first = sk.n;
-      const id = limbs.length;
+      const first = sk.n, id = limbs.length;
       const taper = clamp(pp.taper);
-      const tipW = lerp(w0 * 0.75, pp.tipWidth * (ord === 0 ? 1.6 : 1), taper);
-      const taperExp = lerp(2.2, 0.8, taper); // low taper: width holds, then narrows near the end
+      const tipW = lerp(w0 * 0.75, pp.tipWidth, taper);
+      const taperExp = lerp(2.2, 0.8, taper);
+      const kMax = ord >= 2 ? 10 : 6; // turn-rate cap: no kinks
+      let emerge = hidden(x, y) ? -1 : 0; // -1 = still behind the avatar
       for (let k = 1; k <= n && sk.n < pp.maxNodes; k++) {
         const t = k / n;
         arc += ds;
-        // Planned recurve over the first 60 %, back toward the parent direction.
-        if (t < 0.6) h += (curl * (Math.PI / 2) * Math.sin(Math.PI * (t / 0.6))) / (0.6 * n);
-        if (bow && arc > f.rClear) h += bow * ds; // spine: small bow toward the feather side
-        h += wild * 0.25 * noise1(t * 2.5 + noiseSeed, this.seed) * ds; // wander (gentle: more reads as lightning)
-        h += lift * ds * (0.3 + 0.7 * t) * Math.sin(hUp - h); // lift toward world up
-        if (repel > 0 && ord > 0) {
-          const [vx, vy] = repelVec(x, y, id, sx, sy);
-          if (vx !== 0 || vy !== 0) h = Math.atan2(Math.sin(h) + repel * 1.5 * vx, Math.cos(h) + repel * 1.5 * vy);
+        let dh = 0;
+        if (emerge >= 0) {
+          if (aim) {
+            // Homing: ramps in after leaving the silhouette, tightens near the target.
+            const rem = Math.hypot(aim.x - x, aim.y - y);
+            if (rem < ds) break;
+            const w = smooth01(emerge + 0.05, emerge + 0.3, arc);
+            dh += wrap(Math.atan2(aim.x - x, aim.y - y) - h) * clamp((1.6 * ds) / Math.max(rem, 0.2), 0, 0.5) * w;
+          }
+          dh += wild * 0.25 * noise1(t * 2.5 + noiseSeed, this.seed) * ds; // wander
+          dh += lift * ds * (0.3 + 0.7 * t) * Math.sin(hUp - h); // tips toward the sky
         }
-        // Anti-hugging, applied where it shows: crossing the head's outline a limb must leave
-        // steeply (measured from the head centre). Hidden behind the head it is free, so limbs can
-        // fork wide there and come out already splayed.
-        const dh = Math.hypot(x - f.hx, y - f.hy);
-        // Only for limbs on their way out (a limb heading into the head, e.g. the crown's spine
-        // rising from below it, is left alone).
+        h += clamp(dh, -kMax * ds, kMax * ds);
+        // Safety net: a limb leaving the head's outline does so steeply.
+        const dhd = Math.hypot(x - f.hx, y - f.hy);
         const leaving = Math.sin(h) * (x - f.hx) + Math.cos(h) * (y - f.hy) > 0;
-        if (leaving && dh > f.headR * 0.9 && dh < f.headR + 0.35) {
+        if (leaving && dhd > f.headR * 0.9 && dhd < f.headR + 0.35) {
           const hr = Math.atan2(x - f.hx, y - f.hy);
-          const max = lerp(28, 70, smooth01(f.headR, f.headR + 0.35, dh)) * deg;
+          const max = lerp(28, 70, smooth01(f.headR, f.headR + 0.35, dhd)) * deg;
           h = hr + clamp(wrap(h - hr), -max, max);
         }
-        // Far out, never turn tangential to the plant root (no curling into a ring).
-        const rr = Math.hypot(x, y);
-        if (rr > f.rClear) {
-          const hr = Math.atan2(x, y);
-          const max = 80 * deg;
-          h = hr + clamp(wrap(h - hr), -max, max);
+        // Far out: never more than 75° off radial from the hub.
+        const [rr] = polar(x, y);
+        if (emerge >= 0 && rr > 0.3) {
+          const hr = Math.atan2(x - f.cx, y - f.cy);
+          h = hr + clamp(wrap(h - hr), -75 * deg, 75 * deg);
         }
-        x += Math.sin(h) * ds;
-        y += Math.cos(h) * ds;
+        const nx = x + Math.sin(h) * ds, ny = y + Math.cos(h) * ds;
+        if (ord >= 2 && !free(nx, ny, h, id, host)) break; // shoots stop at claimed space
+        x = nx;
+        y = ny;
+        if (emerge < 0 && !hidden(x, y)) emerge = arc;
         prev = sk.add(x, y, prev, 0, lerp(w0, tipW, Math.pow(t, taperExp)), NodeKind.Branch);
         order.push(ord);
         tAlong.push(t);
         limbOf.push(id);
-        gridAdd(prev);
+        if (emerge >= 0) claim(x, y, id);
       }
-      const limb = { first, last: sk.n - 1, order: ord, len, side, attach: parent };
+      const limb: Limb = { id, first, last: sk.n - 1, order: ord, len, attach: parent, emerge: Math.max(0, emerge), prim };
       limbs.push(limb);
       return limb;
     };
 
-    // 1. Spine: nearly straight, a seeded tilt, a small bow toward the feather side.
-    const tilt = (rs() < 0.5 ? -1 : 1) * (f.kind === 'crown' ? 6 + 8 * rs() : 2 + 3 * rs()) * deg;
-    const spineLen = f.L * lerp(0.95, 1.08, mood.effort) * (1 - 0.05 * (mood.pitch - 0.5) * 2);
-    const spine = grow(0, tilt, spineLen, 0, 0, pp.maxWidth, 0, rs() * 10, (f.side * 12 * deg) / Math.max(0.2, spineLen));
+    // 1. Hidden trunk: root -> hub (the crown only; for wings and wedges the hub is the root).
+    let hub = 0;
+    const trunkLen = Math.hypot(f.cx, f.cy);
+    if (trunkLen > 2 * step) hub = grow(0, Math.atan2(f.cx, f.cy), trunkLen, 0, pp.maxWidth, 0).last;
+    else limbs.push({ id: 0, first: 0, last: 0, order: 0, len: 0, attach: 0, emerge: 0, prim: -1 });
 
-    // 2. Feathers along the spine, with a wing planform.
-    const N1 = Math.max(3, Math.round(lerp(6, 14, branching) * f.detail + (mood.effort > 0.7 ? 1 : 0)));
-    const chord = f.kind === 'crown' ? 0.85 : f.kind === 'wing' ? 0.75 : 0.65;
-    // Planform: 0 = pointed (longest a third of the way out, short at the tip: reads as a star or
-    // triangle), 1 = broad (limbs about as long at the tip as at the base: a wide, ivy-like mass).
-    const broad = clamp(pp.planform);
-    const plan = (u: number) =>
-      lerp(Math.pow(1 - u, 0.65) * (0.7 + 0.3 * smooth01(0, 0.3, u)), 0.85 + 0.1 * Math.sin(Math.PI * u), broad);
-    const hero = Math.floor(N1 * (0.25 + 0.2 * r()));
-    const firstSide = r() < 0.5 ? -1 : 1;
-    const feathers: Limb[] = [];
-    // Feathers attach from just inside the silhouette edge outward: attached further in, they are
-    // held parallel to the spine until they emerge and read as one plume instead of a fan.
-    // The crown is the exception: its limbs leave near the low root as rays behind the head and
-    // shoulders (near the root the clamp allows any outward angle).
-    // (Feathers attach from near the base for every plant: hidden behind the avatar they are free
-    // to fork wide, so the wing branches from its start instead of ending in a tuft.)
-    const uStart = f.kind === 'crown' ? 0.06 : 0.1;
-    for (let j = 0; j < N1 && sk.n < pp.maxNodes; j++) {
-      // Packed toward the base: more branching near the start, fewer feathers toward the tip.
-      const u = lerp(uStart, 0.88, Math.pow(clamp((j + 0.5 + (r() - 0.5) * 0.6) / N1), 1.35));
-      const node = spine.first + Math.round(u * (spine.last - spine.first));
-      const oneSided = Math.abs(f.side) >= 0.15;
-      // overlap: more feathers cross to the other side of the spine at full length, and angles vary
-      // more, so limbs lie over one another instead of forming a neat comb.
-      const onLift = !oneSided
-        ? (j % 2 ? 1 : -1) * firstSide
-        : (r() < (0.5 + 0.5 * Math.abs(f.side)) * (1 - 0.45 * overlap) ? 1 : -1) * Math.sign(f.side);
-      const offSide = oneSided && onLift !== Math.sign(f.side);
-      // Splayed: feathers stay wide open toward the tip, with a lot of variety between them.
-      const delta = fan * lerp(1.15, 0.75, Math.pow(u, 0.9)) * (0.6 + 0.8 * r()) + (r() - 0.5) * overlap * 40 * deg;
-      let len = spineLen * chord * plan(u) * (1 + wild * (r() * 0.5 - 0.25));
-      if (mood.effort > 0.5) len *= 1 + 0.2 * (mood.effort - 0.5);
-      if (j === hero) len *= 1.25;
-      if (offSide) len *= lerp(0.35, 0.9, overlap); // the bare side: short coverts, or full feathers with overlap
-      feathers.push(grow(node, headingAt(node) + onLift * delta, len, 1, -onLift * delta * 0.1,
-        Math.min(sk.w[node] * 0.62, pp.maxWidth * 0.5), onLift, r() * 10));
+    // 2. Tip targets: evenly spaced along the outline, stratified jitter, ragged radius.
+    const W = f.hi - f.lo;
+    const usable = (phi: number) => f.rIn(phi) < 0.7 * rOut(phi); // not a direction behind the body
+    let sOut = 0, sIn = 0;
+    for (let k = 0; k < 24; k++) {
+      const phi = f.lo + (W * (k + 0.5)) / 24;
+      if (usable(phi)) {
+        sOut += (rOut(phi) * W) / 24;
+        sIn += (f.rIn(phi) * W) / 24;
+      }
+    }
+    const gTip = lerp(0.6, 0.28, branching);
+    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), 3, 20);
+    const kE = clamp(1.05 - 0.4 * g.spread * lerp(0.85, 1.2, mood.effort), 0.3, 1);
+    const hero = Math.floor(nTip * (0.25 + 0.5 * rs()));
+    const droop = 8 * deg * mood.soft * pp.softDroop;
+    interface Tip { phiE: number; x: number; y: number }
+    const tips: Tip[] = [];
+    for (let i = 0; i < nTip; i++) {
+      let phiT = f.lo + (W * (i + 0.5 + (r() - 0.5) * 0.35)) / nTip;
+      phiT += Math.cos(phiT) >= 0 ? -droop : droop; // soft singing: both halves turn away from the top
+      phiT = clamp(phiT, f.lo, f.hi);
+      if (!usable(phiT)) continue;
+      const rag = (1 - 0.28 * wild * r()) * (i % 2 ? 0.92 : 1) * (i === hero ? 1.06 : 1);
+      const R = Math.max(f.rIn(phiT) + 0.35, rOut(phiT) * rag);
+      const hT = hOf(phiT);
+      tips.push({ phiE: f.mid + (phiT - f.mid) * kE, x: f.cx + Math.sin(hT) * R, y: f.cy + Math.cos(hT) * R });
     }
 
-    // 3. Ivy-style side shoots: every limb throws alternating shoots at a regular spacing along
-    //    its whole length, and shoots throw their own (up to three levels below the feathers).
-    const shootGap = (lerp(0.26, 0.08, branching) * (1 + 0.5 * mood.soft * pp.softDroop)) / (1 + 0.3 * mood.vibrato);
-    const maxOrder = branching > 0.7 ? 4 : branching > 0.35 ? 3 : 2;
-    const addShoots = (host: Limb, ord: number, from: number, gapMul: number) => {
-      const count = Math.floor(((host.len * (0.95 - from)) / (shootGap * gapMul)) * f.detail);
-      let s = r() < 0.5 ? -1 : 1;
-      for (let j = 0; j < count && sk.n < pp.maxNodes; j++) {
-        const u = lerp(from, 0.95, (j + 0.5 + (r() - 0.5) * 0.5) / count);
-        const node = host.first + Math.round(u * (host.last - host.first));
-        const [wx, wy] = toWorld(sk.x[node], sk.y[node], pl);
-        if (blocked(wx, wy)) continue; // no detail behind the avatar
-        s = -s; // alternate sides, like ivy
-        const len = Math.max(0.05, host.len * lerp(0.45, 0.25, u) * (0.7 + 0.6 * r()) * (ord > 2 ? 0.8 : 1));
-        const shoot = grow(node, headingAt(node) + s * (32 + 25 * r()) * deg, len, ord, (r() - 0.5) * 0.4,
-          Math.min(sk.w[node] * 0.75, pp.tipWidth * 1.8), s, r() * 10);
-        if (ord < maxOrder && len > 0.12 && r() < lerp(0.3, 0.85, branching) * f.detail) addShoots(shoot, ord + 1, 0.2, 1.2);
+    // 3. Sector subdivision: each limb takes the middle tip of its group and hands the tips on
+    //    either side to forks that leave it further out.
+    const wPrim = pp.maxWidth * 0.42;
+    const branchLimbs: Limb[] = [];
+    const subdivide = (start: number, group: Tip[], depth: number, w0: number, parentLimb: Limb | null, prim = -1) => {
+      if (!group.length || sk.n >= pp.maxNodes) return;
+      const m = Math.min(group.length - 1, Math.max(0, Math.floor(group.length / 2 + (r() - 0.5) * 0.6)));
+      const main = group[m];
+      const chord = Math.hypot(main.x - sk.x[start], main.y - sk.y[start]);
+      let h0: number;
+      if (!parentLimb) h0 = hOf(main.phiE); // primary: radial from the hub
+      else {
+        const turn = wrap(Math.atan2(main.x - sk.x[start], main.y - sk.y[start]) - headingAt(start));
+        h0 = headingAt(start) + Math.sign(turn || 1) * clamp(Math.abs(turn) * 0.8, 22 * deg, 55 * deg);
+      }
+      const limb = grow(start, h0, chord * 1.08, 1, w0, r() * 10, { x: main.x, y: main.y }, -1, prim);
+      branchLimbs.push(limb);
+      for (const side of [group.slice(0, m), group.slice(m + 1)]) {
+        if (!side.length || limb.last < limb.first) continue;
+        // Fork in the visible part, later for deeper forks: where the gap to the neighbours has opened.
+        const e = clamp(limb.emerge / Math.max(0.05, limb.len));
+        const u = e + (1 - e) * clamp(lerp(0.25, 0.55, r()) + 0.08 * depth, 0.2, 0.75);
+        const node = limb.first + Math.round(u * (limb.last - limb.first));
+        subdivide(node, side, depth + 1, sk.w[node] * 0.8, limb);
       }
     };
-    for (const ft of feathers) addShoots(ft, 2, 0.15, 1);
-    // The main stem throws shoots of its own between the feathers, outside the avatar.
-    addShoots(spine, 2, Math.min(0.9, f.rClear / Math.max(0.05, spineLen)), 1.6);
+    const nPrim = tips.length ? clamp(Math.round((sIn * kE) / 0.2), Math.min(2, tips.length), Math.min(tips.length, 7)) : 0;
+    for (let k = 0; k < nPrim; k++) {
+      const from = Math.round((k * tips.length) / nPrim), to = Math.round(((k + 1) * tips.length) / nPrim);
+      subdivide(hub, tips.slice(from, to), 0, wPrim, null, k);
+    }
 
+    // 4. Ivy shoots, placed into free space. All limbs exist before any shoot does, and spawn
+    //    sites are visited in a shuffled order so no limb takes all the room first.
+    const shootGap = (lerp(0.22, 0.09, branching) * (1 + 0.5 * mood.soft * pp.softDroop)) / (1 + 0.3 * mood.vibrato);
+    const shootMax = lerp(0.16, 0.34, branching);
+    const maxDepth = branching > 0.5 ? 2 : 1;
+    const CANDS = [55, 40, 72].map((d) => d * deg);
+    const shootRound = (hosts: Limb[], ord: number, gapMul: number): Limb[] => {
+      const sites: { host: Limb; node: number; side: number; u: number; key: number }[] = [];
+      for (const host of hosts) {
+        if (host.last < host.first) continue;
+        const e = clamp((host.emerge + 0.1) / Math.max(0.05, host.len));
+        const count = Math.floor(((host.len * Math.max(0, 0.95 - e)) / (shootGap * gapMul)) * f.detail);
+        let s = r() < 0.5 ? -1 : 1;
+        for (let j = 0; j < count; j++) {
+          const u = lerp(e, 0.95, (j + 0.5 + (r() - 0.5) * 0.5) / count);
+          s = -s; // alternate, like ivy
+          sites.push({ host, node: host.first + Math.round(u * (host.last - host.first)), side: s, u, key: r() });
+        }
+      }
+      sites.sort((pa, qa) => pa.key - qa.key);
+      const made: Limb[] = [];
+      for (const st of sites) {
+        if (sk.n >= pp.maxNodes) break;
+        const x = sk.x[st.node], y = sk.y[st.node], hb = headingAt(st.node);
+        if (!inBand(x, y)) continue; // nothing in the moat or behind the avatar
+        const want = shootMax * (0.7 + 0.6 * r()) * lerp(1, 0.6, st.u) * (ord > 2 ? 0.7 : 1);
+        // Preferred side first; the other side only if the preferred one is crowded.
+        let best = 0, bestH = 0;
+        for (const sgn of [st.side, -st.side]) {
+          for (const c of CANDS) {
+            const run = freeRun(x, y, hb + sgn * c, want + pp.clearance, st.host.id);
+            if (run > best) {
+              best = run;
+              bestH = hb + sgn * c;
+            }
+          }
+          if (best >= want * 0.6) break;
+        }
+        const len = Math.min(want, best - pp.clearance);
+        if (len < 0.07) continue; // crowded: no shoot here
+        made.push(grow(st.node, bestH, len, ord, Math.min(sk.w[st.node] * 0.6, pp.tipWidth * 1.2), r() * 10, undefined, st.host.id));
+      }
+      return made;
+    };
+    let hosts = branchLimbs;
+    for (let d = 0; d < maxDepth; d++) hosts = shootRound(hosts, 2 + d, d === 0 ? 1 : 1.2).filter((l) => l.len > 0.14);
+
+    // 5. Per-node arrays.
     sk.computeChildren();
     const n = sk.n;
     this.order = Uint8Array.from(order.slice(0, n));
     this.branchId = Int32Array.from(limbOf.slice(0, n));
     const height = this.finish(limbs.length);
-
-    // Withering: the spine never withers, feather stubs hold a little longer than twigs.
+    // The trunk never withers; limbs hold a little longer than shoots.
     for (let i = 0; i < n; i++) this.witherH[i] = height[i] + (this.order[i] === 0 ? 99 : this.order[i] === 1 ? 0.12 : 0);
 
-    // Reveal schedule: spine first (to 42 %), then each child branch starts a little after its
-    // attachment point and takes longer the longer it is; then normalise.
+    // 6. Reveal schedule: trunk, then the primaries from the territory's middle outward, then
+    //    forks and shoots after their attachment point.
     const start = new Float32Array(limbs.length), span = new Float32Array(limbs.length);
-    span[0] = 0.42;
+    span[0] = 0.1;
     const thr = new Float32Array(n);
+    const aRef = Math.max(0.1, f.a);
     for (let i = 1; i < n; i++) {
       const b = this.branchId[i], lb = limbs[b];
       if (i === lb.first && b > 0) {
-        start[b] = thr[lb.attach] + 0.04 + 0.1 * lb.order;
-        span[b] = 0.3 * Math.sqrt(lb.len / Math.max(0.05, spineLen));
+        if (lb.prim >= 0) {
+          start[b] = 0.1 + 0.05 * Math.abs(lb.prim - (nPrim - 1) / 2);
+          span[b] = 0.45 * Math.sqrt(lb.len / aRef);
+        } else if (lb.order === 1) {
+          start[b] = thr[lb.attach] + 0.03;
+          span[b] = 0.45 * Math.sqrt(lb.len / aRef);
+        } else {
+          start[b] = thr[lb.attach] + 0.04 + 0.06 * (lb.order - 2);
+          span[b] = 0.3 * Math.sqrt(lb.len / aRef);
+        }
       }
       thr[i] = start[b] + span[b] * tAlong[i];
     }
@@ -474,10 +533,18 @@ export class Plant {
     for (let i = 0; i < n; i++) maxThr = Math.max(maxThr, thr[i]);
     for (let i = 0; i < n; i++) thr[i] /= maxThr;
     this.baseThr = thr;
-    const clearNode = spine.first + Math.round(clamp(f.rClear / Math.max(0.05, spineLen)) * (spine.last - spine.first));
-    this.trunkFrac = clamp(thr[Math.min(n - 1, Math.max(0, clearNode))], 0, 0.6);
+    let tf = 0.6;
+    for (const lb of limbs) {
+      if (lb.prim < 0) continue;
+      for (let i = lb.first; i <= lb.last; i++)
+        if (!hidden(sk.x[i], sk.y[i])) {
+          tf = Math.min(tf, thr[i]);
+          break;
+        }
+    }
+    this.trunkFrac = clamp(tf, 0, 0.6);
 
-    // Pitch steering by world height: high notes open the higher limbs first.
+    // 7. Pitch steering by world height: high notes open the higher limbs first.
     let lo = Infinity, hi = -Infinity;
     const hgt = new Float32Array(n);
     for (let i = 0; i < n; i++) {
@@ -488,177 +555,50 @@ export class Plant {
     const mid = (lo + hi) / 2, half = Math.max(1e-3, (hi - lo) / 2);
     this.side = new Float32Array(n);
     for (let i = 0; i < n; i++) this.side[i] = clamp((hgt[i] - mid) / half, -1, 1);
-  }
 
-  // ---- Colonise generator (previous trees) ---------------------------------------------------
+    // 8. Tone: dim inside, bright at the rim, with per-limb variety.
+    const variety = clamp(p.look.variety), depthShade = clamp(p.look.depthShade);
+    const limbTone = limbs.map(() => 1 + 0.14 * (r() * 2 - 1) * variety);
+    this.tone = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const [rr, phi] = polar(sk.x[i], sk.y[i]);
+      const rIn = f.rIn(phi);
+      const rho = clamp((rr - rIn) / Math.max(0.1, rOut(phi) - rIn));
+      this.tone[i] = lerp(lerp(1, 0.6, depthShade), 1.08, rho * rho * (3 - 2 * rho)) * limbTone[this.branchId[i]];
+    }
 
-  private buildColonise(pl: Placement, p: Params, blocked: Blocked) {
-    const pp = plantShape(p);
-    const r = rng(this.seed);
-    const sk = this.sk;
-    sk.reset();
-    const cell = Math.max(0.02, pp.influence);
-    const grid = new Map<number, number[]>();
-    const key = (cx: number, cy: number) => (cx + 32768) * 65536 + (cy + 32768);
-    const addNode = (x: number, y: number, parent: number) => {
-      const i = sk.add(x, y, parent, 0, pp.tipWidth, NodeKind.Branch);
-      const k = key(Math.floor(x / cell), Math.floor(y / cell));
-      let list = grid.get(k);
-      if (!list) grid.set(k, (list = []));
-      list.push(i);
-      return i;
-    };
-    const nearest = (x: number, y: number, radius: number): [number, number] => {
-      const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
-      const reach = Math.ceil(radius / cell);
-      let best = -1, bd = radius * radius;
-      for (let gx = cx - reach; gx <= cx + reach; gx++)
-        for (let gy = cy - reach; gy <= cy + reach; gy++) {
-          const list = grid.get(key(gx, gy));
+    // 9. Leaf ranks: blue-noise placement with a guaranteed spacing. leafRank[i] is the lowest
+    //    density at which node i carries a leaf, so the per-track density works at draw time and
+    //    never makes leaves jump.
+    const L0 = 0.055 * p.look.decoSize;
+    const LEVELS = [2.6, 2.0, 1.55, 1.2, 0.95, 0.75, 0.6].map((k) => k * L0);
+    this.leafRank = new Float32Array(n).fill(2);
+    const cand: number[] = [];
+    for (let i = 1; i < n; i++) if (this.order[i] >= 1 && inBand(sk.x[i], sk.y[i])) cand.push(i);
+    const pri = (i: number) => (sk.children[i] === 0 ? 0 : 1) + hash1(i * 3.7 + this.seed); // terminals first
+    cand.sort((pa, qa) => pri(pa) - pri(qa));
+    const cellL = LEVELS[0];
+    const placed = new Map<number, number[]>();
+    const pk = (gx: number, gy: number) => (gx + 32768) * 65536 + (gy + 32768);
+    const nearerThan = (x: number, y: number, d: number) => {
+      const gx = Math.floor(x / cellL), gy = Math.floor(y / cellL);
+      for (let ix = gx - 1; ix <= gx + 1; ix++)
+        for (let iy = gy - 1; iy <= gy + 1; iy++) {
+          const list = placed.get(pk(ix, iy));
           if (!list) continue;
-          for (const i of list) {
-            const d = (sk.x[i] - x) ** 2 + (sk.y[i] - y) ** 2;
-            if (d < bd) {
-              bd = d;
-              best = i;
-            }
-          }
+          for (const j of list) if (Math.hypot(sk.x[j] - x, sk.y[j] - y) < d) return true;
         }
-      return [best, best < 0 ? Infinity : Math.sqrt(bd)];
+      return false;
     };
-
-    addNode(0, 0, -1);
-    const ax: number[] = [], ay: number[] = [];
-    for (let k = 0; k < pp.attractors; k++) {
-      const [lx, ly] = envelopePoint(Math.sqrt(r()), r() * 2 - 1, pl);
-      const [wx, wy] = toWorld(lx, ly, pl);
-      if (!blocked(wx, wy)) {
-        ax.push(lx);
-        ay.push(ly);
+    LEVELS.forEach((d, lv) => {
+      for (const i of cand) {
+        if (this.leafRank[i] < 2 || nearerThan(sk.x[i], sk.y[i], d)) continue;
+        this.leafRank[i] = (lv + hash1(i * 5.3 + this.seed)) / LEVELS.length;
+        const k = pk(Math.floor(sk.x[i] / cellL), Math.floor(sk.y[i] / cellL));
+        let list = placed.get(k);
+        if (!list) placed.set(k, (list = []));
+        list.push(i);
       }
-    }
-
-    let accX = new Float32Array(256), accY = new Float32Array(256);
-    for (let iter = 0; iter < 800 && ax.length && sk.n < pp.maxNodes; iter++) {
-      if (accX.length < sk.n) {
-        accX = new Float32Array(sk.n * 2);
-        accY = new Float32Array(sk.n * 2);
-      }
-      const touched: number[] = [];
-      for (let j = ax.length - 1; j >= 0; j--) {
-        const [ni, d] = nearest(ax[j], ay[j], pp.influence);
-        if (ni < 0) continue;
-        if (d < pp.kill) {
-          ax[j] = ax[ax.length - 1];
-          ay[j] = ay[ay.length - 1];
-          ax.pop();
-          ay.pop();
-          continue;
-        }
-        if (accX[ni] === 0 && accY[ni] === 0) touched.push(ni);
-        accX[ni] += (ax[j] - sk.x[ni]) / d;
-        accY[ni] += (ay[j] - sk.y[ni]) / d;
-      }
-      if (!touched.length) {
-        if (!ax.length) break;
-        let aj = 0, ad = Infinity;
-        for (let j = 0; j < ax.length; j++) {
-          const d = ax[j] ** 2 + ay[j] ** 2;
-          if (d < ad) {
-            ad = d;
-            aj = j;
-          }
-        }
-        let ni = 0, nd = Infinity;
-        for (let i = 0; i < sk.n; i++) {
-          const d = (sk.x[i] - ax[aj]) ** 2 + (sk.y[i] - ay[aj]) ** 2;
-          if (d < nd) {
-            nd = d;
-            ni = i;
-          }
-        }
-        const d = Math.sqrt(nd);
-        if (d < 1e-6) break;
-        accX[ni] = (ax[aj] - sk.x[ni]) / d;
-        accY[ni] = (ay[aj] - sk.y[ni]) / d;
-        touched.push(ni);
-      }
-      let grew = false;
-      for (const ni of touched) {
-        let dx = accX[ni], dy = accY[ni];
-        accX[ni] = accY[ni] = 0;
-        let len = Math.hypot(dx, dy) || 1;
-        dx = dx / len + (r() - 0.5) * pp.jitter;
-        dy = dy / len + (r() - 0.5) * pp.jitter;
-        len = Math.hypot(dx, dy) || 1;
-        const nx = sk.x[ni] + (dx / len) * pp.step;
-        const ny = sk.y[ni] + (dy / len) * pp.step;
-        if (nearest(nx, ny, pp.step * 0.45)[0] >= 0) continue;
-        addNode(nx, ny, ni);
-        grew = true;
-        if (sk.n >= pp.maxNodes) break;
-      }
-      if (!grew && touched.length === 1 && ax.length) {
-        ax.pop();
-        ay.pop();
-      }
-    }
-
-    sk.computeChildren();
-    const n = sk.n;
-    const onlyChild = new Int32Array(n).fill(-1);
-    for (let i = 1; i < n; i++) if (sk.children[sk.parent[i]] === 1) onlyChild[sk.parent[i]] = i;
-    const nx = new Float32Array(n), ny = new Float32Array(n);
-    for (let it = 0; it < pp.smoothing; it++) {
-      for (let i = 0; i < n; i++) {
-        const pa = sk.parent[i], c = onlyChild[i];
-        if (pa >= 0 && c >= 0) {
-          nx[i] = 0.5 * sk.x[i] + 0.25 * (sk.x[pa] + sk.x[c]);
-          ny[i] = 0.5 * sk.y[i] + 0.25 * (sk.y[pa] + sk.y[c]);
-        } else {
-          nx[i] = sk.x[i];
-          ny[i] = sk.y[i];
-        }
-      }
-      sk.x.set(nx.subarray(0, n));
-      sk.y.set(ny.subarray(0, n));
-    }
-
-    // Pipe-model widths and branch ids.
-    const acc = new Float32Array(n);
-    for (let i = n - 1; i >= 0; i--) {
-      const w = acc[i] > 0 ? Math.min(pp.maxWidth, Math.pow(acc[i], 1 / pp.pipeExponent)) : pp.tipWidth;
-      sk.w[i] = w;
-      const pa = sk.parent[i];
-      if (pa >= 0) acc[pa] += Math.pow(w, pp.pipeExponent);
-    }
-    this.branchId = new Int32Array(n);
-    const firstChildSeen = new Uint8Array(n);
-    let branches = 1;
-    for (let i = 1; i < n; i++) {
-      const pa = sk.parent[i];
-      if (!firstChildSeen[pa]) {
-        firstChildSeen[pa] = 1;
-        this.branchId[i] = this.branchId[pa];
-      } else this.branchId[i] = branches++;
-    }
-    this.order = new Uint8Array(n);
-    this.finish(branches);
-    let maxX = 1e-6;
-    for (let i = 0; i < n; i++) maxX = Math.max(maxX, Math.abs(sk.x[i]));
-    this.side = new Float32Array(n);
-    for (let i = 1; i < n; i++) this.side[i] = clamp(sk.x[i] / maxX, -1, 1) * Math.sign(pl.bend || 1);
-    this.baseThr = null;
-
-    // Trunk: follow single children from the root to the first fork.
-    let node = 0;
-    for (let guard = 0; guard < n; guard++) {
-      if (sk.children[node] !== 1) break;
-      let child = -1;
-      for (let i = node + 1; i < n; i++) if (sk.parent[i] === node) { child = i; break; }
-      if (child < 0) break;
-      node = child;
-    }
-    this.trunkFrac = clamp(sk.flex[node] / this.maxFlex, 0, 0.8);
+    });
   }
 }

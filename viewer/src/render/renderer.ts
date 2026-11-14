@@ -35,13 +35,15 @@ export class Instances {
     ra: number, rb: number, fa: number, fb: number,
     r: number, g: number, b: number, a: number,
     glow: number, layer: number,
+    /** 0 = round caps; 1 = flat start (a chain link), round end; 2 = flat at both ends. */
+    join = 0,
   ) {
     const d = this.data;
     let o = this.slot();
     d[o++] = ax; d[o++] = ay; d[o++] = bx; d[o++] = by;
     d[o++] = ra; d[o++] = rb; d[o++] = fa; d[o++] = fb;
     d[o++] = r; d[o++] = g; d[o++] = b; d[o++] = a;
-    d[o++] = glow; d[o++] = layer; d[o++] = 0; d[o++] = 0;
+    d[o++] = glow; d[o++] = layer; d[o++] = join; d[o++] = 0;
   }
 
   /** A decoration at (x, y) pointing along `angle`, `size` long (local units). */

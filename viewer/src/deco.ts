@@ -84,21 +84,32 @@ class Placer {
   }
 }
 
-/** Decorations along a branch skeleton, given per-node reveal `vis`. */
-/** Optional per-node extras: stable ids (for vines rebuilt every frame) and opacity. */
+/** Optional per-node extras for decorateTree. */
 export interface TreeExtras {
+  /** Stable ids (for vines rebuilt every frame). */
   ids?: ArrayLike<number>;
+  /** Opacity (withering, the halo's fading tail). */
   alpha?: ArrayLike<number>;
+  /** Take plants: blue-noise leaf ranks. A node carries a leaf when rank <= density, so leaves keep
+   *  a guaranteed spacing at any density and never pile up (docs/fable-consult-2.md, R2). */
+  rank?: ArrayLike<number>;
+  /** Per-node brightness (dim inside, bright rim; R4). */
+  tone?: ArrayLike<number>;
+  /** Where to put dim, larger under-leaves drawn beneath the branches (R6). */
+  under?: Instances;
 }
 
 export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: DecoStyle, out: Instances, extras: TreeExtras = {}) {
   const L = p.look;
   if (st.theme === 'branches' || st.density <= 0) return;
   const place = new Placer(out, st);
+  const underPlace = extras.under ? new Placer(extras.under, { ...st, glow: 0 }) : null;
   const unit = Math.max(1e-3, st.unit);
   const size = (L.decoSize * (st.sizeMul ?? 1)) / unit;
   const dens = st.density;
   const nat = L.naturalTint;
+  const variety = clamp(L.variety);
+  const rank = extras.rank;
 
   for (let i = 1; i < sk.n; i++) {
     const f = vis[i];
@@ -117,6 +128,39 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     const pop = easeOutBack(clamp(f));
     const x = sk.x[i], y = sk.y[i], flex = sk.flex[i];
     const side = h1 < 0.5 ? -1 : 1;
+    const tone = extras.tone ? extras.tone[i] : 1;
+
+    if (rank) {
+      // Take plants: spaced leaves, with size and tint variety and a dim under-layer.
+      const has = rank[i] <= dens;
+      if (st.theme === 'leaves') {
+        if (has) {
+          const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * lerp(0.95, 0.5 + 0.8 * h2, variety);
+          // Inner leaves (dim tone) come out a little smaller.
+          const sz = size * 0.055 * lerp(1, 0.6 + 0.65 * h2, variety) * lerp(0.85, 1.1, clamp((tone - 0.6) / 0.48)) * pop;
+          const inten = st.intensity * tone * lerp(1, 0.72 + 0.43 * h3, variety);
+          const c = tint(st.colour, LEAF, clamp(nat * lerp(1, 0.4 + 1.2 * h2, variety)), inten);
+          const toUnder = underPlace && hash1(id * 7.7 + st.seed) < 0.4;
+          if (toUnder) underPlace!.put(x, y, ang, sz * 1.15, Shape.Leaf, c.map((v) => v * 0.6) as [number, number, number], flex, h0);
+          else place.put(x, y, ang, sz, Shape.Leaf, c, flex, h0);
+        }
+        if (terminal && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
+          const s = size * 0.075 * st.bloom * pop * (0.8 + 0.4 * h2);
+          place.put(x, y, dir, s, Shape.Blossom, tint(st.colour, PETAL, 0.4 + 0.5 * nat, st.intensity * 1.1), flex, h3, 1.4);
+        }
+        continue;
+      }
+      if (st.theme === 'thorns') {
+        if (!terminal && rank[i] <= Math.min(1, dens * 1.3)) {
+          const ang = dir + side * (0.95 + 0.25 * h2);
+          const s = size * 0.034 * (0.6 + L.thornEffort * st.effort) * pop * (0.7 + 0.6 * h1);
+          place.put(x, y, ang, s, Shape.Thorn, tint(st.colour, THORN, nat * 0.6, st.intensity * tone), flex, h0);
+        }
+        continue;
+      }
+      // Wreath: needles everywhere (they are thin), berries and holly on the spaced nodes.
+      if (rank[i] > 1.5) continue; // the moat and the hidden part stay bare
+    }
 
     switch (st.theme) {
       case 'leaves': {

@@ -1,10 +1,10 @@
 // Preview-only drawing on top of the halo: a placeholder avatar silhouette (what VTube Studio
-// will cover in OBS) and optional guides for the layout envelopes and keep-out region.
+// will cover in OBS) and optional guides for the canopy outline, the plants' territories and keep-out region.
 // Hidden in OBS mode (?obs).
 
 import type { Params } from './params';
 import type { View } from './render/renderer';
-import { envelopePoint, Placement, toWorld } from './layout';
+import { outlineOf, Placement, rOutAt } from './layout';
 
 export interface GuidePlant {
   pl: Placement;
@@ -82,26 +82,22 @@ export class Overlay {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Envelopes and origins.
-      for (const g0 of plants) {
-        // The gesture generator has no envelope: show its fan (spine length and feather spread).
-        const g = p.plants.generator === 'gesture'
-          ? { ...g0, pl: { ...g0.pl, rMin: 0, taper: 0, bend: 0, length: g0.pl.length * (g0.pl.lengthMul ?? 1) } }
-          : g0;
-        const pts: [number, number][] = [];
-        const N = 24;
-        for (let i = 0; i <= N; i++) pts.push(envelopePoint(i / N, -1, g.pl));
-        for (let i = 0; i <= N; i++) pts.push(envelopePoint(1, -1 + (2 * i) / N, g.pl));
-        for (let i = N; i >= 0; i--) pts.push(envelopePoint(i / N, 1, g.pl));
-        for (let i = N; i >= 0; i--) pts.push(envelopePoint(0, -1 + (2 * i) / N, g.pl));
+      // The shared canopy outline and each plant's territory (rays from the hub).
+      const o = outlineOf(p);
+      const hx = a.headX, hy = p.layout.midOriginY;
+      for (const g of plants) {
+        const lo = g.pl.sectorLo + g.extraAngle, hi = g.pl.sectorHi + g.extraAngle;
+        const sc = g.pl.scale * (g.pl.lengthMul ?? 1);
+        const N = 48;
         ctx.strokeStyle = g.colour;
         ctx.globalAlpha = 0.7;
         ctx.beginPath();
-        pts.forEach(([lx, ly], i) => {
-          const [wx, wy] = toWorld(lx, ly, g.pl, g.extraAngle);
-          if (i === 0) ctx.moveTo(px(wx), py(wy));
-          else ctx.lineTo(px(wx), py(wy));
-        });
+        ctx.moveTo(px(hx), py(hy));
+        for (let i = 0; i <= N; i++) {
+          const phi = lo + ((hi - lo) * i) / N;
+          const r = rOutAt(phi - g.extraAngle, o) * sc;
+          ctx.lineTo(px(hx + Math.cos(phi) * r), py(hy + Math.sin(phi) * r));
+        }
         ctx.closePath();
         ctx.stroke();
         ctx.globalAlpha = 1;

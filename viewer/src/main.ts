@@ -16,7 +16,7 @@ import { Generations } from './growth/generations';
 import { Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
 import { decorateRing, decorateTree, DecoStyle } from './deco';
-import { layoutTakes, Placement } from './layout';
+import { layoutTakes, outlineOf, Placement, plantArc } from './layout';
 import { angleLerp, clamp, deg, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
 
 interface Slot {
@@ -89,8 +89,11 @@ function start() {
   const status: UIStatus = { feed: '', layers: '', pitch: '', voice: '' };
   const clientId = Math.random().toString(36).slice(2);
 
-  const back = new Instances(), backDeco = new Instances(), front = new Instances(), frontDeco = new Instances();
+  const backUnder = new Instances(), back = new Instances(), backDeco = new Instances();
+  const front = new Instances(), frontDeco = new Instances();
   const batches: Batch[] = [
+    // Dim, larger under-leaves beneath the take plants' branches (depth without glow).
+    { kind: 'sprite', inst: backUnder },
     { kind: 'stroke', inst: back },
     { kind: 'sprite', inst: backDeco },
     { kind: 'stroke', inst: front },
@@ -279,11 +282,20 @@ function start() {
     ];
   }
 
+  let shown = new Uint8Array(0);
   /** Push a skeleton's visible segments. */
   function pushTree(out: Instances, sk: Skeleton, vis: Float32Array, layer: number, base: RGB,
-                    look: Look, alpha: number, unit: number, frontGlow = params.glow.front, nodeAlpha?: ArrayLike<number>) {
+                    look: Look, alpha: number, unit: number, frontGlow = params.glow.front, nodeAlpha?: ArrayLike<number>,
+                    tone?: ArrayLike<number>) {
     const u = Math.max(1e-3, unit);
     if (alpha <= 0.005) return;
+    // shown[i]: a child segment of node i is drawn (so the segment ending at i can end flat).
+    if (shown.length < sk.n) shown = new Uint8Array(sk.n * 2);
+    shown.fill(0, 0, sk.n);
+    for (let i = 0; i < sk.n; i++) {
+      const pa = sk.parent[i];
+      if (pa >= 0 && vis[i] > 0 && vis[pa] >= 1 && (!nodeAlpha || nodeAlpha[i] > 0.005)) shown[pa] = 1;
+    }
     for (let i = 0; i < sk.n; i++) {
       const pa = sk.parent[i];
       if (pa < 0) continue;
@@ -293,12 +305,16 @@ function start() {
       if (na <= 0.005) continue;
       const ax = sk.x[pa], ay = sk.y[pa];
       const c = colourAt(base, layer, sk.flex[i]);
-      const k = brighten(look);
+      const tn = tone ? tone[i] : 1;
+      const k = brighten(look) * tn;
       out.stroke(
         ax, ay, lerp(ax, sk.x[i], f), lerp(ay, sk.y[i], f),
         (sk.w[pa] * look.width) / u, (sk.w[i] * look.width * (0.4 + 0.6 * f)) / u, sk.flex[pa], sk.flex[i],
         lerp(c[0], 1, look.shine) * k, lerp(c[1], 1, look.shine) * k, lerp(c[2], 1, look.shine) * k, alpha * na * fadeOf(look),
-        look.glow + (f < 1 ? frontGlow * (1 - f) : 0), layer,
+        (look.glow + (f < 1 ? frontGlow * (1 - f) : 0)) * tn * tn, layer,
+        // Chain links tile: a flat start where the parent segment meets this one, and a flat end
+        // where a drawn child continues it (tips and growing ends stay round).
+        sk.parent[pa] >= 0 ? (shown[i] ? 2 : 1) : 0,
       );
     }
   }
@@ -421,7 +437,7 @@ function start() {
       pl.oy = lerp(pl.oy, tg.oy, ease);
       pl.angle = angleLerp(pl.angle, tg.angle, ease);
       pl.scale = lerp(pl.scale, tg.scale, ease);
-      Object.assign(pl, { tierDir: tg.tierDir, kind: tg.kind, rMin: tg.rMin, length: tg.length, halfAngle: tg.halfAngle, bend: tg.bend, taper: tg.taper });
+      Object.assign(pl, { tierDir: tg.tierDir, kind: tg.kind, lengthMul: tg.lengthMul, sectorLo: tg.sectorLo, sectorHi: tg.sectorHi });
       const f = takes[k];
       s.drive.update(f, dt, params);
       s.gens.update(s.drive, dt, params);
@@ -444,6 +460,7 @@ function start() {
   let lastView: View | null = null;
   function draw() {
     document.body.className = obs ? '' : `backdrop-${params.scene.backdrop}`;
+    backUnder.reset();
     back.reset();
     backDeco.reset();
     front.reset();
@@ -460,10 +477,10 @@ function start() {
       const [dx, dy] = localDown(angle, pl.scale);
       for (const g of s.gens.gens) {
         const a = alpha * g.alpha;
-        pushTree(back, g.tree.sk, g.tree.vis, layer, base, look, a, 1, params.glow.front, g.tree.life);
+        pushTree(back, g.tree.sk, g.tree.vis, layer, base, look, a, 1, params.glow.front, g.tree.life, g.tree.tone);
         decorateTree(g.tree.sk, g.tree.vis, params,
           styleOf(layer, base, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density), backDeco,
-          { alpha: g.tree.leafLife });
+          { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder });
       }
     };
 
@@ -560,21 +577,18 @@ function start() {
     /** Shape checks for each take's newest tree (docs/fable-consult.md, A7). */
     metrics: () => slots.map((s, k) => {
       const g = s.gens.current ?? s.gens.gens[s.gens.gens.length - 1];
-      const m = g ? plantMetrics(g.tree, layoutTakes(slots.length, params)[k], blocked) : null;
+      const m = g ? plantMetrics(g.tree, layoutTakes(slots.length, params)[k], params, blocked) : null;
       return m && Object.fromEntries(Object.entries(m).map(([key, v]) => [key, +v.toFixed(3)]));
     }),
     /** Bunching / blobbing of the plants as drawn (docs/fable-consult-2.md 5.1). */
     ink: () => {
-      const g = params.growth as unknown as Record<string, number>;
-      const flatten = g.flatten ?? 0.55;
-      const a = 2.15 * params.growth.reach, b = a * (1 - 0.6 * flatten);
-      const gap = params.layout.spinSpeed === 0 ? params.layout.downGap : 0;
+      const { a, b, bDown } = outlineOf(params);
+      const [arcLo, arcHi] = plantArc(params);
       return inkMetrics({
         strokes: batches.filter((x) => x.kind === 'stroke').map((x) => x.inst),
         sprites: batches.filter((x) => x.kind === 'sprite').map((x) => x.inst),
         layers: layerU, isPlantLayer: (L) => L < plantLayerCount, blocked,
-        hubX: params.avatar.headX, hubY: params.layout.midOriginY, a, b, bDown: 0.85 * b,
-        arcLo: (-90 + gap / 2) * deg, arcHi: (270 - gap / 2) * deg,
+        hubX: params.avatar.headX, hubY: params.layout.midOriginY, a, b, bDown, arcLo, arcHi,
       });
     },
     /** Clipped pixels and local contrast in the rendered frame (draws once, then reads back). */
@@ -591,7 +605,7 @@ function start() {
       endingHalos: endingHalos.length,
       plants: slots.map((s) => ({ id: s.id, theme: s.theme, gens: s.gens.gens.map((g) => ({ seed: g.seed, reveal: +g.reveal.toFixed(2), alpha: +g.alpha.toFixed(2), retired: g.retired, idle: +g.idle.toFixed(1), wither: +g.wither.toFixed(2), nodes: g.tree.sk.n })) })),
       dying: dying.length,
-      instances: { back: back.count, backDeco: backDeco.count, front: front.count, frontDeco: frontDeco.count },
+      instances: { backUnder: backUnder.count, back: back.count, backDeco: backDeco.count, front: front.count, frontDeco: frontDeco.count },
     }),
   };
 

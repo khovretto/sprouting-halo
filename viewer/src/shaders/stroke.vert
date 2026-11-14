@@ -6,7 +6,7 @@ precision highp float;
 layout(location = 0) in vec4 a_ab;    // A.xy, B.xy (local)
 layout(location = 1) in vec4 a_rf;    // rA, rB, flexA, flexB (flex = distance along the branch)
 layout(location = 2) in vec4 a_col;   // rgb, alpha
-layout(location = 3) in vec4 a_misc;  // glow, layer index, unused, unused
+layout(location = 3) in vec4 a_misc;  // glow, layer index, joins (1 = flat ends: part of a chain), unused
 
 const int MAX_LAYERS = 32;
 uniform vec4 u_org[MAX_LAYERS];     // origin.xy
@@ -22,6 +22,7 @@ flat out vec2 v_b;
 flat out vec2 v_r;
 flat out vec4 v_col;
 flat out float v_glow;
+flat out float v_join;
 
 // Bend: rotate about the layer origin by an angle that grows with distance along the branch,
 // so tips move more than the trunk (sway), plus a fast small component (tremble / vibrato).
@@ -64,5 +65,6 @@ void main() {
   v_r = vec2(rA, rB);
   v_col = a_col;
   v_glow = a_misc.x;
+  v_join = a_misc.z;
   gl_Position = vec4((P - u_view.zw) * u_view.xy, 0.0, 1.0);
 }

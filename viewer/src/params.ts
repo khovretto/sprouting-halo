@@ -32,14 +32,14 @@ export const defaults = {
     newTreeEachPhrase: true,
     /** Seconds of full voice to grow a whole tree (higher = slower). */
     secondsToFull: 3.5,
-    /** 0 = a spine with a few bare limbs; 1 = dense, ivy-like: many limbs with shoots on shoots. */
-    branching: 0.65,
-    /** Overall length: multiplies each plant's spine (and with it every feather). */
+    /** 0 = a few limbs; 1 = dense, ivy-like: tips closer together, more and deeper side shoots. */
+    branching: 0.6,
+    /** Canopy size: half-width of the shared outline = 2.15 × reach. */
     reach: 1.0,
-    /** Fan aperture: how far the feathers open from the spine. */
-    spread: 1.25,
-    /** 0 = every plant a symmetric tree; 1 = side plants are one-sided wings (feathers on the upper side). */
-    sweep: 0.75,
+    /** 0 = round canopy, 1 = flat: height 40 % of the half-width. */
+    flatten: 0.55,
+    /** 0.4 = straight rays from the hub, 2 = limbs arch strongly out from each plant's middle. */
+    spread: 1.0,
     /** Brightness of a tree between phrases (it never ungrows). */
     restBrightness: 0.55,
     /** A tree starts fading this many seconds after it stopped growing (its phrase ended). */
@@ -67,7 +67,7 @@ export const defaults = {
     phraseGap: 1.0,
     /** After a phrase ends: seconds for the halo to close and the glow to settle. */
     release: 1.4,
-    /** Branches light up in a random order instead of strictly from the root out. */
+    /** Branches light up in a slightly varied order instead of strictly from the root out. */
     variety: 0.5,
     /** High notes grow the upper/outer side first. */
     pitchSteer: 0.5,
@@ -80,8 +80,13 @@ export const defaults = {
     /** Fallback theme. Each track sets its own theme and amount in the Sprout Tap window; this
      *  is used only for the fake singer and taps set to "Viewer default". */
     theme: 'leaves' as 'branches' | 'leaves' | 'thorns' | 'wreath',
-    /** Fallback decoration amount (per track in the Sprout Tap window). */
+    /** Fallback decoration amount (per track in the Sprout Tap window): leaf *spacing* on take
+     *  plants (low = sparse, high = close), so leaves never pile up. */
     density: 0.55,
+    /** Brightness and tint differences between limbs and between leaves. */
+    variety: 0.6,
+    /** How much dimmer the inside of a plant is than its rim. */
+    depthShade: 0.6,
     /** Decoration size multiplier. */
     decoSize: 1.8,
     /** How much decorations glow, relative to the branches (dense themes blow out above ~0.6). */
@@ -146,64 +151,35 @@ export const defaults = {
     ringSpacing: 0.14,
   },
   plants: {
-    /** gesture: spine + feathers + twigs (the redesign). colonise: the old space-colonisation trees. */
-    generator: 'gesture' as 'gesture' | 'colonise',
     /** Tips curve toward the sky (positive) or droop (negative). */
-    lift: 0.25,
-    /** Length jitter, wander and the longer "hero" feather. */
-    wildness: 0.5,
-    /** Feathers cross over one another: more on both sides of the spine, more varied angles. */
+    lift: 0.2,
+    /** Wander, ragged outline, the longer "hero" tip. */
+    wildness: 0.45,
+    /** How far neighbouring plants' territories interleave at the seams. */
     overlap: 0.5,
-    /** 0 = pointed outline (longest limbs near the base), 1 = broad: limbs as long at the tip. */
-    planform: 0.8,
     /** 0 = stems keep their width to a blunt end, 1 = fine pointed tips. */
-    taper: 0.35,
-    /** Branches steer weakly away from each other, so they spread into free space instead of bunching. */
-    repel: 0.6,
-    /** How close (plant units) another branch has to be to push. */
-    repelRadius: 0.12,
-    /** Which side of a side plant carries the feathers: 1 = the upper side, -1 = the lower side. */
-    featherSide: 1,
+    taper: 0.4,
+    /** Gap a side shoot keeps from other branches (the "branches repel" idea as one number). */
+    clearance: 0.045,
     /** How much soft / breathy singing makes a new tree droop. */
     softDroop: 1,
     /** Each new tree takes its character from the phrase that grows it (effort, pitch, softness, vibrato). */
     moodShaping: true,
-    attractors: 220,
     step: 0.03,
-    influence: 0.32,
-    kill: 0.09,
-    jitter: 0.08,
-    /** Smoothing passes over the branch shapes (more = rounder, less lightning-like). */
-    smoothing: 4,
-    tipWidth: 0.008,
+    tipWidth: 0.006,
+    /** Width of the hidden trunk; limbs start at 0.42 of it. */
     maxWidth: 0.035,
-    pipeExponent: 2.4,
     maxNodes: 2600,
-  },
-  envelope: {
-    crownMin: 0.75,
-    crownLength: 1.9,
-    crownHalfAngle: 70,
-    crownTaper: 0.15,
-    wingMin: 0.45,
-    wingLength: 1.7,
-    wingHalfAngle: 50,
-    wingBend: 22,
-    wingTaper: 0.6,
-    wedgeMin: 0.45,
-    wedgeLength: 1.5,
-    wedgeFill: 0.8,
-    wedgeBend: 14,
-    wedgeTaper: 0.4,
-    shrinkPerTake: 0.02,
   },
   layout: {
     lowOriginY: -0.35,
+    /** Height of the hub behind the neck that every plant grows from. */
     midOriginY: 0.05,
-    wingTilt: 20,
-    /** 3+ takes: leave this many degrees free straight down (behind the body); 0 = spread all round.
+    /** Degrees left free straight down (behind the body); the plants share the rest of the circle.
      *  Only used while spin is off. */
     downGap: 100,
+    /** 3+ takes: each further take makes the canopy this much smaller. */
+    shrinkPerTake: 0.02,
     tierFrom: 7,
     innerScale: 0.8,
     spinFrom: 3,
