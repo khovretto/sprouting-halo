@@ -220,6 +220,7 @@ function start() {
     ui = buildUI(panel, params, {
       restart: () => runAction('restart', true),
       commitLive: () => runAction('commit', true),
+      presetApplied: (theme, density) => live.send({ type: 'tapLook', theme, density, from: clientId }),
       loadAvatar: async () => {
         const img = await pickAvatarImage();
         if (img) {

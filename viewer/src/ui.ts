@@ -212,6 +212,8 @@ export interface UIActions {
   commitLive(): void;
   deleteTake(): void;
   loadAvatar(): void;
+  /** A preset was picked: its theme and amount go to every Sprout Tap. */
+  presetApplied(theme: string, density: number): void;
   clearAvatar(): void;
   /** Called after the user changed something in the panel (not for remote updates). */
   changed(): void;
@@ -429,6 +431,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       if (stashFrom) store.stash = stashFrom;
       applyPreset(p, byId(id));
       active = id;
+      actions.presetApplied(p.look.theme, p.look.density);
     }
     afterPresetChange(true);
   };

@@ -69,9 +69,11 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   (turn it off with "plant the halo" to get the plain fade).
 - **Take deleted:** after a short hold (Audio source → holdSeconds) the plant flashes and fades
   away while its leaves fall.
-- **Looks per track:** Theme, Amount and Colour in each track's **Sprout Tap window**. Leaves &
-  decorations → "theme comes from" switches to the preset's theme for every track; picking any
-  built-in preset except Sprout does that. (The Tap window itself does not change.)
+- **Looks per track:** Theme, Amount and Colour in each track's **Sprout Tap window**. Picking a
+  preset sends its theme and amount to every Sprout Tap through Sprout.exe: each Tap window
+  switches as if you had set it there (saved with the project, undoable in the DAW), and you can
+  change single tracks afterwards. Leaves & decorations → "theme comes from: this preset" forces
+  the viewer's theme for every track instead (for taps that are not connected).
 - **Halo squish and tilt** (Setup: fit to avatar) flatten the ring like a halo seen slightly
   from above, for a 3D look.
 

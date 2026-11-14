@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace sprout
 {
@@ -32,6 +33,9 @@ public:
 
     // Send a text message to every WebSocket client. Slow clients skip frames instead of lagging.
     void broadcast (const std::string& text);
+
+    // Messages for the app itself ("tapLook": a viewer picked a preset), received since the last call.
+    std::vector<std::string> takeAppMessages();
 
     int clientCount() const;
     uint16_t port() const;

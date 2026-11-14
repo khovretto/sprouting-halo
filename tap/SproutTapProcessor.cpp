@@ -184,6 +184,24 @@ void SproutTapProcessor::timerCallback()
     }
     // Keeps the slot alive while the host isn't calling processBlock (e.g. transport stopped).
     writer.heartbeat();
+
+    // A viewer picked a preset: take its theme and amount, as if set in this window (the host is
+    // notified, so the change is saved with the project and can be undone).
+    uint32_t theme = 0;
+    float density = 0.55f;
+    if (writer.pollLookRequest (theme, density))
+    {
+        auto set = [] (juce::RangedAudioParameter* p, float value) {
+            if (p == nullptr)
+                return;
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (p->convertTo0to1 (value));
+            p->endChangeGesture();
+        };
+        if (theme <= (uint32_t) sprout::ThemeChoice::Branches)
+            set (params.getParameter ("theme"), (float) theme);
+        set (params.getParameter ("density"), juce::jlimit (0.0f, 1.0f, density));
+    }
 }
 
 uint32_t SproutTapProcessor::getEffectiveRole() const

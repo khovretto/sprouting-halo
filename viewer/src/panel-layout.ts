@@ -26,7 +26,7 @@ export const FOLDER_HINTS: Record<string, string> = {
   preset: 'Ready-made looks and your saved ones. A preset changes the look only, never the fit to your avatar or your colour palette. A star means you changed something since picking it.',
   shape: 'The take trees: how big, flat, dense and arched the shared canopy behind you is, and how the branch tips curve.',
   life: 'How fast a tree grows while you sing, how long old trees stay, and how the outer twigs grow back in pauses.',
-  leaves: 'Leaves, thorns or wreath on the branches and the halo, their size, amount and colours. "Theme comes from" decides whether each track keeps its own theme or the preset sets it for all.',
+  leaves: 'Leaves, thorns or wreath on the branches and the halo, their size, amount and colours. Picking a preset sets its theme and amount in every Sprout Tap window (via Sprout.exe). "Theme comes from: this preset" forces it in the viewer even for taps that do not follow.',
   colours: 'The live halo colour and the colour of each take (unless the track uses its DAW colour), or a rainbow.',
   halo: 'The live vine looping round the ring while you record: where it grows from, how fast, how long it trails and what sprouts from it.',
   voice: 'How your voice drives the look: loudness to brightness, effort to thickness, high notes growing upward, and what counts as the end of a phrase.',

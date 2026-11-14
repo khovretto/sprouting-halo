@@ -118,6 +118,8 @@ int main (int argc, char** argv)
     uint64_t written = 0;
     const auto start = std::chrono::steady_clock::now();
 
+    std::vector<uint32_t> lookTheme;
+    std::vector<float> lookDensity;
     while (seconds <= 0.0 || written / kSampleRate < seconds)
     {
         for (size_t w = 0; w < writers.size(); ++w)
@@ -143,7 +145,20 @@ int main (int argc, char** argv)
             info.isPlaying = 1;
             info.blockRms = (float) std::sqrt (sumSq / kChunk);
             info.blockPeak = peak;
-            info.theme = (uint32_t) (w % 3); // leaves, thorns, wreath: shows per-track looks
+            // Look: leaves, thorns, wreath per take, until the app asks for another (a viewer preset).
+            if (lookTheme.size() <= w)
+                lookTheme.push_back ((uint32_t) (w % 3)), lookDensity.push_back (0.55f);
+            uint32_t reqTheme = 0;
+            float reqDensity = 0.0f;
+            if (writers[w].pollLookRequest (reqTheme, reqDensity))
+            {
+                lookTheme[w] = reqTheme;
+                lookDensity[w] = reqDensity;
+                std::printf ("fake_tap: take %zu look request: theme %u, density %.2f\n", w + 1, reqTheme, reqDensity);
+                std::fflush (stdout);
+            }
+            info.theme = lookTheme[w];
+            info.density = lookDensity[w];
             info.colourMode = 1;
             info.reserved[0] = 1; // recording
             writers[w].writeAudio (chunk.data(), kChunk);

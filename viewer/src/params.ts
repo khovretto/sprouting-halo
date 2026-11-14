@@ -82,8 +82,8 @@ export const defaults = {
     brightness: 0.7,
   },
   look: {
-    /** Where each track's theme and amount come from: its Sprout Tap window, or the active preset
-     *  (then every track uses theme and density below). Presets switch this to 'preset'. */
+    /** Where each track's theme and amount come from: its Sprout Tap window, or theme and density
+     *  below for every track. (Picking a preset already sets every Sprout Tap window to its theme.) */
     themeFrom: 'tracks' as 'tracks' | 'preset',
     /** Fallback theme. Each track sets its own theme and amount in the Sprout Tap window; this
      *  is used only for the fake singer and taps set to "Viewer default". */

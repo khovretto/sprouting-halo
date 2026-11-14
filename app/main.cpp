@@ -26,6 +26,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <cstdlib>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -393,6 +395,39 @@ std::string featureJson (const std::array<TapState, sprout::kMaxSlots>& taps, do
 
 sprout::FeatureServer web;
 
+// {"type":"tapLook","theme":"wreath","density":0.8,...} -> a look request in every voice tap's slot.
+void applyTapLook (const std::string& msg, sprout::Bus& bus, const std::array<TapState, sprout::kMaxSlots>& taps)
+{
+    auto field = [&] (const char* key) -> std::string {
+        const std::string k = std::string ("\"") + key + "\":";
+        const size_t p = msg.find (k);
+        if (p == std::string::npos)
+            return {};
+        size_t a = p + k.size();
+        if (a < msg.size() && msg[a] == '"')
+        {
+            const size_t b = msg.find ('"', a + 1);
+            return b == std::string::npos ? std::string() : msg.substr (a + 1, b - a - 1);
+        }
+        size_t b = a;
+        while (b < msg.size() && (std::isdigit ((unsigned char) msg[b]) || msg[b] == '.' || msg[b] == '-' || msg[b] == 'e'))
+            ++b;
+        return msg.substr (a, b - a);
+    };
+    const std::string name = field ("theme");
+    sprout::ThemeChoice theme;
+    if (name == "leaves") theme = sprout::ThemeChoice::Leaves;
+    else if (name == "thorns") theme = sprout::ThemeChoice::Thorns;
+    else if (name == "wreath") theme = sprout::ThemeChoice::Wreath;
+    else if (name == "branches") theme = sprout::ThemeChoice::Branches;
+    else return;
+    const std::string d = field ("density");
+    const float density = d.empty() ? 0.55f : std::clamp ((float) std::atof (d.c_str()), 0.0f, 1.0f);
+    for (uint32_t i = 0; i < sprout::kMaxSlots; ++i)
+        if (taps[i].active && (sprout::Role) taps[i].info.role != sprout::Role::Instrument)
+            sprout::requestLook (bus.slots[i], theme, density);
+}
+
 void updateTitle (HWND hwnd, int taps)
 {
     char title[256];
@@ -538,6 +573,12 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
         if (web.clientCount() > 0)
             web.broadcast (featureJson (taps, now));
         web.poll();
+
+        // A viewer picked a preset: every voice tap switches to its theme and amount (the tap
+        // sets its own parameters, so the DAW saves the change with the project).
+        for (const std::string& msg : web.takeAppMessages())
+            if (busOk)
+                applyTapLook (msg, *bus.get(), taps);
 
         // ---- Build rings --------------------------------------------------------------------
         // Voices first (live voice, then takes), each further one a little further in.

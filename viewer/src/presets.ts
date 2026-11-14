@@ -71,7 +71,6 @@ export const BUILTIN_PRESETS: Preset[] = ([
     id: 'calm', name: 'Calm garden',
     description: 'Slow growth, long fades, soft even glow. For ballads and talk segments.',
     values: {
-      look: { themeFrom: 'preset' },
       growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5,
         twigFadeSeconds: 1.2, regrowSpeed: 0.8 },
       response: { release: 3, brightness: 0.45, variety: 0.3 },
@@ -88,7 +87,7 @@ export const BUILTIN_PRESETS: Preset[] = ([
     values: {
       growth: { branching: 0.95, reach: 1.1, spread: 1.3, flatten: 0.45, secondsToFull: 4.5, fadeAfter: 8, fadeSeconds: 4,
         restBrightness: 0.65, witherDepth: 0.3 },
-      look: { themeFrom: 'preset', theme: 'leaves', density: 0.85, decoSize: 1.5, naturalTint: 0.6, variety: 0.8, depthShade: 0.8, blossoms: 0.4,
+      look: { theme: 'leaves', density: 0.85, decoSize: 1.5, naturalTint: 0.6, variety: 0.8, depthShade: 0.8, blossoms: 0.4,
         decoGlow: 0.12 },
       plants: { wildness: 0.7, overlap: 0.8, clearance: 0.03, taper: 0.55, lift: 0.05, maxNodes: 3600 },
       halo: { origins: 2, tailDeg: 540, tailFade: 0.3, sproutRate: 6, sproutLength: 16, alwaysLeaves: 0.7, wander: 0.14 },
@@ -103,7 +102,7 @@ export const BUILTIN_PRESETS: Preset[] = ([
     values: {
       growth: { branching: 0.25, spread: 0.7, flatten: 0.35, secondsToFull: 3, restBrightness: 0.4, fadeAfter: 2,
         fadeSeconds: 3.5, witherDepth: 0.7 },
-      look: { themeFrom: 'preset', theme: 'branches', density: 0.15, decoSize: 1.0, naturalTint: 0.1, variety: 0.35, depthShade: 0.4, blossoms: 0 },
+      look: { theme: 'branches', density: 0.15, decoSize: 1.0, naturalTint: 0.1, variety: 0.35, depthShade: 0.4, blossoms: 0 },
       plants: { taper: 0.8, wildness: 0.6, lift: 0.35, clearance: 0.07, overlap: 0.25 },
       response: { effortWidth: 0.5 },
       halo: { alwaysLeaves: 0.1, sproutRate: 1.5, sproutLength: 8, sproutCurl: 0.4, tailDeg: 220 },
@@ -117,7 +116,7 @@ export const BUILTIN_PRESETS: Preset[] = ([
     description: 'A full wreath for the halo, natural reds and greens, sparkle on note starts.',
     values: {
       growth: { branching: 0.7, flatten: 0.4, restBrightness: 0.7, fadeAfter: 5 },
-      look: { themeFrom: 'preset', theme: 'wreath', density: 0.8, decoSize: 2.2, naturalTint: 0.9, decoGlow: 0.35, variety: 0.7 },
+      look: { theme: 'wreath', density: 0.8, decoSize: 2.2, naturalTint: 0.9, decoGlow: 0.35, variety: 0.7 },
       plants: { lift: 0.3 },
       halo: { origins: 2, tailDeg: 720, tailFade: 0.2, alwaysLeaves: 0.9, idleSpeed: 12, sproutLength: 7, sproutCurl: 0.5,
         wander: 0.04, ringWidth: 0.014, vineWidth: 0.01 },
@@ -133,7 +132,7 @@ export const BUILTIN_PRESETS: Preset[] = ([
       growth: { secondsToFull: 1.8, fadeAfter: 1.5, fadeSeconds: 1.2, restBrightness: 0.4, branching: 0.7, spread: 1.4,
         witherOnPitchDip: true, witherDepth: 0.7, witherSeconds: 0.4, regrowSpeed: 2.5 },
       response: { phraseGap: 0.6, release: 0.7, brightness: 1, effortWidth: 1.5, pitchSteer: 0.8, variety: 0.8 },
-      look: { themeFrom: 'preset', blossoms: 1 },
+      look: { blossoms: 1 },
       halo: { origins: 3, idleSpeed: 20, singSpeed: 160, tailDeg: 200, sproutRate: 8, sproutLength: 16, sproutGrow: 0.3,
         spawnSeconds: 0.5 },
       glow: { strength: 2.4, base: 0.2, levelGain: 1.6, onsetGain: 1.8, pitchShine: 1.0, front: 1.8, knee: 1.2 },
@@ -148,7 +147,7 @@ export const BUILTIN_PRESETS: Preset[] = ([
     values: {
       growth: { branching: 0.3, reach: 0.8, restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2 },
       response: { brightness: 0.5, effortWidth: 0.5 },
-      look: { themeFrom: 'preset', density: 0.3, decoSize: 1.2, decoGlow: 0.1, blossoms: 0.3, naturalTint: 0.2 },
+      look: { density: 0.3, decoSize: 1.2, decoGlow: 0.1, blossoms: 0.3, naturalTint: 0.2 },
       plants: { wildness: 0.25, maxNodes: 1500 },
       halo: { sproutRate: 1.5, sproutLength: 7, alwaysLeaves: 0.2, tailDeg: 180, wander: 0.04 },
       glow: { strength: 0.8, radius: 1.2, wide: 0.3, base: 0.15, levelGain: 0.5, onsetGain: 0.3, pitchShine: 0.2, front: 0.4 },
@@ -161,7 +160,7 @@ export const BUILTIN_PRESETS: Preset[] = ([
     description: 'Drooping, pointed, thorny. Thorns and thickness follow vocal effort.',
     values: {
       growth: { branching: 0.5, spread: 1.6, flatten: 0.7 },
-      look: { themeFrom: 'preset', theme: 'thorns', thornEffort: 2, density: 0.45, decoSize: 1.6, naturalTint: 0.5, depthShade: 0.8 },
+      look: { theme: 'thorns', thornEffort: 2, density: 0.45, decoSize: 1.6, naturalTint: 0.5, depthShade: 0.8 },
       plants: { lift: -0.25, taper: 0.9, wildness: 0.8, softDroop: 1.6 },
       response: { effortWidth: 1.4, pitchSteer: 0.7 },
       halo: { sproutCurl: 0.3, sproutLength: 14, wander: 0.12, alwaysLeaves: 0.5 },

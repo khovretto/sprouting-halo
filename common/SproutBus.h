@@ -23,11 +23,11 @@
 namespace sprout
 {
 constexpr uint32_t kMagic         = 0x54525053; // 'SPRT'
-constexpr uint32_t kVersion       = 2; // 2: per-track look (theme, density, colour mode)
+constexpr uint32_t kVersion       = 3; // 2: per-track look; 3: app -> tap look requests
 constexpr uint32_t kMaxSlots      = 16;
 constexpr uint32_t kAudioRingSize = 1u << 15; // 32768 samples, ~0.68 s at 48 kHz
 constexpr uint32_t kNameLength    = 64;
-constexpr wchar_t  kMappingName[] = L"Local\\SproutBus_v2";
+constexpr wchar_t  kMappingName[] = L"Local\\SproutBus_v3";
 
 // A slot whose heartbeat is older than this is considered gone.
 constexpr uint64_t kAliveTimeoutMs = 1000;
@@ -79,6 +79,11 @@ struct alignas (64) Slot
     std::atomic<uint32_t> owner;        // 0 = free, otherwise the owner's random token
     std::atomic<uint64_t> heartbeatMs;  // GetTickCount64() at the last update
     std::atomic<uint32_t> seq;          // seqlock: odd while the writer is updating `info`
+    // App -> tap (v3): a look request (a viewer picked a preset). The app writes theme and
+    // density, then bumps lookSeq; the tap applies each new lookSeq to its own parameters.
+    std::atomic<uint32_t> lookSeq;
+    std::atomic<uint32_t> lookTheme;       // ThemeChoice
+    std::atomic<uint32_t> lookDensityBits; // float bits, 0..1
     SlotInfo              info;
     std::atomic<uint64_t> audioWritePos; // total mono samples ever written
     float                 audio[kAudioRingSize];
@@ -174,6 +179,7 @@ public:
             if ((free || stale) && s.owner.compare_exchange_strong (prev, token, std::memory_order_acq_rel))
             {
                 slot = &s;
+                lastLook = s.lookSeq.load (std::memory_order_acquire); // ignore requests made before we came
                 slot->seq.store (0, std::memory_order_relaxed);
                 slot->audioWritePos.store (0, std::memory_order_relaxed);
                 slot->heartbeatMs.store (now, std::memory_order_release);
@@ -208,6 +214,21 @@ public:
             slot->heartbeatMs.store (nowMs(), std::memory_order_release);
     }
 
+    // A new look request from the app since the last call? (message thread)
+    bool pollLookRequest (uint32_t& theme, float& density)
+    {
+        if (slot == nullptr)
+            return false;
+        const uint32_t seqNow = slot->lookSeq.load (std::memory_order_acquire);
+        if (seqNow == lastLook)
+            return false;
+        lastLook = seqNow;
+        theme = slot->lookTheme.load (std::memory_order_relaxed);
+        const uint32_t bits = slot->lookDensityBits.load (std::memory_order_relaxed);
+        std::memcpy (&density, &bits, sizeof (float));
+        return true;
+    }
+
     // Must only be called from ONE thread (the audio thread).
     void publishInfo (const SlotInfo& info)
     {
@@ -234,6 +255,7 @@ public:
 private:
     Slot*    slot       = nullptr;
     uint32_t ownerToken = 0;
+    uint32_t lastLook   = 0;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -260,6 +282,16 @@ inline bool readInfo (const Slot& s, SlotInfo& out)
         }
     }
     return false;
+}
+
+// Ask the tap in this slot to switch its look (app side).
+inline void requestLook (Slot& s, ThemeChoice theme, float density)
+{
+    uint32_t bits = 0;
+    std::memcpy (&bits, &density, sizeof (float));
+    s.lookTheme.store ((uint32_t) theme, std::memory_order_relaxed);
+    s.lookDensityBits.store (bits, std::memory_order_relaxed);
+    s.lookSeq.fetch_add (1, std::memory_order_release);
 }
 
 // Copies the most recent `count` samples (count <= kAudioRingSize / 2). Returns the write position.

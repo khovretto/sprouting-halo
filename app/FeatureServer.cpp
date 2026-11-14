@@ -156,6 +156,7 @@ struct FeatureServer::Impl
     // so an OBS Browser Source picks up the settings made in a normal browser tab.
     std::string lastParams;
     std::vector<std::pair<SOCKET, std::string>> relay; // (sender, message)
+    std::vector<std::string> appInbox;                  // messages for the app ("tapLook")
 
     void handleHttp (Conn& c)
     {
@@ -267,6 +268,12 @@ struct FeatureServer::Impl
                 c.out += frame (0xA, payload);
             if (opcode == 0x1) // text from a viewer: relay to the other viewers
             {
+                if (payload.rfind ("{\"type\":\"tapLook\"", 0) == 0)
+                {
+                    if (appInbox.size() < 64)
+                        appInbox.push_back (std::move (payload));
+                    continue;
+                }
                 if (payload.rfind ("{\"type\":\"params\"", 0) == 0)
                     lastParams = payload;
                 relay.push_back ({ c.s, std::move (payload) });
@@ -440,6 +447,13 @@ void FeatureServer::broadcast (const std::string& text)
             f = Impl::frame (0x1, text);
         c.out += f;
     }
+}
+
+std::vector<std::string> FeatureServer::takeAppMessages()
+{
+    std::vector<std::string> out;
+    out.swap (impl->appInbox);
+    return out;
 }
 
 int FeatureServer::clientCount() const
