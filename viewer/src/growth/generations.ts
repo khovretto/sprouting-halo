@@ -1,0 +1,92 @@
+// Growth over phrases for a take's plant, without ever "ungrowing".
+//
+// A take holds one or more *generations*: built trees, each with its own reveal (how much has
+// grown) and brightness. The newest one grows while the take sings and never shrinks.
+//
+// - newTreeEachPhrase on: a new phrase starts a new tree on a new seed. Older trees are left alone
+//   and only start fading growth.fadeAfter seconds after they stopped growing, so a tree outlives
+//   the start of the next phrase.
+// - off: one tree keeps growing phrase after phrase and rests at growth.restBrightness between.
+
+import type { Drive } from '../drive';
+import type { Params } from '../params';
+import type { Skeleton } from './skeleton';
+
+export interface Structure {
+  sk: Skeleton;
+  vis: Float32Array;
+}
+
+export interface Generation<T extends Structure> {
+  tree: T;
+  seed: number;
+  /** 0..1 grown (monotonic). */
+  reveal: number;
+  /** 0..1 brightness / opacity. */
+  alpha: number;
+  /** Replaced by a newer tree (it keeps its shape and fades on its own timer). */
+  retired: boolean;
+  /** Seconds since this tree last grew. */
+  idle: number;
+  /** 0..1 how far the outer twigs have withered (pauses, pitch dips); they regrow as it falls. */
+  wither: number;
+}
+
+const MAX_GENERATIONS = 5;
+
+export class Generations<T extends Structure> {
+  gens: Generation<T>[] = [];
+  private nextSeed: number;
+
+  constructor(private make: (seed: number) => T, firstSeed: number) {
+    this.nextSeed = firstSeed;
+  }
+
+  get current(): Generation<T> | undefined {
+    for (let i = this.gens.length - 1; i >= 0; i--) if (!this.gens[i].retired) return this.gens[i];
+    return undefined;
+  }
+
+  /** Start a new tree now (new seed); older ones are retired but not cut short. */
+  regrow() {
+    for (const g of this.gens) g.retired = true;
+    const seed = this.nextSeed++;
+    this.gens.push({ tree: this.make(seed), seed, reveal: 0, alpha: 1, retired: false, idle: 0, wither: 0 });
+    while (this.gens.length > MAX_GENERATIONS) this.gens.shift();
+  }
+
+  update(d: Drive, dt: number, p: Params) {
+    const g = p.growth;
+    if (d.voice) {
+      if (!this.current) this.regrow();
+      else if (d.newPhrase && g.newTreeEachPhrase && this.current.reveal > 0.05) this.regrow();
+    }
+
+    const cur = this.current;
+    if (cur && d.voice) {
+      cur.reveal = Math.min(1, cur.reveal + (dt / Math.max(0.05, g.secondsToFull)) * (0.4 + d.level));
+      cur.idle = 0;
+    }
+    if (cur) {
+      // Pauses wither the outer twigs gradually; a pitch dip withers some at once. Singing lets
+      // them grow back.
+      if (g.witherOnPause && !d.voice && d.silentFor > 0.12) cur.wither = Math.min(1, cur.wither + dt / Math.max(0.05, g.witherSeconds));
+      if (g.witherOnPitchDip && d.pitchDip) cur.wither = Math.min(1, cur.wither + 0.6);
+      if (d.voice) cur.wither = Math.max(0, cur.wither - dt / 1.2);
+    }
+
+    const fadeAfter = Math.max(0, g.fadeAfter);
+    const fade = Math.max(0.05, g.fadeSeconds);
+    for (const gen of this.gens) {
+      const growing = gen === cur && d.voice;
+      if (!growing) gen.idle += dt;
+      const canFade = g.newTreeEachPhrase || gen.retired;
+      if (canFade && gen.idle > fadeAfter) gen.alpha -= dt / fade;
+      else {
+        const target = growing || (gen === cur && !d.phraseOver(p)) ? 1 : g.restBrightness;
+        gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
+      }
+    }
+    this.gens = this.gens.filter((gen) => gen.alpha > 0);
+  }
+}

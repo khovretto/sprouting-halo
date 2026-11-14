@@ -1,0 +1,8 @@
+build/
+bench/.venv/
+bench/data/
+bench/*.log
+external/
+*.png
+viewer/node_modules/
+viewer/dist/
