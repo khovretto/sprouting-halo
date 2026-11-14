@@ -32,8 +32,8 @@ export const defaults = {
     newTreeEachPhrase: true,
     /** Seconds of full voice to grow a whole tree (higher = slower). */
     secondsToFull: 3.5,
-    /** 0 = a spine with a few bare feathers; 1 = many feathers with twigs and twiglets. */
-    branching: 0.55,
+    /** 0 = a spine with a few bare limbs; 1 = dense, ivy-like: many limbs with shoots on shoots. */
+    branching: 0.65,
     /** Overall length: multiplies each plant's spine (and with it every feather). */
     reach: 1.0,
     /** Fan aperture: how far the feathers open from the spine. */
@@ -154,6 +154,10 @@ export const defaults = {
     wildness: 0.5,
     /** Feathers cross over one another: more on both sides of the spine, more varied angles. */
     overlap: 0.5,
+    /** 0 = pointed outline (longest limbs near the base), 1 = broad: limbs as long at the tip. */
+    planform: 0.8,
+    /** 0 = stems keep their width to a blunt end, 1 = fine pointed tips. */
+    taper: 0.35,
     /** Which side of a side plant carries the feathers: 1 = the upper side, -1 = the lower side. */
     featherSide: 1,
     /** How much soft / breathy singing makes a new tree droop. */
@@ -170,7 +174,7 @@ export const defaults = {
     tipWidth: 0.008,
     maxWidth: 0.035,
     pipeExponent: 2.4,
-    maxNodes: 900,
+    maxNodes: 2600,
   },
   envelope: {
     crownMin: 0.75,

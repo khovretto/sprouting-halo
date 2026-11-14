@@ -30,6 +30,8 @@ const RANGES: Record<string, Spec> = {
   'plants.lift': { min: -1, max: 1 },
   'plants.wildness': { min: 0, max: 1 },
   'plants.overlap': { min: 0, max: 1 },
+  'plants.planform': { min: 0, max: 1 },
+  'plants.taper': { min: 0, max: 1 },
   'plants.featherSide': { options: { 'Upper side': 1, 'Lower side': -1 } },
   'plants.softDroop': { min: 0, max: 2 },
   'layout.downGap': { min: 0, max: 200 },

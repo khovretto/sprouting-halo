@@ -20,12 +20,13 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   seed; older trees stay and only start fading growth.fadeAfter seconds after their own phrase
   ended (fadeSeconds for the fade). Off: one tree keeps growing and rests dimmer between phrases.
 - **Tree shape (Take plants → generator = gesture):** each take is one dominant, nearly straight
-  spine with a fan of "feather" limbs and sparse twigs (docs/fable-consult.md, Part A). Side plants
+  spine with a fan of limbs that throw ivy-like alternating side shoots, up to three levels deep (docs/fable-consult.md, Part A). Side plants
   carry their feathers on the upper side (Growth → sweep; 0 = symmetric trees). Limbs fork behind
   the avatar and must leave the head's outline steeply, so nothing runs along the silhouette. The
   reveal grows the spine first, then the feathers from the base out, then the twigs. A tree keeps
   its form when the layout changes. Sliders: Growth → branching, reach, spread (fan aperture),
-  sweep; Take plants → lift (tips up / droop), wildness, overlap (feathers on both sides, crossing), featherSide, moodShaping (each new tree
+  sweep; Take plants → lift (tips up / droop), wildness, overlap (feathers on both sides, crossing), planform (pointed … broad ends), taper
+  (blunt … fine tips), featherSide, moodShaping (each new tree
   takes its character from the phrase: effort, pitch, softness, vibrato). Layout → downGap keeps
   3+ takes out from behind the body. `generator = colonise` brings back the old trees to compare.
   Console check: `sprout.metrics()`.

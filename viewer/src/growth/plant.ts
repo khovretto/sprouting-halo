@@ -141,7 +141,7 @@ export class Plant {
     const sig = [
       pp.generator, pl.kind, pl.rMin, pl.length, pl.lengthMul ?? 1, pl.halfAngle, Math.round(pl.bend * 10), pl.taper,
       pp.attractors, pp.step, pp.influence, pp.kill, pp.jitter, pp.smoothing, pp.tipWidth, pp.maxWidth,
-      pp.pipeExponent, pp.maxNodes, pp.lift, pp.wildness, pp.overlap, pp.featherSide, pp.softDroop, pp.moodShaping,
+      pp.pipeExponent, pp.maxNodes, pp.lift, pp.wildness, pp.overlap, pp.planform, pp.taper, pp.featherSide, pp.softDroop, pp.moodShaping,
       g.branching, g.sweep, a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
     if (sig === this.signature) return false;
@@ -298,7 +298,9 @@ export class Plant {
       let x = sk.x[parent], y = sk.y[parent], prev = parent, arc = 0;
       const first = sk.n;
       const id = limbs.length;
-      const tipW = pp.tipWidth * (ord === 0 ? 1.6 : 1);
+      const taper = clamp(pp.taper);
+      const tipW = lerp(w0 * 0.75, pp.tipWidth * (ord === 0 ? 1.6 : 1), taper);
+      const taperExp = lerp(2.2, 0.8, taper); // low taper: width holds, then narrows near the end
       for (let k = 1; k <= n && sk.n < pp.maxNodes; k++) {
         const t = k / n;
         arc += ds;
@@ -328,7 +330,7 @@ export class Plant {
         }
         x += Math.sin(h) * ds;
         y += Math.cos(h) * ds;
-        prev = sk.add(x, y, prev, 0, lerp(w0, tipW, Math.pow(t, 0.8)), NodeKind.Branch);
+        prev = sk.add(x, y, prev, 0, lerp(w0, tipW, Math.pow(t, taperExp)), NodeKind.Branch);
         order.push(ord);
         tAlong.push(t);
         limbOf.push(id);
@@ -344,9 +346,13 @@ export class Plant {
     const spine = grow(0, tilt, spineLen, 0, 0, pp.maxWidth, 0, rs() * 10, (f.side * 12 * deg) / Math.max(0.2, spineLen));
 
     // 2. Feathers along the spine, with a wing planform.
-    const N1 = Math.max(2, Math.round(lerp(4, 9, branching) * f.detail + (mood.effort > 0.7 ? 1 : 0)));
-    const chord = f.kind === 'crown' ? 0.8 : f.kind === 'wing' ? 0.62 : 0.5;
-    const plan = (u: number) => Math.pow(1 - u, 0.65) * (0.7 + 0.3 * smooth01(0, 0.3, u));
+    const N1 = Math.max(3, Math.round(lerp(6, 14, branching) * f.detail + (mood.effort > 0.7 ? 1 : 0)));
+    const chord = f.kind === 'crown' ? 0.85 : f.kind === 'wing' ? 0.75 : 0.65;
+    // Planform: 0 = pointed (longest a third of the way out, short at the tip: reads as a star or
+    // triangle), 1 = broad (limbs about as long at the tip as at the base: a wide, ivy-like mass).
+    const broad = clamp(pp.planform);
+    const plan = (u: number) =>
+      lerp(Math.pow(1 - u, 0.65) * (0.7 + 0.3 * smooth01(0, 0.3, u)), 0.85 + 0.1 * Math.sin(Math.PI * u), broad);
     const hero = Math.floor(N1 * (0.25 + 0.2 * r()));
     const firstSide = r() < 0.5 ? -1 : 1;
     const feathers: Limb[] = [];
@@ -378,24 +384,28 @@ export class Plant {
         Math.min(sk.w[node] * 0.62, pp.maxWidth * 0.5), onLift, r() * 10));
     }
 
-    // 3. Twigs on the outer part of each feather (twiglets on twigs when branching is high).
-    const twigGap = (lerp(0.3, 0.11, branching) * (1 + 0.5 * mood.soft * pp.softDroop)) / (1 + 0.3 * mood.vibrato);
-    const addTwigs = (host: Limb, ord: number) => {
-      const count = Math.floor(((host.len * 0.62) / twigGap) * f.detail);
+    // 3. Ivy-style side shoots: every limb throws alternating shoots at a regular spacing along
+    //    its whole length, and shoots throw their own (up to three levels below the feathers).
+    const shootGap = (lerp(0.26, 0.08, branching) * (1 + 0.5 * mood.soft * pp.softDroop)) / (1 + 0.3 * mood.vibrato);
+    const maxOrder = branching > 0.7 ? 4 : branching > 0.35 ? 3 : 2;
+    const addShoots = (host: Limb, ord: number, from: number, gapMul: number) => {
+      const count = Math.floor(((host.len * (0.95 - from)) / (shootGap * gapMul)) * f.detail);
       let s = r() < 0.5 ? -1 : 1;
       for (let j = 0; j < count && sk.n < pp.maxNodes; j++) {
-        const u = lerp(0.3, 0.92, (j + 0.5 + (r() - 0.5) * 0.5) / count);
+        const u = lerp(from, 0.95, (j + 0.5 + (r() - 0.5) * 0.5) / count);
         const node = host.first + Math.round(u * (host.last - host.first));
         const [wx, wy] = toWorld(sk.x[node], sk.y[node], pl);
         if (blocked(wx, wy)) continue; // no detail behind the avatar
-        s = r() < 0.65 ? host.side || s : -s; // prefer the side away from the spine
-        const len = Math.max(0.05, host.len * lerp(0.32, 0.14, u) * (0.8 + 0.4 * r()));
-        const tw = grow(node, headingAt(node) + s * (28 + 18 * r()) * deg, len, ord, (r() - 0.5) * 0.35,
-          Math.min(sk.w[node] * 0.7, pp.tipWidth * 1.5), s, r() * 10);
-        if (ord === 2 && branching > 0.75 && f.detail > 0.7 && r() < 0.5) addTwigs(tw, 3);
+        s = -s; // alternate sides, like ivy
+        const len = Math.max(0.05, host.len * lerp(0.45, 0.25, u) * (0.7 + 0.6 * r()) * (ord > 2 ? 0.8 : 1));
+        const shoot = grow(node, headingAt(node) + s * (32 + 25 * r()) * deg, len, ord, (r() - 0.5) * 0.4,
+          Math.min(sk.w[node] * 0.75, pp.tipWidth * 1.8), s, r() * 10);
+        if (ord < maxOrder && len > 0.12 && r() < lerp(0.3, 0.85, branching) * f.detail) addShoots(shoot, ord + 1, 0.2, 1.2);
       }
     };
-    if (f.detail > 0.45 || branching > 0.8) for (const ft of feathers) addTwigs(ft, 2);
+    for (const ft of feathers) addShoots(ft, 2, 0.15, 1);
+    // The main stem throws shoots of its own between the feathers, outside the avatar.
+    addShoots(spine, 2, Math.min(0.9, f.rClear / Math.max(0.05, spineLen)), 1.6);
 
     sk.computeChildren();
     const n = sk.n;
