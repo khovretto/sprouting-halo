@@ -7,6 +7,7 @@ import type { FeatureFrame, LayerFeatures, Theme } from './features';
 import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
 import { Scope } from './scope';
+import { clearAvatarImage, loadAvatarImage, pickAvatarImage } from './avatar-image';
 import { LayerMotion, Wind } from './motion';
 import { CommitAnimation, CommitHooks, CommitTarget, HaloSnapshot, StrandLook } from './growth/commit';
 import { FakeSource } from './sources/fake';
@@ -93,8 +94,17 @@ function start() {
 
   const renderer = new Renderer(glCanvas);
   const overlay = new Overlay(ovCanvas);
+  if (!obs) void loadAvatarImage().then((img) => (overlay.image = img));
   const scopeCanvas = document.getElementById('scope') as HTMLCanvasElement;
   const scope = new Scope(scopeCanvas);
+  const scopeSet = (fn: () => void) => {
+    fn();
+    saveParams(params);
+    ui?.refresh();
+  };
+  scope.onSelect = (k) => scopeSet(() => (params.scene.scopeLayer = k));
+  scope.onSeconds = (d) => scopeSet(() => (params.scene.scopeSeconds = clamp(params.scene.scopeSeconds + d, 4, 40)));
+  scope.onClose = () => scopeSet(() => (params.scene.showScope = false));
   let scopeTarget = '';
   const fake = new FakeSource(params.fake.seed);
   const live = new LiveSource();
@@ -171,6 +181,12 @@ function start() {
     delete scene.showScope;
     delete scene.scopeLayer;
     delete scene.scopeSeconds;
+    const av = shared.avatar as Partial<typeof params.avatar>;
+    delete av.opacity;
+    delete av.useImage;
+    delete av.imageX;
+    delete av.imageY;
+    delete av.imageHeight;
     return shared;
   };
   const sendParams = () => {
@@ -204,6 +220,21 @@ function start() {
     ui = buildUI(panel, params, {
       restart: () => runAction('restart', true),
       commitLive: () => runAction('commit', true),
+      loadAvatar: async () => {
+        const img = await pickAvatarImage();
+        if (img) {
+          overlay.image = img;
+          params.avatar.useImage = true;
+          params.scene.showAvatar = true;
+          if (params.avatar.opacity < 0.5) params.avatar.opacity = 1;
+          saveParams(params);
+          ui?.refresh();
+        }
+      },
+      clearAvatar: () => {
+        overlay.image = null;
+        void clearAvatarImage();
+      },
       deleteTake: () => runAction('delete', true),
       changed: () => {
         lastLocalChange = Date.now();
@@ -236,10 +267,11 @@ function start() {
     const c = params.colours as unknown as Record<string, string>;
     return c[`take${(k % 7) + 1}`] ?? '#ffffff';
   };
-  const themeOf = (f?: LayerFeatures) => ({
-    theme: f?.theme ?? params.look.theme,
-    density: f?.theme ? f.density ?? params.look.density : params.look.density,
-  });
+  // A track's theme: its own (Sprout Tap window), unless the preset's theme applies to all tracks.
+  const themeOf = (f?: LayerFeatures) => {
+    const own = params.look.themeFrom === 'tracks' && f?.theme;
+    return { theme: own ? f.theme! : params.look.theme, density: own ? f.density ?? params.look.density : params.look.density };
+  };
 
   const liveUrl = () =>
     !import.meta.env.DEV && location.protocol.startsWith('http')
@@ -307,6 +339,7 @@ function start() {
                     tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>) {
     const u = Math.max(1e-3, unit);
     if (alpha <= 0.005) return;
+    const rainbow = params.colours.mode === 'rainbow', bright = brighten(look), fade = fadeOf(look);
     // shown[i]: a child segment of node i is drawn (so the segment ending at i can end flat).
     if (shown.length < sk.n) shown = new Uint8Array(sk.n * 2);
     shown.fill(0, 0, sk.n);
@@ -322,13 +355,13 @@ function start() {
       const na = nodeAlpha ? nodeAlpha[i] : 1;
       if (na <= 0.005) continue;
       const ax = sk.x[pa], ay = sk.y[pa];
-      const c = colourAt(base, layer, sk.flex[i]);
+      const c = rainbow ? colourAt(base, layer, sk.flex[i]) : base;
       const tn = tone ? tone[i] : 1;
-      const k = brighten(look) * tn;
+      const k = bright * tn;
       out.stroke(
         ax, ay, lerp(ax, sk.x[i], f), lerp(ay, sk.y[i], f),
         (sk.w[pa] * look.width) / u, (sk.w[i] * look.width * (0.4 + 0.6 * f)) / u, sk.flex[pa], sk.flex[i],
-        lerp(c[0], 1, look.shine) * k, lerp(c[1], 1, look.shine) * k, lerp(c[2], 1, look.shine) * k, alpha * na * fadeOf(look),
+        lerp(c[0], 1, look.shine) * k, lerp(c[1], 1, look.shine) * k, lerp(c[2], 1, look.shine) * k, alpha * na * fade,
         (look.glow + (f < 1 ? frontGlow * (1 - f) : 0)) * tn * tn, layer,
         // Chain links tile: a flat start where the parent segment meets this one, and a flat end
         // where a drawn child continues it (tips and growing ends stay round).
@@ -382,6 +415,8 @@ function start() {
       scopeTarget = key;
       scope.clear();
     }
+    scope.layers = ['live halo', ...slots.map((x, i) => `take ${i + 1}`)];
+    scope.selected = Math.min(k, scope.layers.length - 1);
     scope.title = slot ? `take ${k}  (${f?.name || slot.id})` : halo ? `live halo  (${f?.name || halo.id})` : `layer ${k}: none`;
     if (!d) return;
     const g = slot?.gens.current ?? slot?.gens.gens[slot.gens.gens.length - 1];
@@ -421,10 +456,12 @@ function start() {
 
   function commitHooks(fxLayer: number, nextLayer: () => number): CommitHooks {
     return {
-      ring(snap, cx, cy, R, rot, look, ringAlpha, nodeAlpha) {
+      ring(snap, cx, cy, R, rot, look, ringAlpha, nodeAlpha, windE) {
         const L = nextLayer();
         if (L < 0) return;
-        layerU.set(L, cx, cy, Math.PI / 2 + rot, R, STILL);
+        // It starts with the halo's squish and tilt and turns round as it winds up and spins.
+        const sq = 1 - clamp(params.halo.squish, 0, 0.95) * (1 - windE);
+        layerU.set(L, cx, cy, Math.PI / 2 + rot + params.halo.tilt * deg * (1 - windE), R, STILL, 1, sq);
         const lk = strandLook(look);
         pushRing(front, L, look.colour, lk, ringAlpha * look.alpha, R, 0);
         pushTree(front, snap.sk, snap.vis, L, look.colour, lk, look.alpha, R, params.glow.front, nodeAlpha);
@@ -607,6 +644,7 @@ function start() {
   let plantLayerCount = 0;
   let lastView: View | null = null;
   function draw() {
+    const tDraw0 = performance.now();
     document.body.className = obs ? '' : `backdrop-${params.scene.backdrop}`;
     backUnder.reset();
     back.reset();
@@ -672,7 +710,7 @@ function start() {
       if (layer >= MAX_LAYERS) return;
       const spawn = Math.max(0.001, easeOutBack(clamp((t - h.spawnT0) / Math.max(0.05, hp.spawnSeconds))));
       const R = h.R * spawn;
-      layerU.set(layer, 0, h.cy, Math.PI / 2, R, h.motion);
+      layerU.set(layer, 0, h.cy, Math.PI / 2 + hp.tilt * deg, R, h.motion, 1, 1 - clamp(hp.squish, 0, 0.95));
       const base = hexToRgb(h.look.colour);
       const look = lookOf(h.drive);
       pushRing(front, layer, base, look, fade, R, h.drive.energy);
@@ -708,7 +746,10 @@ function start() {
       glCanvas.height = H;
     }
     const view: View = { s: Math.min(W, H) / 2 / params.scene.viewRadius, cx: params.scene.centerX, cy: params.scene.centerY, W, H };
+    const tGpu0 = performance.now();
+    perfAdd('build', tGpu0 - tDraw0);
     renderer.render(batches, layerU, view, wind.t, params.glow);
+    perfAdd('gpu', performance.now() - tGpu0);
     lastView = view;
 
     if (!obs) {
@@ -721,6 +762,10 @@ function start() {
 
   // ---- Loop ----------------------------------------------------------------------------------------
   let last = performance.now();
+  // Timing (sprout.perf()): average ms per frame of each phase over the last ~2 s.
+  const perf = { sim: 0, build: 0, gpu: 0, frames: 0 };
+  const perfAdd = (k: 'sim' | 'build' | 'gpu', ms: number) => (perf[k] += (ms - perf[k]) * 0.02);
+
   function frame(now: number) {
     requestAnimationFrame(frame);
     try {
@@ -728,8 +773,11 @@ function start() {
       last = now;
       // The OBS page always runs in real time, whatever a preview page saved.
       const dt = obs ? realDt : params.scene.paused ? 0 : realDt * params.scene.timeScale;
+      const t0 = performance.now();
       simulate(dt, realDt);
+      perfAdd('sim', performance.now() - t0);
       draw();
+      perf.frames++;
     } catch (e) {
       showError(e);
     }
@@ -769,6 +817,28 @@ function start() {
       draw();
       const v = lastView!;
       return pixelMetrics(renderer.gl, v.W, v.H, (px, py) => [(px - v.W / 2) / v.s + v.cx, (v.H / 2 - py) / v.s + v.cy], blocked);
+    },
+    /** Preview picture from code (tests): sprout.avatarImage(imgElement) or null. */
+    avatarImage: (img: HTMLImageElement | null) => (overlay.image = img),
+    /** Average ms per frame: simulation, instance building, GL submission (CPU side). */
+    perf: () => ({ simMs: +perf.sim.toFixed(2), buildMs: +perf.build.toFixed(2), glSubmitMs: +perf.gpu.toFixed(2), frames: perf.frames }),
+    /** Time n frames of each phase synchronously (works while the pane is hidden). */
+    bench: (n = 120) => {
+      const r = { sim: 0, build: 0, gl: 0, glFinish: 0 };
+      for (let i = 0; i < n; i++) {
+        let a = performance.now();
+        simulate(1 / 60, 1 / 60);
+        r.sim += performance.now() - a;
+        a = performance.now();
+        draw();
+        r.build += perf.build;
+        r.gl += perf.gpu;
+        const b = performance.now();
+        renderer.gl.finish();
+        r.glFinish += performance.now() - b;
+      }
+      const f = (x: number) => +(x / n).toFixed(2);
+      return { simMs: f(r.sim), buildMs: f(r.build), glSubmitMs: f(r.gl), glFinishMs: f(r.glFinish), instances: batches.reduce((a, b) => a + b.inst.count, 0) };
     },
     stats: () => ({
       t,

@@ -107,18 +107,41 @@ export class Scope {
   private count = 0;
   private frozen = false;
   private hoverX = -1;
+  private hoverY = -1;
   private ctx: CanvasRenderingContext2D;
+  private buttons: { x: number; y: number; w: number; h: number; label: string; tip: string; act: () => void }[] = [];
   title = '';
+  /** Names of the layers the scope can follow (0 = live halo, then takes). */
+  layers: string[] = [];
+  selected = 0;
+  onSelect?: (k: number) => void;
+  onSeconds?: (delta: number) => void;
+  onClose?: () => void;
 
   constructor(readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
     for (const lane of LANES) for (const s of lane.series) this.data.set(s.key, new Float32Array(CAP));
-    canvas.addEventListener('click', () => (this.frozen = !this.frozen));
-    canvas.addEventListener('mousemove', (e) => {
+    const at = (e: MouseEvent) => {
       const r = canvas.getBoundingClientRect();
-      this.hoverX = e.clientX - r.left;
+      return [e.clientX - r.left, e.clientY - r.top];
+    };
+    const hit = (x: number, y: number) => this.buttons.find((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+    canvas.addEventListener('click', (e) => {
+      const [x, y] = at(e);
+      const b = hit(x, y);
+      if (b) b.act();
+      else if (y > 26) this.frozen = !this.frozen;
     });
-    canvas.addEventListener('mouseleave', () => (this.hoverX = -1));
+    canvas.addEventListener('mousemove', (e) => {
+      [this.hoverX, this.hoverY] = at(e);
+      canvas.style.cursor = hit(this.hoverX, this.hoverY) ? 'pointer' : 'crosshair';
+    });
+    canvas.addEventListener('mouseleave', () => (this.hoverX = this.hoverY = -1));
+  }
+
+  private pick(delta: number) {
+    const n = Math.max(1, this.layers.length);
+    this.onSelect?.((((this.selected + delta) % n) + n) % n);
   }
 
   /** Forget everything (the selected layer changed). */
@@ -144,7 +167,7 @@ export class Scope {
     const { canvas, ctx } = this;
     const dpr = window.devicePixelRatio || 1;
     const cssW = Math.max(320, Math.min(980, window.innerWidth - 340));
-    const laneH = 58, header = 22;
+    const laneH = 58, header = 28;
     const cssH = header + LANES.length * laneH + 6;
     canvas.style.width = cssW + 'px';
     canvas.style.height = cssH + 'px';
@@ -166,8 +189,33 @@ export class Scope {
     const X = (tt: number) => x0 + ((tt - tMin) / seconds) * (x1 - x0);
     const hoverT = this.hoverX >= x0 && this.hoverX <= x1 ? tMin + ((this.hoverX - x0) / (x1 - x0)) * seconds : NaN;
 
-    ctx.fillStyle = '#ddd';
-    ctx.fillText(`${this.title}   ${seconds.toFixed(0)} s   ${this.frozen ? '❚❚ frozen (click to resume)' : 'click to freeze'}`, 8, 11);
+    // Header: layer switcher on the left, window / freeze / close on the right. Hovering a button
+    // shows what it does.
+    this.buttons = [];
+    const btn = (x: number, w: number, label: string, tipText: string, act: () => void, on = false) => {
+      const b = { x, y: 4, w, h: 19, label, tip: tipText, act };
+      this.buttons.push(b);
+      const hov = this.hoverX >= b.x && this.hoverX <= b.x + b.w && this.hoverY >= b.y && this.hoverY <= b.y + b.h;
+      ctx.fillStyle = on ? 'rgba(143,208,255,0.35)' : hov ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)';
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = '#e6e9ee';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2 + 0.5);
+      ctx.textAlign = 'left';
+      return b;
+    };
+    btn(6, 22, '◀', 'Previous layer (live halo, then each take)', () => this.pick(-1));
+    btn(30, 22, '▶', 'Next layer', () => this.pick(1));
+    const n = this.layers.length;
+    const label = `${this.title}${n > 1 ? `   (${this.selected + 1} of ${n})` : ''}`;
+    btn(56, Math.min(300, ctx.measureText(label).width + 16), label, 'Following this layer. Click for the next one.', () => this.pick(1));
+    let rx = cssW - 6;
+    const right = (w: number, l: string, tipText: string, act: () => void, on = false) => btn((rx -= w + 4), w, l, tipText, act, on);
+    right(22, '×', 'Close the scope (G opens it again)', () => this.onClose?.());
+    right(64, this.frozen ? '▶ live' : '❚❚ freeze', this.frozen ? 'Resume: follow the voice again' : 'Freeze the graphs to study them (or click anywhere on the graphs)', () => (this.frozen = !this.frozen), this.frozen);
+    right(22, '+', 'Show more history', () => this.onSeconds?.(+4));
+    right(46, `${seconds.toFixed(0)} s`, 'Seconds of history shown', () => this.onSeconds?.(+4));
+    right(22, '−', 'Show less history (zoom in)', () => this.onSeconds?.(-4));
     // Time grid: one line per second.
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1;
@@ -279,6 +327,25 @@ export class Scope {
       });
     });
 
+    // Button tip, just below the header.
+    const hb = this.buttons.find((b) => this.hoverX >= b.x && this.hoverX <= b.x + b.w && this.hoverY >= b.y && this.hoverY <= b.y + b.h);
+    if (hb) {
+      const w = ctx.measureText(hb.tip).width + 14;
+      const x = Math.min(cssW - w - 4, Math.max(4, hb.x + hb.w / 2 - w / 2));
+      ctx.fillStyle = 'rgba(30,33,40,0.97)';
+      ctx.fillRect(x, header + 2, w, 20);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.strokeRect(x + 0.5, header + 2.5, w - 1, 19);
+      ctx.fillStyle = '#e6e9ee';
+      ctx.fillText(hb.tip, x + 7, header + 12.5);
+    } else if (this.hoverY > header && this.hoverX >= 0 && this.hoverX < x0) {
+      const t = 'Thin lines: what the tap sends. Bold: what the viewer makes of it. Hover the graphs to read any moment.';
+      ctx.fillStyle = 'rgba(30,33,40,0.97)';
+      ctx.fillRect(4, header + 2, ctx.measureText(t).width + 14, 20);
+      ctx.fillStyle = '#e6e9ee';
+      ctx.fillText(t, 11, header + 12.5);
+    }
+
     if (hoverIdx >= 0) {
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
       ctx.beginPath();
@@ -287,7 +354,7 @@ export class Scope {
       ctx.stroke();
       ctx.fillStyle = '#ddd';
       ctx.textAlign = 'right';
-      ctx.fillText(`${(this.t[hoverIdx] - now).toFixed(2)} s`, x1, 11);
+      ctx.fillText(`${(this.t[hoverIdx] - now).toFixed(2)} s`, this.hoverX - 6, header + 10);
       ctx.textAlign = 'left';
     }
   }

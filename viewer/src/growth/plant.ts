@@ -104,6 +104,7 @@ export class Plant {
   bend = new Float32Array(0);
   /** Per-node: the lowest leaf density at which this node carries a leaf (2 = never). */
   leafRank = new Float32Array(0);
+  private childVis = new Float32Array(0);
   /** Per-node distance to the farthest tip below it, used for withering. */
   private witherH = new Float32Array(0);
   private target = new Float32Array(0);
@@ -183,24 +184,33 @@ export class Plant {
       this.target[i] = Math.max(this.target[i], clamp((level - t) / band));
     }
 
+    // Withering: the outer twigs within `reach` of their tips grow *back* (retract from the tip,
+    // their leaves shrinking with them), so a withered tree looks younger, never dead: no faded
+    // bare twigs. Children retract before their parent. When the wither recedes they regrow.
     const reach = wither * Math.max(0.01, g.witherDepth);
-    const leafReach = wither > 0.01 ? reach * 1.8 + 0.04 : 0;
-    const twigFade = dt / Math.max(0.02, g.twigFadeSeconds);
-    const leafFade = dt / Math.max(0.02, g.leafFadeSeconds);
-    for (let i = 0; i < sk.n; i++) {
-      // Withering: twigs fade, and once gone are cleared so they regrow later.
-      if (this.witherH[i] < reach) {
-        this.life[i] = Math.max(0, this.life[i] - twigFade);
-        if (this.life[i] === 0) this.vis[i] = 0;
-      } else this.life[i] = Math.min(1, this.life[i] + dt / 0.15);
-      if (this.witherH[i] < leafReach) this.leafLife[i] = Math.max(0, this.leafLife[i] - leafFade);
-      else this.leafLife[i] = Math.min(1, this.leafLife[i] + dt / 0.25);
-
+    const retract = (Math.max(0.05, g.witherDepth) / Math.max(0.05, g.twigFadeSeconds)) * dt; // units this frame
+    const n = sk.n;
+    if (this.childVis.length < n) this.childVis = new Float32Array(n * 2);
+    const cv = this.childVis;
+    cv.fill(0, 0, n);
+    for (let i = n - 1; i >= 0; i--) {
+      const pa = sk.parent[i];
+      if (this.witherH[i] < reach && dt > 0 && cv[i] <= 0 && this.vis[i] > 0) {
+        const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
+        this.vis[i] = Math.max(0, this.vis[i] - retract / seg);
+      }
+      if (pa >= 0 && this.vis[i] > cv[pa]) cv[pa] = this.vis[i];
+    }
+    for (let i = 0; i < n; i++) {
+      this.life[i] = 1;
+      this.leafLife[i] = 1;
+      if (this.witherH[i] < reach && dt > 0) continue; // withering: no growth here
       // Growth toward the allowed amount, along each branch from its base.
       const pa = sk.parent[i];
       const ready = pa < 0 || this.vis[pa] >= 0.999;
-      if (dt <= 0) this.vis[i] = this.life[i] > 0 ? this.target[i] : 0; // paused: show the allowed growth
-      else if (ready && this.life[i] > 0 && this.vis[i] < this.target[i]) {
+      if (dt <= 0) {
+        if (this.witherH[i] >= reach) this.vis[i] = this.target[i]; // paused: show the allowed growth
+      } else if (ready && this.vis[i] < this.target[i]) {
         const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
         this.vis[i] = Math.min(this.target[i], this.vis[i] + (dt * g.regrowSpeed * this.boost) / seg);
       }

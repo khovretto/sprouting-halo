@@ -7,6 +7,9 @@ export const enum NodeKind {
   Branch = 2, // take plant
 }
 
+// Reused by bendFrames (the halo calls it every frame).
+let scratchGrp = new Int32Array(0), scratchHx = new Float32Array(0), scratchHy = new Float32Array(0);
+
 /**
  * Per node (4 floats): the pivot of the shoot it belongs to (x, y, flex) and the shoot's heading
  * at its base, for the shoot's own bend (shaders/motion.glsl). Nodes with order < 2 are limbs: they
@@ -15,8 +18,15 @@ export const enum NodeKind {
 export function bendFrames(sk: Skeleton, order: ArrayLike<number>, out: Float32Array): Float32Array {
   const n = sk.n;
   if (out.length < n * 4) out = new Float32Array(n * 8);
-  const grp = new Int32Array(n); // first node of this node's shoot, -1 on limbs
-  const hx = new Float32Array(n), hy = new Float32Array(n);
+  if (scratchGrp.length < n) {
+    scratchGrp = new Int32Array(n * 2);
+    scratchHx = new Float32Array(n * 2);
+    scratchHy = new Float32Array(n * 2);
+  }
+  const grp = scratchGrp; // first node of this node's shoot, -1 on limbs
+  const hx = scratchHx, hy = scratchHy;
+  hx.fill(0, 0, n);
+  hy.fill(0, 0, n);
   for (let i = 0; i < n; i++) {
     const pa = sk.parent[i];
     const g = order[i] < 2 || pa < 0 ? -1 : order[pa] < 2 || grp[pa] < 0 ? i : grp[pa];

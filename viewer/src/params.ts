@@ -52,7 +52,7 @@ export const defaults = {
     fadeAfter: 3,
     /** Seconds the fade itself takes. */
     fadeSeconds: 2.5,
-    /** In a pause, the outer twigs and leaves fade (leaves first) and regrow when singing resumes. */
+    /** In a pause, the outer twigs grow back toward their stubs (leaves and all) and regrow when singing resumes. */
     witherOnPause: true,
     /** A drop in pitch (a dip of witherDipSemitones or more) also withers the outer twigs. */
     witherOnPitchDip: false,
@@ -61,8 +61,7 @@ export const defaults = {
     witherDepth: 0.45,
     /** Pause length that withers to the full depth (s). */
     witherSeconds: 0.8,
-    /** Fade time of withering leaves / twigs (s). Leaves go first. */
-    leafFadeSeconds: 0.3,
+    /** Seconds for withered twigs to grow back to their stubs (they regrow when singing resumes). */
     twigFadeSeconds: 0.7,
     /** How fast branches (re)grow along their length (plant units per second). */
     regrowSpeed: 1.2,
@@ -83,6 +82,9 @@ export const defaults = {
     brightness: 0.7,
   },
   look: {
+    /** Where each track's theme and amount come from: its Sprout Tap window, or the active preset
+     *  (then every track uses theme and density below). Presets switch this to 'preset'. */
+    themeFrom: 'tracks' as 'tracks' | 'preset',
     /** Fallback theme. Each track sets its own theme and amount in the Sprout Tap window; this
      *  is used only for the fake singer and taps set to "Viewer default". */
     theme: 'leaves' as 'branches' | 'leaves' | 'thorns' | 'wreath',
@@ -155,6 +157,10 @@ export const defaults = {
     spawnSeconds: 0.9,
     /** Several live tracks: each gets its own halo, nested inside the first, this much smaller. */
     ringSpacing: 0.14,
+    /** Flatten the halo vertically, like a ring seen from slightly above (0 = flat-on circle). */
+    squish: 0,
+    /** Tilt of the squished halo (degrees, follows a tilted head). */
+    tilt: 0,
   },
   plants: {
     /** Tips curve toward the sky (positive) or droop (negative). */
@@ -223,6 +229,12 @@ export const defaults = {
     avoid: true,
     /** Placeholder silhouette opacity (preview only). */
     opacity: 0.3,
+    /** Preview: show your own avatar picture (Test & preview → Load avatar PNG) instead of the grey shape. */
+    useImage: true,
+    /** Picture centre and height (world units; the halo ring is 1 across the middle). */
+    imageX: 0,
+    imageY: -0.35,
+    imageHeight: 3.2,
     headX: 0,
     headY: 0.2,
     headR: 0.42,
@@ -249,6 +261,8 @@ export const defaults = {
     /** Shimmer of twigs and leaves on vibrato. */
     shiver: true,
     shiverDeg: 3,
+    /** How strongly vibrato is read: higher = even light vibrato makes it tremble fully. */
+    shiverSensitivity: 1,
   },
   glow: {
     strength: 1.6,

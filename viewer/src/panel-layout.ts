@@ -21,6 +21,24 @@ export interface FolderSpec {
   setup?: boolean;
 }
 
+/** Tooltips for folder titles. */
+export const FOLDER_HINTS: Record<string, string> = {
+  preset: 'Ready-made looks and your saved ones. A preset changes the look only, never the fit to your avatar or your colour palette. A star means you changed something since picking it.',
+  shape: 'The take trees: how big, flat, dense and arched the shared canopy behind you is, and how the branch tips curve.',
+  life: 'How fast a tree grows while you sing, how long old trees stay, and how the outer twigs grow back in pauses.',
+  leaves: 'Leaves, thorns or wreath on the branches and the halo, their size, amount and colours. "Theme comes from" decides whether each track keeps its own theme or the preset sets it for all.',
+  colours: 'The live halo colour and the colour of each take (unless the track uses its DAW colour), or a rainbow.',
+  halo: 'The live vine looping round the ring while you record: where it grows from, how fast, how long it trails and what sprouts from it.',
+  voice: 'How your voice drives the look: loudness to brightness, effort to thickness, high notes growing upward, and what counts as the end of a phrase.',
+  glow: 'Bloom around everything: how strong and wide, what makes it flare, and how it steps back where branches are dense so the detail shows.',
+  motion: 'How the plants move: wind that grows with loudness, a push on every note start that swings back, leaf flutter, and the shiver on vibrato.',
+  commit: 'What happens when a take finishes recording (the halo winds up and is planted as the new tree) and when a take is deleted.',
+  many: 'Behaviour with many takes: how neighbouring plants interleave, how the canopy shrinks, and the optional carousel spin.',
+  fit: 'Fit the overlay to your avatar: framing, halo position and size, where the trees grow from, and the keep-out region behind your head and body.',
+  connection: 'Where the voice data comes from (Sprout.exe or the fake singer) and whether panel changes are shared with other open viewers such as OBS.',
+  test: 'Preview tools for this browser only: the voice scope, the placeholder avatar or your own PNG, pausing, the fake singer.',
+};
+
 export const FOLDERS: FolderSpec[] = [
   {
     id: 'shape', title: 'Tree shape', open: true,
@@ -32,11 +50,11 @@ export const FOLDERS: FolderSpec[] = [
     keys: ['growth.secondsToFull', 'growth.newTreeEachPhrase', 'growth.fadeAfter', 'growth.fadeSeconds',
       'growth.restBrightness', 'growth.witherOnPause', 'growth.witherDepth'],
     advanced: ['growth.witherSeconds', 'growth.witherOnPitchDip', 'growth.witherDipSemitones',
-      'growth.leafFadeSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed'],
+      'growth.twigFadeSeconds', 'growth.regrowSpeed'],
   },
   {
     id: 'leaves', title: 'Leaves & decorations',
-    keys: ['look.theme', 'look.density', 'look.decoSize', 'look.naturalTint', 'look.variety', 'look.depthShade',
+    keys: ['look.themeFrom', 'look.theme', 'look.density', 'look.decoSize', 'look.naturalTint', 'look.variety', 'look.depthShade',
       'look.blossoms', 'look.thornEffort'],
   },
   {
@@ -65,7 +83,7 @@ export const FOLDERS: FolderSpec[] = [
   {
     id: 'motion', title: 'Wind & shiver',
     keys: ['motion.swayDeg', 'motion.kickDeg', 'motion.springiness', 'motion.idle', 'motion.flutterDeg', 'motion.shiver',
-      'motion.shiverDeg'],
+      'motion.shiverDeg', 'motion.shiverSensitivity'],
     advanced: ['motion.speed', 'motion.twigs'],
     catchSections: ['motion'],
   },
@@ -83,7 +101,7 @@ export const FOLDERS: FolderSpec[] = [
   {
     id: 'fit', title: 'Setup: fit to avatar', setup: true,
     keys: ['scene.showGuides', 'scene.viewRadius', 'scene.centerX', 'scene.centerY', 'halo.restRadius', 'halo.restY',
-      'halo.openRadius', 'halo.openY', 'layout.lowOriginY', 'layout.midOriginY', 'layout.downGap', 'avatar.avoid'],
+      'halo.openRadius', 'halo.openY', 'halo.squish', 'halo.tilt', 'layout.lowOriginY', 'layout.midOriginY', 'layout.downGap', 'avatar.avoid'],
     advanced: ['avatar.headX', 'avatar.headY', 'avatar.headR', 'avatar.bodyTopY', 'avatar.bodyBottomY', 'avatar.bodyR'],
     catchSections: ['avatar'],
   },
@@ -96,7 +114,7 @@ export const FOLDERS: FolderSpec[] = [
   {
     id: 'test', title: 'Test & preview (this viewer only)', setup: true,
     keys: ['scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds', 'scene.backdrop', 'scene.showAvatar',
-      'avatar.opacity', 'scene.paused', 'scene.timeScale', 'scene.layers', 'fake.liveTracks', 'fake.recording'],
+      'avatar.opacity', 'avatar.useImage', 'avatar.imageX', 'avatar.imageY', 'avatar.imageHeight', 'scene.paused', 'scene.timeScale', 'scene.layers', 'fake.liveTracks', 'fake.recording'],
     advanced: ['fake.seed', 'fake.phraseMin', 'fake.phraseMax', 'fake.gapMin', 'fake.gapMax', 'fake.highNotes',
       'plants.step', 'plants.maxNodes'],
     catchSections: ['scene', 'fake'],
@@ -109,8 +127,8 @@ export const LABELS: Record<string, string> = {
   'plants.tipWidth': 'tip width', 'plants.softDroop': 'droop when soft', 'plants.moodShaping': 'shaped by the phrase',
   'growth.secondsToFull': 'grow time (s)', 'growth.fadeAfter': 'old tree stays (s)', 'growth.fadeSeconds': 'old tree fade (s)',
   'growth.restBrightness': 'brightness when resting', 'growth.witherOnPause': 'wither in pauses',
-  'growth.witherDepth': 'wither depth', 'growth.newTreeEachPhrase': 'new tree each phrase',
-  'look.theme': 'theme (fallback)', 'look.density': 'leaf amount (fallback)', 'look.decoSize': 'leaf size',
+  'growth.witherDepth': 'wither depth', 'growth.twigFadeSeconds': 'wither-back time (s)', 'growth.newTreeEachPhrase': 'new tree each phrase',
+  'look.themeFrom': 'theme comes from', 'look.theme': 'theme', 'look.density': 'leaf amount', 'look.decoSize': 'leaf size',
   'look.naturalTint': 'natural colours', 'look.variety': 'tone variety', 'look.depthShade': 'inner shade',
   'look.blossoms': 'blossoms (leaves theme)', 'look.thornEffort': 'thorn growth (thorns theme)', 'look.decoGlow': 'leaf glow',
   'glow.base': 'idle glow', 'glow.levelGain': 'glow from loudness', 'glow.onsetGain': 'flash on note starts',
@@ -133,7 +151,9 @@ export const LABELS: Record<string, string> = {
   'avatar.avoid': 'keep leaves off the avatar', 'avatar.opacity': 'placeholder opacity',
   'motion.swayDeg': 'sway (deg)', 'motion.kickDeg': 'push on note starts (deg)', 'motion.springiness': 'springiness',
   'motion.idle': 'wind when silent', 'motion.flutterDeg': 'leaf flutter (deg)', 'motion.shiver': 'shiver on vibrato',
-  'motion.shiverDeg': 'shiver (deg)', 'motion.speed': 'wind tempo', 'motion.twigs': 'twigs move on their own',
+  'motion.shiverDeg': 'shiver (deg)', 'motion.shiverSensitivity': 'tremble sensitivity',
+  'halo.squish': 'halo squish (3D)', 'halo.tilt': 'halo tilt (deg)', 'avatar.useImage': 'use my avatar PNG',
+  'avatar.imageX': 'picture x', 'avatar.imageY': 'picture y', 'avatar.imageHeight': 'picture height', 'motion.speed': 'wind tempo', 'motion.twigs': 'twigs move on their own',
   'commit.enabled': 'plant the halo', 'commit.duration': 'pace', 'commit.impact': 'impact',
   'commit.burst': 'leaves thrown', 'commit.shockRing': 'shock ring', 'commit.plunge': 'plunge depth',
   'commit.spinTurns': 'spin (turns)', 'commit.stampReveal': 'tree grown at impact',
@@ -144,11 +164,13 @@ export const LABELS: Record<string, string> = {
 /** Keys only this viewer uses (stripped from sync in main.ts). */
 export const LOCAL_KEYS = new Set([
   'source.mode', 'source.port', 'source.syncSettings', 'scene.paused', 'scene.timeScale', 'scene.layers',
-  'scene.backdrop', 'scene.showAvatar', 'scene.showGuides', 'scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds',
+  'scene.backdrop', 'scene.showAvatar', 'scene.showGuides', 'avatar.opacity', 'avatar.useImage', 'avatar.imageX',
+  'avatar.imageY', 'avatar.imageHeight', 'scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds',
 ]);
 /** Fit to this avatar and palette: synced, never part of a preset. */
 export const RIG_KEYS = new Set([
   'scene.viewRadius', 'scene.centerX', 'scene.centerY', 'halo.restRadius', 'halo.restY', 'halo.openRadius', 'halo.openY',
+  'halo.squish', 'halo.tilt',
   'layout.lowOriginY', 'layout.midOriginY', 'layout.downGap', 'colours.live', 'colours.take1', 'colours.take2',
   'colours.take3', 'colours.take4', 'colours.take5', 'colours.take6', 'colours.take7', 'source.useTrackColours',
   'source.holdSeconds',

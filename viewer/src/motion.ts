@@ -93,7 +93,7 @@ export class LayerMotion {
     this.a.set([this.x[0], this.x[1], this.x[2], this.x[3]]);
     this.b.set([this.x[4], this.x[5], 0.45 * amp, this.phase]);
     this.c.set([
-      m.shiver ? m.shiverDeg * deg * d.vibrato * scale : 0,
+      m.shiver ? m.shiverDeg * deg * Math.min(1.5, d.vibrato * m.shiverSensitivity) * scale : 0,
       m.flutterDeg * deg * Math.min(1.5, m.idle + (1 - m.idle) * clamp(d.energy * 1.3) + 0.5 * d.breath),
       m.twigs,
       ring ? 1 : 0,

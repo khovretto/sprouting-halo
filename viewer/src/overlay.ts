@@ -21,6 +21,9 @@ export class Overlay {
     this.ctx = canvas.getContext('2d')!;
   }
 
+  /** Your own avatar picture (preview only), drawn instead of the grey shape. */
+  image: HTMLImageElement | null = null;
+
   draw(view: View, p: Params, plants: GuidePlant[]) {
     const { ctx, canvas } = this;
     if (canvas.width !== view.W || canvas.height !== view.H) {
@@ -32,7 +35,13 @@ export class Overlay {
     const py = (y: number) => view.H / 2 - (y - view.cy) * view.s;
     const a = p.avatar;
 
-    if (p.scene.showAvatar) {
+    if (p.scene.showAvatar && p.avatar.useImage && this.image) {
+      const img = this.image;
+      const h = a.imageHeight * view.s, w = (h * img.naturalWidth) / Math.max(1, img.naturalHeight);
+      ctx.globalAlpha = a.opacity;
+      ctx.drawImage(img, px(a.imageX) - w / 2, py(a.imageY) - h / 2, w, h);
+      ctx.globalAlpha = 1;
+    } else if (p.scene.showAvatar) {
       // See-through placeholder: drawn solid on its own canvas, then blended once at the chosen
       // opacity (no darker seams where head, ears and body overlap).
       const full = ctx;

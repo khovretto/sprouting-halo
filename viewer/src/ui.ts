@@ -8,7 +8,8 @@
 import { FolderApi, ListBladeApi, Pane } from 'tweakpane';
 import { defaults, Params } from './params';
 import paramsSource from './params.ts?raw';
-import { FOLDERS, LABELS, scopeOf } from './panel-layout';
+import { FOLDER_HINTS, FOLDERS, LABELS, scopeOf } from './panel-layout';
+import { installTooltips, tip } from './tooltip';
 import {
   applyPreset, BUILTIN_PRESETS, getPath, isDirty, loadStore, lookDiff, PATHS, Preset, presetValue, same, saveStore, slug, Values,
 } from './presets';
@@ -48,7 +49,6 @@ const RANGES: Record<string, Spec> = {
   'growth.witherDipSemitones': { min: 1, max: 12, step: 1 },
   'growth.witherDepth': { min: 0.05, max: 1.5 },
   'growth.witherSeconds': { min: 0.1, max: 5 },
-  'growth.leafFadeSeconds': { min: 0.05, max: 3 },
   'growth.twigFadeSeconds': { min: 0.05, max: 3 },
   'growth.regrowSpeed': { min: 0.2, max: 5 },
   'growth.fadeAfter': { min: 0, max: 15 },
@@ -59,6 +59,7 @@ const RANGES: Record<string, Spec> = {
   'response.pitchSteer': { min: 0, max: 1 },
   'response.effortWidth': { min: 0, max: 2 },
   'response.brightness': { min: 0, max: 1 },
+  'look.themeFrom': { options: { 'Each track (Sprout Tap window)': 'tracks', 'This preset (all tracks)': 'preset' } },
   'look.theme': { options: { Branches: 'branches', Leaves: 'leaves', Thorns: 'thorns', 'Christmas wreath': 'wreath' } },
   'look.density': { min: 0, max: 1 },
   'look.decoSize': { min: 0.2, max: 4 },
@@ -125,6 +126,12 @@ const RANGES: Record<string, Spec> = {
   'motion.twigs': { min: 0, max: 2.5 },
   'motion.flutterDeg': { min: 0, max: 40 },
   'motion.shiverDeg': { min: 0, max: 12 },
+  'motion.shiverSensitivity': { min: 0, max: 4 },
+  'halo.squish': { min: 0, max: 0.85 },
+  'halo.tilt': { min: -45, max: 45 },
+  'avatar.imageX': { min: -2, max: 2 },
+  'avatar.imageY': { min: -3, max: 2 },
+  'avatar.imageHeight': { min: 0.5, max: 8 },
   'glow.strength': { min: 0, max: 6 },
   'glow.radius': { min: 0.2, max: 5 },
   'glow.wide': { min: 0, max: 3 },
@@ -204,6 +211,8 @@ export interface UIActions {
   restart(): void;
   commitLive(): void;
   deleteTake(): void;
+  loadAvatar(): void;
+  clearAvatar(): void;
   /** Called after the user changed something in the panel (not for remote updates). */
   changed(): void;
 }
@@ -295,10 +304,17 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   const baseline = (path: string) => (scopeOf(path) === 'look' ? presetValue(activePreset(), path) : getPath(defaults, path));
 
   const pane = new Pane({ container, title: 'Sprout viewer  (H hides, G scope)' });
-  pane.addBinding(status, 'feed', { readonly: true, label: 'feed' });
-  pane.addBinding(status, 'layers', { readonly: true, label: 'layers' });
-  pane.addBinding(status, 'pitch', { readonly: true, label: 'live pitch' });
-  pane.addBinding(status, 'voice', { readonly: true, label: 'live voice' });
+  installTooltips(container);
+  const folderTip = (f: Folder, text?: string) => tip(f.element.querySelector('.tp-fldv_b'), text);
+  const btnTip = (b: { element: HTMLElement }, text: string) => tip(b.element.querySelector('button'), text);
+  tip(pane.addBinding(status, 'feed', { readonly: true, label: 'feed' }).element,
+    'Where the voice data comes from right now: live taps from Sprout.exe, or the fake singer.');
+  tip(pane.addBinding(status, 'layers', { readonly: true, label: 'layers' }).element,
+    'Live tracks (a halo each) and recorded takes (a tree each).');
+  tip(pane.addBinding(status, 'pitch', { readonly: true, label: 'live pitch' }).element,
+    'The note the first live track is singing, in cents off the note, and the vibrato rate when there is vibrato.');
+  tip(pane.addBinding(status, 'voice', { readonly: true, label: 'live voice' }).element,
+    'Effort (0 soft .. 1 full voice, measured from the overtones, so mic gain does not matter), breathiness, and softness (what the visuals use: low effort plus breath). G opens the voice scope to see them over time.');
 
   // Changes applied from another viewer must never be sent back: that echo, arriving late, is
   // what overwrote newer values while dragging. Ignore panel events for a moment after a refresh.
@@ -359,6 +375,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   // ---- Preset folder ----
   const pf = pane.addFolder({ title: 'Preset', expanded: panelState.preset ?? true });
   remember('preset', pf);
+  folderTip(pf, FOLDER_HINTS.preset);
   const STASH = '__stash', CUSTOM = '__custom';
   const listOptions = () => [
     ...(active ? [] : [{ text: '(custom)', value: CUSTOM }]),
@@ -374,22 +391,28 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   const placeDesc = () => list.element.after(descEl);
   placeDesc();
   const saveBtn = pf.addButton({ title: 'Save' });
+  btnTip(saveBtn, 'Overwrite this saved preset with the current values.');
   const nameObj = { name: 'My look' };
   const nameRow = pf.addBinding(nameObj, 'name', { label: 'new name' });
   let namedFor: string | null | undefined;
   const saveAsBtn = pf.addButton({ title: 'Save as new preset' });
+  btnTip(saveAsBtn, 'Save the current look under the name above. It is kept in this browser; use Export to move it.');
   const revertAllBtn = pf.addButton({ title: 'Revert all changes' });
+  btnTip(revertAllBtn, 'Put every look value back to the active preset. Your changes are kept as "Unsaved tweaks" in the list.');
   const delBtn = confirmButton(pf, 'Delete preset', 'Click again to delete', () => {
     store.user = store.user.filter((x) => x.id !== active);
     active = null;
     afterPresetChange(false);
   });
-  pf.addButton({ title: 'Export preset (.json)' }).on('click', () => {
+  const exportBtn = pf.addButton({ title: 'Export preset (.json)' });
+  btnTip(exportBtn, 'Save the current look as a preset file to share or move to another browser.');
+  exportBtn.on('click', () => {
     const pr = activePreset();
     const name = pr?.name ?? 'custom';
     download(`sprout-preset-${slug(name)}.json`, { sprout: 'preset', version: 1, name, description: pr?.description, values: lookDiff(p) });
   });
   const importBtn = pf.addButton({ title: 'Import… (preset or settings)' });
+  btnTip(importBtn, 'Load a preset file (adds it to the list) or a full settings file (replaces everything).');
 
   const choose = (id: string) => {
     if (id === CUSTOM) return;
@@ -528,7 +551,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       opts.max = Math.max(1, v * 4);
     }
     const binding = folder.addBinding(obj, key, opts) as unknown as Binding;
-    if (HINTS[path]) binding.element.title = HINTS[path];
+    tip(binding.element, HINTS[path]);
     const button = document.createElement('button');
     button.className = 'sprout-rv';
     button.textContent = '↺';
@@ -555,27 +578,36 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     }
     const folder = pane.addFolder({ title: spec.title, expanded: panelState[spec.id] ?? !!spec.open });
     remember(spec.id, folder);
+    folderTip(folder, (spec as { hint?: string }).hint ?? FOLDER_HINTS[spec.id]);
     const fRows: Row[] = [];
     folderRows.push({ folder, title: spec.title, rows: fRows });
     for (const path of [...spec.keys, ...(extra.get(spec.id) ?? [])]) addRow(folder, path, [fRows]);
     if (spec.advanced?.length) {
       const adv = folder.addFolder({ title: 'Advanced', expanded: panelState[spec.id + '.adv'] ?? false });
       remember(spec.id + '.adv', adv);
+      folderTip(adv, 'Values you rarely need to change.');
       const aRows: Row[] = [];
       folderRows.push({ folder: adv, title: 'Advanced', rows: aRows });
       for (const path of spec.advanced) addRow(adv, path, [fRows, aRows]);
     }
     if (spec.id === 'commit') {
-      folder.addButton({ title: 'Test: commit the live take' }).on('click', () => {
+      const tc = folder.addButton({ title: 'Test: commit the live take' });
+      btnTip(tc, 'Fake singer: pretend the live take finished recording, to watch the planting animation.');
+      tc.on('click', () => {
         actions.commitLive();
         pane.refresh();
       });
-      folder.addButton({ title: 'Test: delete the last take' }).on('click', () => {
+      const td = folder.addButton({ title: 'Test: delete the last take' });
+      btnTip(td, 'Fake singer: remove the newest take, to watch it fade with falling leaves.');
+      td.on('click', () => {
         actions.deleteTake();
         pane.refresh();
       });
     }
     if (spec.id === 'test') {
+      btnTip(folder.addButton({ title: 'Load avatar PNG…' }).on('click', () => actions.loadAvatar()),
+        'Show your own avatar picture (PNG with transparency) instead of the grey shape, to judge the look. Stays in this browser; never shown in OBS.');
+      btnTip(folder.addButton({ title: 'Remove avatar PNG' }).on('click', () => actions.clearAvatar()), 'Back to the grey placeholder shape.');
       folder.addButton({ title: 'Restart growth' }).on('click', () => actions.restart());
       folder.addButton({ title: 'Export everything (.json)' }).on('click', () =>
         download('sprout-settings.json', { sprout: 'settings', version: 1, params: p, presets: store.user }));
@@ -607,7 +639,8 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
         const b = baseline(r.path), d = getPath(defaults, r.path);
         const fmt = (x: unknown) => (typeof x === 'number' ? +x.toFixed(3) : String(x));
         const pr = scopeOf(r.path) === 'look' ? activePreset()?.name : undefined;
-        r.button.title = `Revert to ${fmt(b)}${pr ? ` (${pr})` : ''}` + (same(b, d) ? '' : `. Shift-click: default ${fmt(d)}`);
+        tip(r.button, `Revert to ${fmt(b)}${pr ? ` (${pr})` : ''}` + (same(b, d) ? '' : `.
+Shift-click: factory default ${fmt(d)}`));
       }
     }
     for (const f of folderRows) {

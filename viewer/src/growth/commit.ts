@@ -70,7 +70,7 @@ export interface StrandLook {
 export interface CommitHooks {
   /** Beat 0-1: the halo itself, as a ring at (cx, cy) with radius R, rotated by rot. */
   ring(snap: HaloSnapshot, cx: number, cy: number, R: number, rot: number, look: StrandLook,
-       ringAlpha: number, nodeAlpha: Float32Array): void;
+       ringAlpha: number, nodeAlpha: Float32Array, windE: number): void;
   /** Beat 2+: the strand skeleton (plant-local coordinates) in the plant's layer. */
   strand(sk: Skeleton, vis: Float32Array, nodeAlpha: Float32Array, ids: Int32Array, layer: number,
          look: StrandLook, snap: HaloSnapshot, unit: number): void;
@@ -286,7 +286,7 @@ export class CommitAnimation {
     for (let i = 0; i < sk.n; i++) this.ringAlpha[i] = this.snap.alpha[i] * fade * (hash1(this.snap.ids[i] * 3.7) > keep ? 1 - e : 1);
     const look = this.look(tau, -1, tg);
     look.alpha = fade;
-    hooks.ring(this.snap, cx, cy, R, rot, look, lerp(1, 0.4, e) * fade, this.ringAlpha);
+    hooks.ring(this.snap, cx, cy, R, rot, look, lerp(1, 0.4, e) * fade, this.ringAlpha, e);
   }
 
   /** Beats 2-5: the strand in the plant's own layer. */

@@ -38,8 +38,9 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   (Glow → crowd), glow lies around the ink rather than on it (inkMask), bright glow rolls off
   softly (knee), and every take colour glows about equally.
 - **Pauses and dips:** in a pause shorter than a phrase gap (Response → phraseGap, 1 s) the outer
-  twigs and their leaves fade (leaves first) and grow back from their stubs when singing resumes;
-  the main limbs stay. Optional: pitch dips do the same (Growth → witherOnPitchDip). Depth and
+  twigs *grow back* toward their limbs, leaves shrinking with them, so a withered tree looks
+  younger, never dead: every visible tip keeps a leaf and the limbs keep buds where shoots
+  were. They regrow when singing resumes; the main limbs stay. Optional: pitch dips do the same (Growth → witherOnPitchDip). Depth and
   speeds: witherDepth, witherSeconds, leafFadeSeconds, twigFadeSeconds, regrowSpeed.
 - **Halo vine loops forever.** Tips grow round the ring from halo.origins points spread evenly
   from halo.startAngle (-90 = bottom), both ways if bothWays. They creep at idleSpeed and race up to
@@ -68,8 +69,11 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   (turn it off with "plant the halo" to get the plain fade).
 - **Take deleted:** after a short hold (Audio source → holdSeconds) the plant flashes and fades
   away while its leaves fall.
-- **Looks per track:** Theme, Amount and Colour in each track's **Sprout Tap window**. The
-  viewer's Look section is only the fallback for the fake singer and "Viewer default".
+- **Looks per track:** Theme, Amount and Colour in each track's **Sprout Tap window**. Leaves &
+  decorations → "theme comes from" switches to the preset's theme for every track; picking any
+  built-in preset except Sprout does that. (The Tap window itself does not change.)
+- **Halo squish and tilt** (Setup: fit to avatar) flatten the ring like a halo seen slightly
+  from above, for a 3D look.
 
 ## Use with OBS
 
@@ -120,13 +124,33 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   as .json. Switching away from unsaved tweaks keeps them as "Unsaved tweaks" in the list.
 - **Voice scope:** **G** (or Test & preview → voice scope) shows rolling graphs of the followed
   layer: loudness, pitch, effort / breath / softness, vibrato, note starts and phrases, growth.
-  Thin lines are what the tap sends, bold lines what the viewer makes of it. Click to freeze,
-  hover to read values at any moment.
+  Thin lines are what the tap sends, bold lines what the viewer makes of it. Header buttons
+  switch between the live halo and each take, change the history length, freeze and close;
+  hover them for what they do. Click the graphs to freeze, hover to read values at any moment.
+- **Tooltips:** hover any row or folder title in the panel.
+- **Your avatar picture:** Test & preview → Load avatar PNG shows your own picture (transparency
+  kept) instead of the grey shape, with picture x / y / height and the placeholder opacity. It is
+  stored in this browser only and never shown in OBS.
 - **Guides:** Scene → showGuides draws the canopy outline split into each plant's territory, and the avatar keep-out.
 - **OBS mode:** `?obs` hides the panel and the placeholder avatar and leaves a transparent background.
 - **Console:** `sprout.params`, `sprout.restart()`, `sprout.advance(60)` (fast-forward),
   `sprout.action('commit' | 'delete' | 'restart')`, `sprout.stats()`. `sprout.advance(3, 1/8)`
-  steps at 8 fps (frame-rate independence checks).
+  steps at 8 fps (frame-rate independence checks). `sprout.bench(240)` times simulation,
+  instance building and GL submission per frame; `sprout.perf()` shows the live averages.
+
+## Cost
+
+Measured with the fake singer, leaves theme, after growth (CPU per frame, Chromium):
+
+| Takes | simulation | building instances | GL submit | instances |
+| --- | --- | --- | --- | --- |
+| 1 | 0.8 ms | 1.7 ms | 0.5 ms | about 2900 |
+| 3 | 0.8 ms | 1.9 ms | 0.5 ms | about 3200 |
+| 6 | 1.0 ms | 1.7 ms | 0.4 ms | about 3000 |
+
+About 3 ms of a 16.7 ms frame. A new tree costs 1 to 3 ms once, at the start of a phrase. The GPU
+work is two full-size passes plus three small blur levels; check OBS's own render-time stats at
+your output size.
 
 ## Layout
 

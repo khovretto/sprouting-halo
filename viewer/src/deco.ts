@@ -49,6 +49,8 @@ export interface DecoStyle {
   intensity: number;
 }
 
+let tipScratch = new Uint8Array(0);
+
 const easeOutBack = (t: number) => {
   const c1 = 1.70158, c3 = c1 + 1;
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
@@ -117,17 +119,41 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   const nat = L.naturalTint;
   const variety = clamp(L.variety);
   const rank = extras.rank;
+  // Take plants: which nodes are visible tips right now (no child drawn): growing and withered
+  // ends always carry a leaf, so a tree never shows bare stubs.
+  if (rank) {
+    if (tipScratch.length < sk.n) tipScratch = new Uint8Array(sk.n * 2);
+    tipScratch.fill(1, 0, sk.n);
+    for (let i = 1; i < sk.n; i++) if (vis[i] > 0.05) tipScratch[sk.parent[i]] = 0;
+    // Buds: where a side shoot has withered back to its limb (or has not grown yet), the limb
+    // keeps a leaf at the joint.
+    const ord = extras.order;
+    if (ord)
+      for (let i = 1; i < sk.n; i++) {
+        const pa = sk.parent[i];
+        if (vis[i] <= 0.05 && ord[i] >= 2 && ord[pa] < 2 && vis[pa] > 0.6) tipScratch[pa] = 2;
+      }
+  }
 
+  const frame: [number, number, number, number, number] = [1, 0, 0, 0, 0];
+  const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns');
   for (let i = 1; i < sk.n; i++) {
     const f = vis[i];
     if (f <= 0.02) continue;
+    // Take plants: most nodes carry nothing; skip them before any per-node work.
+    if (leafOnly && rank![i] > Math.min(1, dens * 1.3) && tipScratch[i] === 0) continue;
     place.nodeAlpha = extras.alpha ? extras.alpha[i] : 1;
     if (place.nodeAlpha <= 0.01) continue;
     const id = extras.ids ? extras.ids[i] : i;
     if (extras.bend && extras.order) {
       const b = extras.bend, o = i * 4;
-      place.frame = [extras.order[i], b[o], b[o + 1], b[o + 2], b[o + 3]];
-      if (underPlace) underPlace.frame = place.frame;
+      frame[0] = extras.order[i];
+      frame[1] = b[o];
+      frame[2] = b[o + 1];
+      frame[3] = b[o + 2];
+      frame[4] = b[o + 3];
+      place.frame = frame;
+      if (underPlace) underPlace.frame = frame;
     }
     const pa = sk.parent[i];
     const dx = sk.x[i] - sk.x[pa], dy = sk.y[i] - sk.y[pa];
@@ -143,10 +169,14 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     const tone = extras.tone ? extras.tone[i] : 1;
 
     if (rank) {
-      // Take plants: spaced leaves, with size and tint variety and a dim under-layer.
-      const has = rank[i] <= dens;
+      // Take plants: spaced leaves, with size and tint variety and a dim under-layer. Leaves sit
+      // at the visible end of a growing or withering twig.
+      const visTip = (tipScratch[i] === 1 && f > 0.15) || tipScratch[i] === 2;
+      const has = rank[i] <= dens || (visTip && dens > 0.1);
+      const pxv = lerp(sk.x[pa], x, f), pyv = lerp(sk.y[pa], y, f);
       if (st.theme === 'leaves') {
         if (has) {
+          const x = pxv, y = pyv;
           const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * lerp(0.95, 0.5 + 0.8 * h2, variety);
           // Inner leaves (dim tone) come out a little smaller.
           const sz = size * 0.055 * lerp(1, 0.6 + 0.65 * h2, variety) * lerp(0.85, 1.1, clamp((tone - 0.6) / 0.48)) * pop;
@@ -156,9 +186,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
           if (toUnder) underPlace!.put(x, y, ang, sz * 1.15, Shape.Leaf, c.map((v) => v * 0.6) as [number, number, number], flex, h0);
           else place.put(x, y, ang, sz, Shape.Leaf, c, flex, h0);
         }
-        if (terminal && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
+        if ((terminal || visTip) && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
           const s = size * 0.075 * st.bloom * pop * (0.8 + 0.4 * h2);
-          place.put(x, y, dir, s, Shape.Blossom, tint(st.colour, PETAL, 0.4 + 0.5 * nat, st.intensity * 1.1), flex, h3, 1.4);
+          place.put(pxv, pyv, dir, s, Shape.Blossom, tint(st.colour, PETAL, 0.4 + 0.5 * nat, st.intensity * 1.1), flex, h3, 1.4);
         }
         continue;
       }
