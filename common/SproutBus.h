@@ -1,11 +1,12 @@
 // SproutBus.h - shared-memory protocol between Sprout Tap plugins and the Sprout app.
 //
-// One named file mapping ("Local\SproutBus_v1") holds a fixed array of slots.
+// One named file mapping ("Local\SproutBus_v3") holds a fixed array of slots.
 // Each tap plugin instance claims one slot and is its ONLY writer:
 //   - metadata + per-block features are published under a seqlock,
 //   - dry mono audio goes into a per-slot ring buffer,
 //   - a heartbeat says the instance is still alive.
-// The app only reads. Works across processes, so DAWs that sandbox plugins are fine.
+// The app only reads, except for look requests (lookSeq / lookTheme / lookDensityBits: a viewer
+// picked a preset), which the tap applies to its own parameters. Works across processes, so DAWs that sandbox plugins are fine.
 #pragma once
 
 #ifndef NOMINMAX
