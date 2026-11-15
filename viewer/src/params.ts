@@ -291,6 +291,22 @@ export const defaults = {
     /** Bright glow rolls off softly instead of clipping to a flat colour (0 = off). */
     knee: 0.8,
   },
+  /** Performance: how often and how large the picture is drawn. Shared with OBS, never part of a preset. */
+  perf: {
+    /** Most frames per second (OBS, and the preview while its window has focus). Snaps to a whole
+     *  division of the display rate: on a 144 Hz monitor 60 becomes 72. */
+    fps: 60,
+    /** Frames per second while nobody sings and nothing is growing or being planted (only wind
+     *  and slow fades). Same as max fps = always the full rate. */
+    idleFps: 30,
+    /** Preview only: frames per second while another window has focus (DAW, a video). */
+    backgroundFps: 30,
+    /** Largest picture drawn, in megapixels (2.1 = 1920 x 1080, 8.3 = 4K). A larger window or
+     *  source is drawn at this size and scaled up. */
+    maxMegapixels: 2.1,
+    /** Draw smaller and scale up (1 = full size, 0.7 = half the pixels). For weak GPUs. */
+    renderScale: 1,
+  },
   /** Voice detection in Sprout.exe (kept there, so every viewer and OBS use the same). */
   detect: {
     /** Seconds of one continuous note before vibrato can be read. */

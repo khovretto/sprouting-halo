@@ -68,10 +68,13 @@ void main() {
   vec2 perp = vec2(-dirW.y, dirW.x);
   float size = max(a_pos.w * scale, 1e-6);
 
-  float pad = 2.0 * u_px / size;
+  // Quad as wide as the shape (sprite.frag: leaf 0.34, thorn 0.24, berry 0.42, needle 0.05,
+  // holly 0.40, blossom 0.42 half-width) plus one pixel. Widen hw here if a shape is widened.
+  float pad = u_px / size;
+  float hw = sid < 0.5 ? 0.34 : sid < 1.5 ? 0.24 : sid < 2.5 ? 0.42 : sid < 3.5 ? 0.05 : sid < 4.5 ? 0.40 : 0.42;
   float sx = (gl_VertexID & 1) == 0 ? -1.0 : 1.0;
   float sy = (gl_VertexID & 2) == 0 ? 0.0 : 1.0;
-  vec2 uv = vec2(sx * (0.5 + pad), mix(-pad, 1.0 + pad, sy));
+  vec2 uv = vec2(sx * (hw + pad), mix(-pad, 1.0 + pad, sy));
   vec2 P = base + dirW * (uv.y * size) + perp * (uv.x * size * twist);
 
   v_uv = uv;

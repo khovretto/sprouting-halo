@@ -37,6 +37,9 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
 - **Glow that keeps the detail:** where branches and leaves are dense the bloom steps back
   (Glow → crowd), glow lies around the ink rather than on it (inkMask), bright glow rolls off
   softly (knee), and every take colour glows about equally.
+- **Leaves come with finished branches:** a branch carries leaves once it has grown to its tip,
+  so nothing rides along a growing twig. A finished branch that withers back keeps the leaves on
+  what remains.
 - **Pauses and dips:** in a pause shorter than a phrase gap (Response → phraseGap, 1 s) the outer
   twigs *grow back* toward their limbs, leaves shrinking with them, so a withered tree looks
   younger, never dead: every visible tip keeps a leaf and the limbs keep buds where shoots
@@ -150,6 +153,22 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   `sprout.action('commit' | 'delete' | 'restart')`, `sprout.stats()`. `sprout.advance(3, 1/8)`
   steps at 8 fps (frame-rate independence checks). `sprout.bench(240)` times simulation,
   instance building and GL submission per frame; `sprout.perf()` shows the live averages.
+
+## Performance settings (Setup: performance)
+
+- **max fps** 60 (snaps to a whole division of the display: 72 on a 144 Hz monitor),
+  **fps when silent** 30 (nobody sings, nothing planted or fading), **preview fps in background**
+  30 (another window has focus). A hidden tab or an OBS source that is not shown draws nothing.
+- **max picture size** 2.1 MP (1080p): larger windows are drawn at this size and scaled up.
+  **render scale** below 1 draws smaller still, for weak GPUs.
+- Recommended OBS Browser Source settings: "Use custom frame rate" off (the page follows OBS),
+  "Shutdown source when not visible" off, "Refresh browser when scene becomes active" off, and
+  Browser Source Hardware Acceleration on (OBS Settings → Advanced).
+- Measure: `sprout.perf()` (fps, ms per phase, GPU time where the browser allows it, GPU name,
+  heap); `?obs&perflog` writes it to the console every 10 s. Details:
+  docs/fable-consult-4-performance.md.
+- Inside OBS (window.obsstudio) the panel's dropdowns open their own menu, because OBS's Interact
+  window cannot show the browser's dropdown popup (`?customSelect` forces it elsewhere).
 
 ## Cost
 

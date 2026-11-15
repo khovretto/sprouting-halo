@@ -10,6 +10,7 @@ import { defaults, Params } from './params';
 import paramsSource from './params.ts?raw';
 import { FOLDER_HINTS, FOLDERS, LABELS, TIPS } from './panel-layout';
 import { installTooltips, tip } from './tooltip';
+import { installSelectMenus } from './select-menu';
 import {
   applyPreset, BUILTINS, diffOf, getPath, isDirty, Kind, KIND_TITLES, kindOf, KINDS, loadStore, PATHS, presetValue, Preset,
   PresetStore, same, saveStore, slug, STORE_KEY, Values,
@@ -147,6 +148,11 @@ const RANGES: Record<string, Spec> = {
   'glow.crowd': { min: 0, max: 1.5 },
   'glow.inkMask': { min: 0, max: 1 },
   'glow.knee': { min: 0, max: 3 },
+  'perf.fps': { min: 15, max: 144, step: 1 },
+  'perf.idleFps': { min: 5, max: 144, step: 1 },
+  'perf.backgroundFps': { min: 5, max: 144, step: 1 },
+  'perf.maxMegapixels': { min: 0.5, max: 8.5, step: 0.1 },
+  'perf.renderScale': { min: 0.4, max: 1, step: 0.05 },
   'detect.vibratoMinNote': { min: 0.15, max: 1.5 },
   'detect.vibratoMinSemitones': { min: 0, max: 0.5 },
   'detect.vibratoFullSemitones': { min: 0.1, max: 1.5 },
@@ -324,6 +330,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
 
   const pane = new Pane({ container, title: 'Sprout viewer  (H hides, G scope)' });
   installTooltips(container);
+  installSelectMenus(container);
   const folderTip = (f: Folder, text?: string) => tip(f.element.querySelector('.tp-fldv_b'), text);
   const btnTip = (b: { element: HTMLElement }, text: string) => tip(b.element.querySelector('button'), text);
   tip(pane.addBinding(status, 'feed', { readonly: true, label: 'feed' }).element,

@@ -680,12 +680,14 @@ function start() {
     return [lerp(c[0], tc[0], k), lerp(c[1], tc[1], k), lerp(c[2], tc[2], k)];
   };
   let lastDrawT = 0;
+  let overlayKey = '', overlayImage: HTMLImageElement | null = null;
   function draw() {
     const tDraw0 = performance.now();
     // Sim seconds since the last drawn frame (leaf fades); a jump (restart, fast-forward) snaps.
     const drawDt = t - lastDrawT > 0 && t - lastDrawT < 0.5 ? t - lastDrawT : 0;
     lastDrawT = t;
-    document.body.className = obs ? '' : `backdrop-${params.scene.backdrop}`;
+    const bodyClass = obs ? '' : `backdrop-${params.scene.backdrop}`;
+    if (document.body.className !== bodyClass) document.body.className = bodyClass;
     backUnder.reset();
     back.reset();
     backDeco.reset();
@@ -707,7 +709,7 @@ function start() {
         decorateTree(g.tree.sk, g.tree.vis, params,
           styleOf(layer, base, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density), backDeco,
           { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend,
-            leafState: g.tree.leafState, dt: drawDt });
+            leafState: g.tree.leafState, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone });
       }
     };
 
@@ -781,9 +783,14 @@ function start() {
     endingHalos.forEach((h) => drawHalo(h, 1 - smooth(clamp((t - (h.endT0 ?? t)) / Math.max(0.05, params.transitions.liveEndSeconds)))));
 
     // Render.
+    // Render size: the window in device pixels, but never more than perf.maxMegapixels; CSS
+    // scales the canvas up. (OBS: devicePixelRatio is 1 and a 1080p source is exactly 2.07 MP.)
     const dpr = window.devicePixelRatio || 1;
-    const W = Math.max(1, Math.round(glCanvas.clientWidth * dpr));
-    const H = Math.max(1, Math.round(glCanvas.clientHeight * dpr));
+    const fullW = glCanvas.clientWidth * dpr, fullH = glCanvas.clientHeight * dpr;
+    const fit = Math.min(1, Math.sqrt((params.perf.maxMegapixels * 1e6) / Math.max(1, fullW * fullH)));
+    const kScale = fit * clamp(params.perf.renderScale, 0.25, 1);
+    const W = Math.max(1, Math.round(fullW * kScale));
+    const H = Math.max(1, Math.round(fullH * kScale));
     if (glCanvas.width !== W || glCanvas.height !== H) {
       glCanvas.width = W;
       glCanvas.height = H;
@@ -796,31 +803,102 @@ function start() {
     lastView = view;
 
     if (!obs) {
-      const guides: GuidePlant[] = slots.map((s) => ({ pl: s.place, extraAngle: spin * s.place.tierDir, colour: s.colour }));
-      overlay.draw(view, params, guides);
+      // The 2D preview overlay is redrawn only when something it shows changed (with guides on it
+      // follows the plants, so then every frame).
+      const a = params.avatar, sc = params.scene;
+      const key = sc.showGuides ? '' : [W, H, view.s, view.cx, view.cy, sc.showAvatar, a.useImage, a.opacity, a.imageX, a.imageY,
+        a.imageHeight, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR].join();
+      if (key === '' || key !== overlayKey || overlay.image !== overlayImage) {
+        overlayKey = key;
+        overlayImage = overlay.image;
+        const guides: GuidePlant[] = sc.showGuides
+          ? slots.map((s) => ({ pl: s.place, extraAngle: spin * s.place.tierDir, colour: s.colour })) : [];
+        overlay.draw(view, params, guides);
+      }
       scopeCanvas.style.display = params.scene.showScope ? 'block' : 'none';
       if (params.scene.showScope) scope.draw(params.scene.scopeSeconds);
     }
   }
 
   // ---- Loop ----------------------------------------------------------------------------------------
-  let last = performance.now();
+  // requestAnimationFrame fires on every display refresh (in OBS: every OBS frame). A frame is
+  // simulated and drawn on every n-th of them, n being the whole division of the display rate
+  // nearest to the wanted fps (docs/fable-consult-4-performance.md, 1.2).
+  const MAX_STEP = 0.05; // s: longest single simulation step
+  const MAX_CATCHUP = 0.25; // s: most time simulated for one drawn frame (after a stall)
+  const IDLE_HOLD = 2000; // ms at the full rate after the last activity
+  let last = performance.now(); // time of the last simulated and drawn frame
+  let lastRaf = last;
+  let vsync = 1000 / 60; // measured rAF period (ms), smoothed
+  let activeUntil = last + IDLE_HOLD;
+  let obsVisible = true;
+  let contextLost = false;
+  let shownFps = 0, fpsCount = 0, fpsSince = last;
   // Timing (sprout.perf()): average ms per frame of each phase over the last ~2 s.
   const perf = { sim: 0, build: 0, gpu: 0, frames: 0 };
   const perfAdd = (k: 'sim' | 'build' | 'gpu', ms: number) => (perf[k] += (ms - perf[k]) * 0.02);
 
+  // OBS tells the page when the source is not shown anywhere.
+  if (obs) window.addEventListener('obsSourceVisibleChanged', (e) => {
+    obsVisible = (e as CustomEvent<{ visible?: boolean }>).detail?.visible !== false;
+  });
+  // The GPU process was reset (driver update, out of video memory, another program crashed it):
+  // stop drawing, and start clean once the context is back. Without this OBS stays blank.
+  glCanvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    contextLost = true;
+  });
+  glCanvas.addEventListener('webglcontextrestored', () => location.reload());
+
+  /** Someone sings, or something is being planted, pruned or faded out: draw at the full rate. */
+  function sceneActive() {
+    if (commits.length || dying.length || endingHalos.length) return true;
+    for (const h of halos) if (h.drive.voice || h.drive.energy > 0.03 || h.drive.flash > 0.03) return true;
+    for (const s of slots) if (s.drive.voice || s.drive.energy > 0.03 || s.drive.flash > 0.03) return true;
+    return false;
+  }
+
+  function wantedFps(now: number) {
+    const pf = params.perf;
+    let fps = pf.fps;
+    if (now > activeUntil) fps = Math.min(fps, pf.idleFps);
+    if (!obs && !document.hasFocus()) fps = Math.min(fps, pf.backgroundFps);
+    return clamp(fps, 1, 240);
+  }
+
   function frame(now: number) {
     requestAnimationFrame(frame);
-    try {
-      const realDt = Math.min(0.05, (now - last) / 1000);
+    const rafDt = now - lastRaf;
+    lastRaf = now;
+    if (rafDt > 2 && rafDt < 50) vsync += (rafDt - vsync) * 0.1;
+    // Nothing can be seen: no simulation, no drawing. `last` follows, so nothing jumps afterwards.
+    if (document.hidden || !obsVisible || contextLost) {
       last = now;
+      return;
+    }
+    // Every n-th refresh, with half a refresh of tolerance: jitter never skips or doubles a
+    // frame, and a cap equal to the display rate is exactly "every refresh".
+    const n = Math.max(1, Math.round(1000 / wantedFps(now) / vsync));
+    if (now - last < (n - 0.5) * vsync) return;
+    try {
+      const elapsed = clamp((now - last) / 1000, 0, MAX_CATCHUP);
+      last = now;
+      // Longer frames are simulated in steps, so a low frame rate never slows the plants down.
+      const steps = Math.max(1, Math.ceil(elapsed / MAX_STEP - 1e-6));
+      const realDt = elapsed / steps;
       // The OBS page always runs in real time, whatever a preview page saved.
       const dt = obs ? realDt : params.scene.paused ? 0 : realDt * params.scene.timeScale;
       const t0 = performance.now();
-      simulate(dt, realDt);
+      for (let i = 0; i < steps; i++) simulate(dt, realDt);
       perfAdd('sim', performance.now() - t0);
+      if (sceneActive()) activeUntil = now + IDLE_HOLD;
       draw();
       perf.frames++;
+      if (++fpsCount && now - fpsSince >= 1000) {
+        shownFps = Math.round((fpsCount * 1000) / (now - fpsSince));
+        fpsCount = 0;
+        fpsSince = now;
+      }
     } catch (e) {
       showError(e);
     }
@@ -864,7 +942,15 @@ function start() {
     /** Preview picture from code (tests): sprout.avatarImage(imgElement) or null. */
     avatarImage: (img: HTMLImageElement | null) => (overlay.image = img),
     /** Average ms per frame: simulation, instance building, GL submission (CPU side). */
-    perf: () => ({ simMs: +perf.sim.toFixed(2), buildMs: +perf.build.toFixed(2), glSubmitMs: +perf.gpu.toFixed(2), frames: perf.frames }),
+    perf: () => ({
+      fps: shownFps, displayHz: +(1000 / vsync).toFixed(1),
+      simMs: +perf.sim.toFixed(2), buildMs: +perf.build.toFixed(2), glSubmitMs: +perf.gpu.toFixed(2),
+      gpuMs: +renderer.gpuMs.toFixed(2),
+      canvas: `${glCanvas.width}x${glCanvas.height}`, dpr: window.devicePixelRatio,
+      gpu: renderer.gpuName(),
+      heapMB: +(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 1e6).toFixed(1),
+      instances: batches.reduce((a, b) => a + b.inst.count, 0),
+    }),
     /** Time n frames of each phase synchronously (works while the pane is hidden). */
     bench: (n = 120) => {
       const r = { sim: 0, build: 0, gl: 0, glFinish: 0 };
@@ -896,5 +982,8 @@ function start() {
     }),
   };
 
+  // ?perflog: one line every 10 s in the console (OBS: its log, or remote debugging), for measuring.
+  if (query.has('perflog'))
+    setInterval(() => console.info('sprout perf ' + JSON.stringify((window as unknown as { sprout: { perf(): unknown } }).sprout.perf())), 10000);
   requestAnimationFrame(frame);
 }

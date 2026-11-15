@@ -58,12 +58,13 @@ const easeOutBack = (t: number) => {
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 };
 
-function tint(base: RGB, natural: RGB, amount: number, intensity: number): [number, number, number] {
-  return [
-    lerp(base[0], natural[0], amount) * intensity,
-    lerp(base[1], natural[1], amount) * intensity,
-    lerp(base[2], natural[2], amount) * intensity,
-  ];
+// Scratch colours: Placer.put copies the numbers at once, so one shared array per use is safe.
+const tintA: [number, number, number] = [0, 0, 0], tintB: [number, number, number] = [0, 0, 0];
+function tint(base: RGB, natural: RGB, amount: number, intensity: number, out = tintA): [number, number, number] {
+  out[0] = lerp(base[0], natural[0], amount) * intensity;
+  out[1] = lerp(base[1], natural[1], amount) * intensity;
+  out[2] = lerp(base[2], natural[2], amount) * intensity;
+  return out;
 }
 
 class Placer {
@@ -109,6 +110,9 @@ export interface TreeExtras {
    *  instead of popping), and the seconds since the last frame. */
   leafState?: Float32Array;
   dt?: number;
+  /** Take plants: per-node branch id and per-branch "has finished growing" (leaves only then). */
+  branchId?: ArrayLike<number>;
+  branchDone?: ArrayLike<number>;
   /** Motion: per-node branch order and bend frames (4 floats per node). */
   order?: ArrayLike<number>;
   bend?: ArrayLike<number>;
@@ -187,9 +191,14 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (rank) {
       // Take plants: spaced leaves, with size and tint variety and a dim under-layer. Leaves sit
       // at the visible end of a growing or withering twig.
-      const visTip = (tipScratch[i] === 1 && f > 0.15) || tipScratch[i] === 2;
-      const has = rank[i] <= dens || (visTip && dens > 0.1);
-      const pxv = lerp(sk.x[pa], x, f), pyv = lerp(sk.y[pa], y, f);
+      // Only on branches that have finished growing, and only where the twig is fully there: no
+      // leaves riding along a growing tip. A finished branch that withers back keeps the leaves on
+      // what is left (and buds where its shoots were).
+      const bId = extras.branchId, bDone = extras.branchDone;
+      const allowed = f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1);
+      const visTip = allowed && (tipScratch[i] === 1 || tipScratch[i] === 2);
+      const has = allowed && (rank[i] <= dens || (visTip && dens > 0.1));
+      const pxv = x, pyv = y;
       if (st.theme === 'leaves') {
         const pres = presence(i, has);
         if (pres > 0) {
@@ -200,17 +209,21 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
           const inten = st.intensity * tone * lerp(1, 0.72 + 0.43 * h3, variety);
           const c = tint(st.colour, LEAF, clamp(nat * lerp(1, 0.4 + 1.2 * h2, variety)), inten);
           const toUnder = underPlace && hash1(id * 7.7 + st.seed) < 0.4;
-          if (toUnder) underPlace!.put(x, y, ang, sz * 1.15, Shape.Leaf, c.map((v) => v * 0.6) as [number, number, number], flex, h0);
-          else place.put(x, y, ang, sz, Shape.Leaf, c, flex, h0);
+          if (toUnder) {
+            tintB[0] = c[0] * 0.6;
+            tintB[1] = c[1] * 0.6;
+            tintB[2] = c[2] * 0.6;
+            underPlace!.put(x, y, ang, sz * 1.15, Shape.Leaf, tintB, flex, h0);
+          } else place.put(x, y, ang, sz, Shape.Leaf, c, flex, h0);
         }
-        if ((terminal || visTip) && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
+        if (allowed && (terminal || visTip) && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
           const s = size * 0.075 * st.bloom * pop * (0.8 + 0.4 * h2);
           place.put(pxv, pyv, dir, s, Shape.Blossom, tint(st.colour, PETAL, 0.4 + 0.5 * nat, st.intensity * 1.1), flex, h3, 1.4);
         }
         continue;
       }
       if (st.theme === 'thorns') {
-        const pres = presence(i, !terminal && rank[i] <= Math.min(1, dens * 1.3));
+        const pres = presence(i, allowed && !terminal && rank[i] <= Math.min(1, dens * 1.3));
         if (pres > 0) {
           const ang = dir + side * (0.95 + 0.25 * h2);
           const s = size * 0.034 * (0.6 + L.thornEffort * st.effort) * pop * pres * (0.7 + 0.6 * h1);
@@ -219,7 +232,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         continue;
       }
       // Wreath: needles everywhere (they are thin), berries and holly on the spaced nodes.
-      if (rank[i] > 1.5) continue; // the moat and the hidden part stay bare
+      if (rank[i] > 1.5 || !allowed) continue; // the moat, the hidden part and growing twigs stay bare
     }
 
     switch (st.theme) {

@@ -112,7 +112,11 @@ export class Plant {
   private target = new Float32Array(0);
   /** Per-node -1..1 world height (pitch steering). */
   private side = new Float32Array(0);
-  private branchId = new Int32Array(0);
+  /** Per node: the branch (limb, fork or shoot) it belongs to. */
+  branchId = new Int32Array(0);
+  /** Per branch: its last node, and 1 once it has finished growing (leaves are only drawn then). */
+  private branchLast = new Int32Array(0);
+  branchDone = new Uint8Array(0);
   private branchRand = new Float32Array(0);
   /** Build-time reveal threshold per node. */
   private baseThr = new Float32Array(0);
@@ -217,6 +221,13 @@ export class Plant {
         this.vis[i] = Math.min(this.target[i], this.vis[i] + (dt * g.regrowSpeed * this.boost) / seg);
       }
     }
+    this.markDone();
+  }
+
+  /** Mark branches that have grown to their tip (once; withering does not undo it). */
+  private markDone() {
+    const last = this.branchLast, done = this.branchDone;
+    for (let b = 0; b < done.length; b++) if (!done[b] && this.vis[last[b]] >= 0.999) done[b] = 1;
   }
 
   /** Point, unit tangent and width at arc length d along the spine (extended straight past both ends). */
@@ -248,6 +259,7 @@ export class Plant {
       this.vis[i] = this.target[i] = 1;
       this.life[i] = 1;
     }
+    this.markDone();
   }
 
   /** flex, maxFlex, height (distance to the farthest tip below), per-node arrays. */
@@ -557,7 +569,9 @@ export class Plant {
     const n = sk.n;
     this.order = Uint8Array.from(order.slice(0, n));
     this.branchId = Int32Array.from(limbOf.slice(0, n));
+    this.branchLast = Int32Array.from(limbs.map((l) => (l.last >= l.first ? l.last : l.attach)));
     const height = this.finish(limbs.length);
+    this.branchDone = new Uint8Array(limbs.length);
     this.bend = bendFrames(sk, this.order, new Float32Array(n * 4));
     // The trunk never withers; limbs hold a little longer than shoots.
     for (let i = 0; i < n; i++) this.witherH[i] = height[i] + (this.order[i] === 0 ? 99 : this.order[i] === 1 ? 0.12 : 0);

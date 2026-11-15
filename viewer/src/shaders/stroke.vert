@@ -50,11 +50,15 @@ void main() {
   float L = length(d);
   vec2 t = L > 1e-7 ? d / L : vec2(1.0, 0.0);
   vec2 n = vec2(-t.y, t.x);
-  float pad = max(rA, rB) + 2.0 * u_px;
+  // The quad covers only what the fragment shader keeps: a flat (joined) end is cut exactly at
+  // the end point, so it needs no cap there; elsewhere the radius plus one pixel for the edge.
+  float pad = max(rA, rB) + u_px;
+  float padA = a_misc.z > 0.5 ? 0.5 * u_px : pad; // join 1 or 2: flat start
+  float padB = a_misc.z > 1.5 ? 0.5 * u_px : pad; // join 2: flat end too
 
   float sx = (gl_VertexID & 1) == 0 ? -1.0 : 1.0;
   float sy = (gl_VertexID & 2) == 0 ? -1.0 : 1.0;
-  vec2 P = (sx < 0.0 ? A - t * pad : B + t * pad) + n * sy * pad;
+  vec2 P = (sx < 0.0 ? A - t * padA : B + t * padB) + n * sy * pad;
 
   v_p = P;
   v_a = A;

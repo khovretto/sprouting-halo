@@ -146,7 +146,10 @@ export class Renderer {
   private levels: { t: Target; tmp: Target }[] = [];
 
   constructor(readonly canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false });
+    const gl = canvas.getContext('webgl2', {
+      alpha: true, premultipliedAlpha: true, antialias: false,
+      depth: false, stencil: false, // nothing uses them; saves a full-size buffer
+    });
     if (!gl) throw new Error('WebGL2 is not available.');
     this.gl = gl;
     const hdr = !!gl.getExtension('EXT_color_buffer_float');
@@ -200,7 +203,50 @@ export class Renderer {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
+  /** GPU time of the last measured frame (ms), smoothed; -1 = no timer available. */
+  gpuMs = -1;
+  private tq: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null | undefined;
+  private query: WebGLQuery | null = null;
+  private timing = false;
+
+  private beginTimer() {
+    const gl = this.gl;
+    if (this.tq === undefined) this.tq = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    if (!this.tq) return;
+    if (this.query) {
+      // One query at a time: read the previous result when it is ready.
+      if (!gl.getQueryParameter(this.query, gl.QUERY_RESULT_AVAILABLE)) return;
+      const ms = (gl.getQueryParameter(this.query, gl.QUERY_RESULT) as number) / 1e6;
+      if (!gl.getParameter(this.tq.GPU_DISJOINT_EXT)) this.gpuMs = this.gpuMs < 0 ? ms : this.gpuMs + (ms - this.gpuMs) * 0.1;
+      gl.deleteQuery(this.query);
+    }
+    this.query = gl.createQuery();
+    gl.beginQuery(this.tq.TIME_ELAPSED_EXT, this.query!);
+    this.timing = true;
+  }
+
+  private endTimer() {
+    if (!this.timing) return;
+    this.gl.endQuery(this.tq!.TIME_ELAPSED_EXT);
+    this.timing = false;
+  }
+
+  /** Which GPU draws this (SwiftShader / Basic Render Driver = software: far too slow). */
+  gpuName(): string {
+    const gl = this.gl, ext = gl.getExtension('WEBGL_debug_renderer_info');
+    return String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+  }
+
   render(batches: Batch[], layers: LayerUniforms, view: View, windT: number, glow: GlowSettings) {
+    this.beginTimer();
+    try {
+      this.renderFrame(batches, layers, view, windT, glow);
+    } finally {
+      this.endTimer();
+    }
+  }
+
+  private renderFrame(batches: Batch[], layers: LayerUniforms, view: View, windT: number, glow: GlowSettings) {
     const gl = this.gl;
     this.ensureTargets(view.W, view.H);
     const scene = this.scene!;
@@ -244,8 +290,7 @@ export class Renderer {
     // 3. Composite to the canvas.
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    // (no clear: the composite writes every pixel with blending off)
     this.fullscreen(this.composite, null, {
       u_base: scene.tex[0],
       u_g1: this.levels[0].t.tex[0],

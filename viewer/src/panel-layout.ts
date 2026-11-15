@@ -36,6 +36,7 @@ export const FOLDER_HINTS: Record<string, string> = {
   many: 'Behaviour with many takes: how neighbouring plants interleave, how the canopy shrinks, and the optional carousel spin.',
   fit: 'Fit the overlay to your avatar: framing, halo position and size, where the trees grow from, and the keep-out region behind your head and body.',
   detect: 'How Sprout.exe recognises things in your voice. These live in Sprout.exe (saved next to it), so every viewer and OBS use the same values; a viewer that connects shows them. Needs Sprout.exe running: the fake singer always sings with clear vibrato.',
+  perf: 'How often and how large the picture is drawn. Lower values leave more of the graphics card to OBS, VTube Studio and your browser. Shared with the OBS page. Hidden pages and OBS sources that are not shown draw nothing at all.',
   connection: 'Where the voice data comes from (Sprout.exe or the fake singer) and whether panel changes are shared with other open viewers such as OBS.',
   test: 'Preview tools for this browser only: the voice scope, the placeholder avatar or your own PNG, pausing, the fake singer.',
 };
@@ -113,6 +114,12 @@ export const FOLDERS: FolderSpec[] = [
     catchSections: ['detect'],
   },
   {
+    id: 'perf', title: 'Setup: performance', setup: true,
+    keys: ['perf.fps', 'perf.idleFps', 'perf.backgroundFps'],
+    advanced: ['perf.maxMegapixels', 'perf.renderScale'],
+    catchSections: ['perf'],
+  },
+  {
     id: 'connection', title: 'Setup: connection & sync', setup: true,
     keys: ['source.mode', 'source.syncSettings', 'source.useTrackColours', 'source.holdSeconds'],
     advanced: ['source.port'],
@@ -170,6 +177,8 @@ export const LABELS: Record<string, string> = {
   'detect.vibratoMinNote': 'vibrato: note at least (s)', 'detect.vibratoMinSemitones': 'vibrato: smallest swing (st)',
   'detect.vibratoFullSemitones': 'vibrato: full at swing (st)', 'detect.vibratoMinHz': 'vibrato: slowest (Hz)',
   'detect.vibratoMaxHz': 'vibrato: fastest (Hz)',
+  'perf.fps': 'max fps', 'perf.idleFps': 'fps when silent', 'perf.backgroundFps': 'preview fps in background',
+  'perf.maxMegapixels': 'max picture size (MP)', 'perf.renderScale': 'render scale',
   'commit.enabled': 'plant the halo', 'commit.duration': 'pace', 'commit.impact': 'impact',
   'commit.burst': 'leaves thrown', 'commit.shockRing': 'shock ring', 'commit.plunge': 'plunge depth',
   'commit.spinTurns': 'spin (turns)', 'commit.stampReveal': 'tree grown at impact',
@@ -195,7 +204,7 @@ export const RIG_KEYS = new Set([
 
 export function scopeOf(path: string): Scope {
   if (LOCAL_KEYS.has(path) || path.startsWith('fake.')) return 'local';
-  if (RIG_KEYS.has(path) || path.startsWith('avatar.')) return 'rig';
+  if (RIG_KEYS.has(path) || path.startsWith('avatar.') || path.startsWith('perf.')) return 'rig';
   return 'look';
 }
 

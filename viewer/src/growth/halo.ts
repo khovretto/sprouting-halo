@@ -33,6 +33,10 @@ interface VNode {
   /** Shoots: time the shoot started growing and position along it (0..1). */
   growStart: number;
   pos: number;
+  /** Index in the skeleton this frame (rebuild). */
+  index: number;
+  /** Dropped off the end of the tail: nothing may keep pointing at it. */
+  dead: boolean;
 }
 
 interface Tip {
@@ -97,7 +101,7 @@ export class HaloVine {
 
   private add(x: number, y: number, parent: VNode | null, flex: number, w: number, kind: NodeKind,
               runner: number, arcAt: number, growStart: number, pos: number) {
-    const n: VNode = { id: this.nextId++, x, y, parent, flex, w, kind, runner, arcAt, growStart, pos };
+    const n: VNode = { id: this.nextId++, x, y, parent, flex, w, kind, runner, arcAt, growStart, pos, index: -1, dead: false };
     this.nodes.push(n);
     return n;
   }
@@ -127,7 +131,14 @@ export class HaloVine {
 
     // Drop vine that has fallen off the end of every tail.
     const tail = Math.max(0.1, h.tailDeg * deg);
-    this.nodes = this.nodes.filter((n) => this.tips[n.runner] && this.tips[n.runner].arc - n.arcAt <= tail);
+    // (in place, no new array; dropped nodes are marked so no survivor keeps pointing at them)
+    let kept = 0;
+    for (const node of this.nodes) {
+      const tip = this.tips[node.runner];
+      if (tip && tip.arc - node.arcAt <= tail) this.nodes[kept++] = node;
+      else node.dead = true;
+    }
+    this.nodes.length = kept;
     this.rebuild(p);
   }
 
@@ -173,15 +184,16 @@ export class HaloVine {
       this.alpha = new Float32Array(n * 2);
       this.ids = new Int32Array(n * 2);
     }
-    const index = new Map<number, number>();
     const tail = Math.max(0.1, h.tailDeg * deg);
     const fadeStart = tail * (1 - clamp(h.tailFade, 0.01, 1));
     const grow = Math.max(0.05, h.sproutGrow);
     for (let i = 0; i < n; i++) {
       const v = this.nodes[i];
-      const pi = v.parent ? index.get(v.parent.id) ?? -1 : -1;
+      // Cut the link to a dropped parent: otherwise the whole vine ever grown stays in memory.
+      if (v.parent && v.parent.dead) v.parent = null;
+      const pi = v.parent ? v.parent.index : -1;
       const j = sk.add(v.x, v.y, pi, v.flex, v.w, v.kind);
-      index.set(v.id, j);
+      v.index = j;
       this.ids[j] = v.id;
       this.vis[j] = v.kind === NodeKind.Sprout ? clamp((((this.t - v.growStart) / grow) * 1.15 - v.pos) / 0.15) : 1;
       const behind = this.tips[v.runner].arc - v.arcAt;
