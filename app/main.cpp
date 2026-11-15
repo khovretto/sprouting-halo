@@ -437,6 +437,39 @@ void applyDetect (const std::string& msg)
     if (jsonNumber (msg, "vibratoMaxHz", x)) v.maxHz = std::clamp (x, v.minHz + 0.5f, 20.0f);
 }
 
+// The shared viewer settings (merged by FeatureServer), kept next to Sprout.exe so a viewer that
+// connects after a restart still gets the latest value of every setting.
+std::wstring settingsFile()
+{
+    std::wstring f = detectFile();
+    return f.substr (0, f.find_last_of (L"\\/")) + L"\\sprout-settings.json";
+}
+
+std::string readFile (const std::wstring& path)
+{
+    FILE* f = _wfopen (path.c_str(), L"rb");
+    if (f == nullptr)
+        return {};
+    std::string out;
+    char buf[4096];
+    size_t n = 0;
+    while ((n = std::fread (buf, 1, sizeof (buf), f)) > 0)
+        out.append (buf, n);
+    std::fclose (f);
+    return out;
+}
+
+void writeFile (const std::wstring& path, const std::string& text)
+{
+    const std::wstring tmp = path + L".tmp";
+    FILE* f = _wfopen (tmp.c_str(), L"wb");
+    if (f == nullptr)
+        return;
+    std::fwrite (text.data(), 1, text.size(), f);
+    std::fclose (f);
+    MoveFileExW (tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+}
+
 void loadDetect()
 {
     FILE* f = _wfopen (detectFile().c_str(), L"rb");
@@ -556,6 +589,9 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
 
     loadDetect();
     web.setWelcome (detectJson());
+    web.restoreSettings (readFile (settingsFile()));
+    uint64_t savedSettings = web.settingsVersion();
+    double settingsDirtySince = -1.0;
     if (cfg.webPort > 0 && ! web.start ((uint16_t) cfg.webPort, findWebRoot (cfg.webRoot)))
     {
         char msg[160];
@@ -638,6 +674,19 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
         if (web.clientCount() > 0)
             web.broadcast (featureJson (taps, now));
         web.poll();
+
+        // Shared settings changed: save them (at most once a second while someone drags a slider).
+        if (web.settingsVersion() != savedSettings)
+        {
+            if (settingsDirtySince < 0.0)
+                settingsDirtySince = now;
+            if (now - settingsDirtySince > 1.0)
+            {
+                writeFile (settingsFile(), web.settingsMessage());
+                savedSettings = web.settingsVersion();
+                settingsDirtySince = -1.0;
+            }
+        }
 
         // A viewer picked a preset: every voice tap switches to its theme and amount (the tap
         // sets its own parameters, so the DAW saves the change with the project).

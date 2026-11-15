@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <map>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -155,6 +156,63 @@ struct FeatureServer::Impl
     // the others. The latest "params" message is kept and sent to viewers that connect later,
     // so an OBS Browser Source picks up the settings made in a normal browser tab.
     std::string lastParams;
+    // Shared settings, merged key by key from every viewer's "params" patches ({"growth.reach":1.2,
+    // ...}); a viewer that connects gets all of them at once, so it starts from the latest value of
+    // every key no matter which viewer changed it.
+    std::map<std::string, std::string> settings;
+    uint64_t settingsVersion = 0;
+
+    // Merge the flat "patch":{"key":value,...} object of a params message (values kept as raw JSON).
+    void mergePatch (const std::string& msg)
+    {
+        size_t p = msg.find ("\"patch\":{");
+        if (p == std::string::npos)
+            return;
+        p += 9;
+        auto skipWs = [&] { while (p < msg.size() && (msg[p] == ' ' || msg[p] == ',' || msg[p] == '\n' || msg[p] == '\r' || msg[p] == '\t')) ++p; };
+        auto readString = [&] () -> std::string { // at '"', returns the raw token including quotes
+            const size_t a = p++;
+            while (p < msg.size() && msg[p] != '"')
+                p += msg[p] == '\\' ? 2 : 1;
+            ++p;
+            return msg.substr (a, p - a);
+        };
+        for (;;)
+        {
+            skipWs();
+            if (p >= msg.size() || msg[p] == '}' || msg[p] != '"')
+                break;
+            const std::string key = readString();
+            skipWs();
+            if (p >= msg.size() || msg[p] != ':')
+                break;
+            ++p;
+            skipWs();
+            std::string value;
+            if (p < msg.size() && msg[p] == '"')
+                value = readString();
+            else
+            {
+                const size_t a = p;
+                while (p < msg.size() && msg[p] != ',' && msg[p] != '}')
+                    ++p;
+                value = msg.substr (a, p - a);
+            }
+            if (key.size() > 2 && ! value.empty() && settings.size() < 2000)
+                settings[key] = value;
+        }
+        lastParams = "{\"type\":\"params\",\"from\":\"sprout\",\"replay\":true,\"patch\":{";
+        bool first = true;
+        for (const auto& [k, v] : settings)
+        {
+            if (! first)
+                lastParams += ',';
+            first = false;
+            lastParams += k + ':' + v;
+        }
+        lastParams += "}}";
+        ++settingsVersion;
+    }
     std::vector<std::pair<SOCKET, std::string>> relay; // (sender, message)
     std::vector<std::string> appInbox;                  // messages for the app ("tapLook", "detect")
     std::string welcome;                                // sent to each viewer as it connects
@@ -205,6 +263,9 @@ struct FeatureServer::Impl
         target = target.substr (0, target.find_first_of ("?#"));
         if (target.empty() || target.back() == '/')
             target += "index.html";
+        // Page routes without a file extension (/controls) are the viewer itself.
+        if (target.find ('.', target.find_last_of ('/')) == std::string::npos)
+            target = "/index.html";
         if (target.find ("..") != std::string::npos || target.find ('\\') != std::string::npos || target[0] != '/')
             return respond ("400 Bad Request", "text/plain", "Bad request");
 
@@ -278,7 +339,7 @@ struct FeatureServer::Impl
                     continue;
                 }
                 if (payload.rfind ("{\"type\":\"params\"", 0) == 0)
-                    lastParams = payload;
+                    mergePatch (payload);
                 relay.push_back ({ c.s, std::move (payload) });
             }
         }
@@ -450,6 +511,21 @@ void FeatureServer::broadcast (const std::string& text)
             f = Impl::frame (0x1, text);
         c.out += f;
     }
+}
+
+const std::string& FeatureServer::settingsMessage() const
+{
+    return impl->lastParams;
+}
+
+uint64_t FeatureServer::settingsVersion() const
+{
+    return impl->settingsVersion;
+}
+
+void FeatureServer::restoreSettings (const std::string& message)
+{
+    impl->mergePatch (message);
 }
 
 void FeatureServer::setWelcome (const std::string& text)

@@ -41,6 +41,13 @@ public:
     // Sent to every viewer as it connects (the app's current voice detection settings).
     void setWelcome (const std::string& text);
 
+    // The shared viewer settings merged from every viewer's changes, as one "params" message
+    // (what a connecting viewer receives). The version rises with every change (for saving).
+    const std::string& settingsMessage() const;
+    uint64_t settingsVersion() const;
+    // Restore saved settings (the text of a settingsMessage()).
+    void restoreSettings (const std::string& message);
+
     int clientCount() const;
     uint16_t port() const;
     bool isRunning() const;

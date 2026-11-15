@@ -19,6 +19,10 @@
       #overlay { pointer-events: none; }
       #scope { position: fixed; left: 8px; bottom: 8px; inset: auto auto 8px 8px; display: none; border-radius: 6px; cursor: pointer; }
       #panel { position: fixed; top: 8px; right: 8px; width: 300px; max-height: calc(100vh - 16px); overflow-y: auto; }
+      /* /controls: the panel and the voice scope only, nothing drawn. */
+      html.controls body { background: #15161a; }
+      html.controls #gl, html.controls #overlay { display: none; }
+      html.controls #panel { width: 420px; }
       #error { position: fixed; left: 8px; bottom: 8px; right: 320px; color: #ff8080; font: 12px/1.4 monospace;
                white-space: pre-wrap; background: #000c; padding: 8px; display: none; }
     </style>

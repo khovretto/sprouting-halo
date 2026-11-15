@@ -3,6 +3,8 @@
 // leaves only the transparent visual. Settings sync between every open viewer via Sprout.exe.
 
 import { buildUI, deepMerge, loadParams, saveParams, UI, UIStatus } from './ui';
+import { defaults, Params } from './params';
+import { getPath, PATHS, setPath } from './presets';
 import type { FeatureFrame, LayerFeatures, Theme } from './features';
 import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
@@ -94,9 +96,16 @@ function start() {
   const ovCanvas = document.getElementById('overlay') as HTMLCanvasElement;
   const panel = document.getElementById('panel')!;
 
-  const renderer = new Renderer(glCanvas);
+  // /controls (or ?controls): the panel and the voice scope only. Nothing is drawn, so it costs
+  // nothing on the graphics card: control the OBS page from here without opening OBS's Interact.
+  const controls = /\/controls\/?$/.test(location.pathname) || query.has('controls');
+  if (controls) {
+    document.documentElement.classList.add('controls');
+    document.title = 'Sprout controls';
+  }
+  const renderer = controls ? (null as unknown as Renderer) : new Renderer(glCanvas);
   const overlay = new Overlay(ovCanvas);
-  if (!obs) void loadAvatarImage().then((img) => (overlay.image = img));
+  if (!obs && !controls) void loadAvatarImage().then((img) => (overlay.image = img));
   const scopeCanvas = document.getElementById('scope') as HTMLCanvasElement;
   const scope = new Scope(scopeCanvas);
   const scopeSet = (fn: () => void) => {
@@ -168,36 +177,56 @@ function start() {
   // and ignores everything while you are still dragging a control in it.
   let ui: UI | undefined;
   let lastLocalChange = 0;
-  let lastAppliedTs = 0;
-  // Shared: everything that changes the look. Per viewer: the audio source, the fake singer and
-  // preview-only scene switches (so a test or preview page can never pause or reframe OBS).
-  const syncable = () => {
-    const { source, fake: _fake, ...rest } = structuredClone(params);
-    // The OBS page has no panel: it must receive the track-colour fallback and dropout hold too.
-    const shared = { ...rest, source: { useTrackColours: source.useTrackColours, holdSeconds: source.holdSeconds } };
-    const scene = shared.scene as Partial<typeof params.scene>;
-    delete scene.paused;
-    delete scene.timeScale;
-    delete scene.layers;
-    delete scene.backdrop;
-    delete scene.showAvatar;
-    delete scene.showGuides;
-    delete scene.showScope;
-    delete scene.scopeLayer;
-    delete scene.scopeSeconds;
-    // Voice detection lives in Sprout.exe (its own "detect" message), not in the shared settings.
-    delete (shared as Partial<typeof params>).detect;
-    const av = shared.avatar as Partial<typeof params.avatar>;
-    delete av.opacity;
-    delete av.useImage;
-    delete av.imageX;
-    delete av.imageY;
-    delete av.imageHeight;
-    return shared;
-  };
+  // ---- Settings sync, key by key -------------------------------------------------------------------
+  // Only the keys someone actually changed travel ({"growth.reach": 1.2, ...}), so a page with old
+  // values can never overwrite newer ones it did not touch. Sprout.exe merges every patch and gives
+  // a page that connects the latest value of every key. Per viewer (never synced): the audio
+  // source, the fake singer, preview switches, voice detection (its own message), the preview
+  // avatar picture.
+  const LOCAL_ONLY = new Set([
+    'source.mode', 'source.port', 'source.syncSettings', 'scene.paused', 'scene.timeScale', 'scene.layers',
+    'scene.backdrop', 'scene.showAvatar', 'scene.showGuides', 'scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds',
+    'avatar.opacity', 'avatar.useImage', 'avatar.imageX', 'avatar.imageY', 'avatar.imageHeight',
+  ]);
+  const SYNC_KEYS = PATHS.filter((k) => !LOCAL_ONLY.has(k) && !k.startsWith('fake.') && !k.startsWith('detect.'));
+  const SYNC_SET = new Set(SYNC_KEYS);
+  /** What every shared key was when last sent or received: a different value now = changed here. */
+  const synced = new Map<string, string>(SYNC_KEYS.map((k) => [k, JSON.stringify(getPath(params, k))]));
+  const editedAt = new Map<string, number>();
   const sendParams = () => {
-    if (params.source.syncSettings) live.send({ type: 'params', from: clientId, ts: Date.now(), params: syncable() });
+    if (!params.source.syncSettings || live.status !== 'connected') return; // unsent edits go out on connect
+    const patch: Record<string, unknown> = {};
+    const now = Date.now();
+    for (const k of SYNC_KEYS) {
+      const v = JSON.stringify(getPath(params, k));
+      if (v === synced.get(k)) continue;
+      patch[k] = getPath(params, k);
+      synced.set(k, v);
+      editedAt.set(k, now);
+    }
+    if (Object.keys(patch).length) live.send({ type: 'params', from: clientId, ts: now, patch });
   };
+  /** Apply another viewer's changes (or Sprout.exe's merged settings on connect). */
+  const applyPatch = (patch: Record<string, unknown>) => {
+    const now = Date.now();
+    let any = false;
+    for (const [k, v] of Object.entries(patch)) {
+      if (!SYNC_SET.has(k)) continue;
+      const def = getPath(defaults, k);
+      if (typeof v !== typeof def) continue;
+      // Keep what is being changed here right now (a drag in progress, or not sent yet).
+      if (now - (editedAt.get(k) ?? 0) < 1000) continue;
+      if (JSON.stringify(getPath(params, k)) !== synced.get(k)) continue;
+      setPath(params, k, v);
+      synced.set(k, JSON.stringify(v));
+      any = true;
+    }
+    if (any) {
+      saveParams(params);
+      ui?.refresh();
+    }
+  };
+  live.onOpen = () => sendParams();
   // Voice detection settings: sent to Sprout.exe when changed here; Sprout.exe keeps them and tells
   // every viewer (also on connect), so all panels show what is really used.
   let detectSent = JSON.stringify(params.detect);
@@ -222,12 +251,16 @@ function start() {
     }
     if (msg.from === clientId) return;
     if (msg.type === 'params' && params.source.syncSettings) {
-      const ts = Number(msg.ts) || 0;
-      if (ts <= lastAppliedTs || ts <= lastLocalChange || Date.now() - lastLocalChange < 1500) return;
-      lastAppliedTs = ts;
-      deepMerge(params as unknown as Record<string, unknown>, msg.params);
-      saveParams(params);
-      ui?.refresh();
+      if (msg.patch && typeof msg.patch === 'object') applyPatch(msg.patch as Record<string, unknown>);
+      else if (msg.params && typeof msg.params === 'object') {
+        // An older viewer sending all its settings: take them key by key.
+        const flat: Record<string, unknown> = {};
+        for (const k of SYNC_KEYS) {
+          const v = getPath(msg.params as Params, k);
+          if (v !== undefined) flat[k] = v;
+        }
+        applyPatch(flat);
+      }
     } else if (msg.type === 'action') runAction(String(msg.name), false);
   };
   function runAction(name: string, broadcast: boolean) {
@@ -682,6 +715,12 @@ function start() {
   let lastDrawT = 0;
   let overlayKey = '', overlayImage: HTMLImageElement | null = null;
   function draw() {
+    if (controls) {
+      // Controls page: only the voice scope.
+      scopeCanvas.style.display = params.scene.showScope ? 'block' : 'none';
+      if (params.scene.showScope) scope.draw(params.scene.scopeSeconds);
+      return;
+    }
     const tDraw0 = performance.now();
     // Sim seconds since the last drawn frame (leaf fades); a jump (restart, fast-forward) snaps.
     const drawDt = t - lastDrawT > 0 && t - lastDrawT < 0.5 ? t - lastDrawT : 0;
@@ -863,6 +902,7 @@ function start() {
     let fps = pf.fps;
     if (now > activeUntil) fps = Math.min(fps, pf.idleFps);
     if (!obs && !document.hasFocus()) fps = Math.min(fps, pf.backgroundFps);
+    if (controls) fps = Math.min(fps, params.scene.showScope ? 30 : 10); // simulation for the scope only
     return clamp(fps, 1, 240);
   }
 
@@ -945,9 +985,9 @@ function start() {
     perf: () => ({
       fps: shownFps, displayHz: +(1000 / vsync).toFixed(1),
       simMs: +perf.sim.toFixed(2), buildMs: +perf.build.toFixed(2), glSubmitMs: +perf.gpu.toFixed(2),
-      gpuMs: +renderer.gpuMs.toFixed(2),
+      gpuMs: renderer ? +renderer.gpuMs.toFixed(2) : -1,
       canvas: `${glCanvas.width}x${glCanvas.height}`, dpr: window.devicePixelRatio,
-      gpu: renderer.gpuName(),
+      gpu: renderer ? renderer.gpuName() : 'none (controls page)',
       heapMB: +(((performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0) / 1e6).toFixed(1),
       instances: batches.reduce((a, b) => a + b.inst.count, 0),
     }),

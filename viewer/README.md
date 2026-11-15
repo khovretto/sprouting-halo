@@ -154,6 +154,18 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   steps at 8 fps (frame-rate independence checks). `sprout.bench(240)` times simulation,
   instance building and GL submission per frame; `sprout.perf()` shows the live averages.
 
+## Controls and sync
+
+- **http://localhost:7777/controls**: the panel and the voice scope only, nothing drawn (no
+  graphics card use). Make changes here; the OBS source (`http://localhost:7777/?obs`) follows
+  them, so OBS's Interact window is not needed.
+- Settings sync key by key: only what someone changed is sent, and every open viewer applies it
+  (also the other way round, from any panel). Sprout.exe merges all changes, keeps them in
+  `sprout-settings.json` next to it, and hands every viewer that connects the latest value of
+  every setting. A setting being dragged in one panel is not overwritten by others for a second.
+- Per viewer, never synced: audio source and port, the fake singer, preview switches (pause,
+  speed, backdrop, guides, scope), the preview avatar picture.
+
 ## Performance settings (Setup: performance)
 
 - **max fps** 60 (snaps to a whole division of the display: 72 on a 144 Hz monitor),
