@@ -803,7 +803,7 @@ function start() {
       const style = styleOf(layer, base, look, fade, R, h.vine.seed, h.drive, 0, 0, -1 / R, h.look.theme, h.look.density / origins);
       style.sizeMul = Math.pow(clamp(R / Math.max(0.05, hp.openRadius), 0.25, 1), 0.7);
       pushTree(front, h.vine.sk, h.vine.vis, layer, base, look, fade, R, params.glow.front, h.vine.alpha, undefined, h.vine.order, h.vine.bend);
-      decorateTree(h.vine.sk, h.vine.vis, params, style, frontDeco, { ids: h.vine.ids, alpha: h.vine.alpha, order: h.vine.order, bend: h.vine.bend });
+      decorateTree(h.vine.sk, h.vine.vis, params, style, frontDeco, { ids: h.vine.ids, alpha: h.vine.alpha, order: h.vine.order, bend: h.vine.bend, leafGrow: h.vine.leaf });
       decorateRing(params, { ...style, density: h.look.density }, (a) => h.vine.coverage(a, params), frontDeco, hp.alwaysLeaves);
       layer++;
     };

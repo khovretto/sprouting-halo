@@ -340,7 +340,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   tip(pane.addBinding(status, 'pitch', { readonly: true, label: 'live pitch' }).element,
     'The note the first live track is singing, in cents off the note, and the vibrato rate when there is vibrato.');
   tip(pane.addBinding(status, 'voice', { readonly: true, label: 'live voice' }).element,
-    'Effort (0 soft .. 1 full voice, measured from the overtones, so mic gain does not matter), breathiness, and softness (what the visuals use: low effort plus breath). G opens the voice scope to see them over time.');
+    'Effort: soft (0) to full voice (1), from the overtones, so 0.5 = how you usually sing and mic distance does not matter. Breath: how airy the singing is (only while a note is sung; inhales do not count). Soft: what the visuals use, high for soft, airy singing. G opens the voice scope to see them over time');
 
   // Changes applied from another viewer must never be sent back: that echo, arriving late, is
   // what overwrote newer values while dragging. Ignore panel events for a moment after a refresh.

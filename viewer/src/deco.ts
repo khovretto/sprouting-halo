@@ -110,6 +110,8 @@ export interface TreeExtras {
    *  instead of popping), and the seconds since the last frame. */
   leafState?: Float32Array;
   dt?: number;
+  /** Halo vine: per-node leaf amount 0..1 (leaves fade in behind the growing tip). */
+  leafGrow?: ArrayLike<number>;
   /** Take plants: per-node branch id and per-branch "has finished growing" (leaves only then). */
   branchId?: ArrayLike<number>;
   branchDone?: ArrayLike<number>;
@@ -183,7 +185,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     const h1 = hash1(id * 2.71 + st.seed * 3.3);
     const h2 = hash1(id * 5.13 + st.seed * 1.9);
     const h3 = hash1(id * 9.77 + st.seed * 4.4);
-    const pop = rank ? unfurl(clamp(f)) : easeOutBack(clamp(f));
+    const lg = extras.leafGrow ? extras.leafGrow[i] : 1;
+    if (lg <= 0.003) continue;
+    const pop = (rank ? unfurl(clamp(f)) : easeOutBack(clamp(f))) * lg;
     const x = sk.x[i], y = sk.y[i], flex = sk.flex[i];
     const side = h1 < 0.5 ? -1 : 1;
     const tone = extras.tone ? extras.tone[i] : 1;

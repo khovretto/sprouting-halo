@@ -48,12 +48,18 @@ interface Tip {
 }
 
 const STEP = 0.014;
+/** Leaves on the vine start this far behind the growing tip (radians) and fade in over the next LEAF_FADE. */
+const LEAF_GAP = 0.06;
+const LEAF_FADE = 0.3;
 
 export class HaloVine {
   sk = new Skeleton(4096);
   vis = new Float32Array(0);
   alpha = new Float32Array(0);
   ids = new Int32Array(0);
+  /** Per node 0..1: how far its leaf has come in. Leaves appear only behind the growing tip (vine)
+   *  or once the whole side shoot has grown, and fade in: nothing pops at the tip. */
+  leaf = new Float32Array(0);
   /** Per node: 1 runner, 2 sprout (motion), and the bend frames for the sprouts' own bend. */
   order = new Uint8Array(0);
   bend = new Float32Array(0);
@@ -182,6 +188,7 @@ export class HaloVine {
     if (this.vis.length < n) {
       this.vis = new Float32Array(n * 2);
       this.alpha = new Float32Array(n * 2);
+      this.leaf = new Float32Array(n * 2);
       this.ids = new Int32Array(n * 2);
     }
     const tail = Math.max(0.1, h.tailDeg * deg);
@@ -197,6 +204,10 @@ export class HaloVine {
       this.ids[j] = v.id;
       this.vis[j] = v.kind === NodeKind.Sprout ? clamp((((this.t - v.growStart) / grow) * 1.15 - v.pos) / 0.15) : 1;
       const behind = this.tips[v.runner].arc - v.arcAt;
+      const ss = (x: number) => x * x * (3 - 2 * x);
+      this.leaf[j] = v.kind === NodeKind.Sprout
+        ? ss(clamp((this.t - v.growStart - grow) / 0.35)) // after the whole shoot has grown
+        : ss(clamp((behind - LEAF_GAP) / LEAF_FADE)); // a little behind the tip
       const f = clamp((behind - fadeStart) / Math.max(1e-3, tail - fadeStart));
       this.alpha[j] = 1 - f * f * (3 - 2 * f);
     }
@@ -221,7 +232,8 @@ export class HaloVine {
       // Only up to the vine actually grown so far.
       if (behind > Math.min(tail, tip.arc)) continue;
       const f = clamp((behind - fadeStart) / Math.max(1e-3, tail - fadeStart));
-      best = Math.max(best, 1 - f * f * (3 - 2 * f));
+      const fadeIn = clamp((behind - LEAF_GAP) / LEAF_FADE);
+      best = Math.max(best, (1 - f * f * (3 - 2 * f)) * fadeIn * fadeIn * (3 - 2 * fadeIn));
       if (best >= 1) break;
     }
     return best;

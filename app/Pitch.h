@@ -225,13 +225,14 @@ private:
 // - Loudness relative to this singer's recent level adds the rest.
 // - Both are normalised against a running mean/deviation for this tap, so effort is "relative
 //   to how this person has been singing" (bass to coloratura, quiet or loud setups).
-// - Breathiness: noise between the harmonics (harmonic share of band energy) plus NSDF clarity.
-//   Unvoiced sound above the gate (whisper, breath) counts as fully breathy.
+// - Breathiness of the singing: noise between the harmonics (harmonic share of band energy) plus
+//   NSDF clarity, only while a pitch is sung. Unvoiced sound above the gate (an inhale, a whisper,
+//   consonants) leaves effort and breath where they were.
 class VoiceQuality
 {
 public:
     float effort = 0.5f;      // 0 soft .. 1 full / pressed, relative to recent singing
-    float breath = 0.0f;      // 0 clear .. 1 breathy
+    float breath = 0.0f;      // 0 clear .. 1 breathy (airy) singing; unpitched sound does not count
     float richnessDb = 0.0f;  // raw harmonic richness (for testing)
 
     void prepare (float sampleRate, int windowSize)
@@ -310,12 +311,17 @@ public:
             const float harmonicShare = band > 0.0 ? (float) std::min (1.0, harmonicEnergy / band) : 1.0f;
             const float noise = std::clamp ((0.92f - harmonicShare) / 0.6f, 0.0f, 1.0f);
             const float unclear = std::clamp ((0.95f - clarity) / 0.4f, 0.0f, 1.0f);
-            breathTarget = 0.5f * noise + 0.5f * unclear;
+            // Breathy *singing*: air noise between the harmonics plus a less clear pitch, scaled so
+            // clean singing reads about 0 and clearly breathy singing about 0.7.
+            breathTarget = std::clamp ((0.5f * noise + 0.5f * unclear - 0.03f) / 0.2f, 0.0f, 1.0f);
         }
         else if (rmsDb > gateDb)
         {
-            breathTarget = 1.0f; // sound without pitch: breath, whisper, consonants
-            effortTarget = 0.25f;
+            // Sound without pitch (an inhale, a whisper, consonants) is not singing: it must not
+            // read as breathy or soft. Hold the last sung values and drift back slowly.
+            breathTarget = breath;
+            effortTarget = effort;
+            tau = 1.0f;
         }
         else
         {
