@@ -50,6 +50,8 @@ export interface DecoStyle {
 }
 
 let tipScratch = new Uint8Array(0);
+/** Leaves on take trees unfurl smoothly as their twig grows (no springy overshoot). */
+const unfurl = (t: number) => 1 - Math.pow(1 - t, 2.5);
 
 const easeOutBack = (t: number) => {
   const c1 = 1.70158, c3 = c1 + 1;
@@ -103,6 +105,10 @@ export interface TreeExtras {
   tone?: ArrayLike<number>;
   /** Where to put dim, larger under-leaves drawn beneath the branches (R6). */
   under?: Instances;
+  /** Take plants: per-node leaf presence 0..1, eased each frame (leaves fade and grow in and out
+   *  instead of popping), and the seconds since the last frame. */
+  leafState?: Float32Array;
+  dt?: number;
   /** Motion: per-node branch order and bend frames (4 floats per node). */
   order?: ArrayLike<number>;
   bend?: ArrayLike<number>;
@@ -136,12 +142,22 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   }
 
   const frame: [number, number, number, number, number] = [1, 0, 0, 0, 0];
+  const ls = extras.leafState;
+  const dtL = extras.dt ?? 0;
+  const ease = dtL > 0 ? 1 - Math.exp(-dtL / 0.2) : 1;
+  /** Ease node i's leaf presence toward `want`; returns its size factor (0 = gone). */
+  const presence = (i: number, want: boolean) => {
+    if (!ls) return want ? 1 : 0;
+    ls[i] += ((want ? 1 : 0) - ls[i]) * ease;
+    const v = ls[i];
+    return v < 0.003 ? 0 : v * v * (3 - 2 * v);
+  };
   const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns');
   for (let i = 1; i < sk.n; i++) {
     const f = vis[i];
     if (f <= 0.02) continue;
     // Take plants: most nodes carry nothing; skip them before any per-node work.
-    if (leafOnly && rank![i] > Math.min(1, dens * 1.3) && tipScratch[i] === 0) continue;
+    if (leafOnly && rank![i] > Math.min(1, dens * 1.3) && tipScratch[i] === 0 && !(ls && ls[i] > 0.003)) continue;
     place.nodeAlpha = extras.alpha ? extras.alpha[i] : 1;
     if (place.nodeAlpha <= 0.01) continue;
     const id = extras.ids ? extras.ids[i] : i;
@@ -163,7 +179,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     const h1 = hash1(id * 2.71 + st.seed * 3.3);
     const h2 = hash1(id * 5.13 + st.seed * 1.9);
     const h3 = hash1(id * 9.77 + st.seed * 4.4);
-    const pop = easeOutBack(clamp(f));
+    const pop = rank ? unfurl(clamp(f)) : easeOutBack(clamp(f));
     const x = sk.x[i], y = sk.y[i], flex = sk.flex[i];
     const side = h1 < 0.5 ? -1 : 1;
     const tone = extras.tone ? extras.tone[i] : 1;
@@ -175,11 +191,12 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       const has = rank[i] <= dens || (visTip && dens > 0.1);
       const pxv = lerp(sk.x[pa], x, f), pyv = lerp(sk.y[pa], y, f);
       if (st.theme === 'leaves') {
-        if (has) {
+        const pres = presence(i, has);
+        if (pres > 0) {
           const x = pxv, y = pyv;
           const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * lerp(0.95, 0.5 + 0.8 * h2, variety);
           // Inner leaves (dim tone) come out a little smaller.
-          const sz = size * 0.055 * lerp(1, 0.6 + 0.65 * h2, variety) * lerp(0.85, 1.1, clamp((tone - 0.6) / 0.48)) * pop;
+          const sz = size * 0.055 * lerp(1, 0.6 + 0.65 * h2, variety) * lerp(0.85, 1.1, clamp((tone - 0.6) / 0.48)) * pop * pres;
           const inten = st.intensity * tone * lerp(1, 0.72 + 0.43 * h3, variety);
           const c = tint(st.colour, LEAF, clamp(nat * lerp(1, 0.4 + 1.2 * h2, variety)), inten);
           const toUnder = underPlace && hash1(id * 7.7 + st.seed) < 0.4;
@@ -193,9 +210,10 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         continue;
       }
       if (st.theme === 'thorns') {
-        if (!terminal && rank[i] <= Math.min(1, dens * 1.3)) {
+        const pres = presence(i, !terminal && rank[i] <= Math.min(1, dens * 1.3));
+        if (pres > 0) {
           const ang = dir + side * (0.95 + 0.25 * h2);
-          const s = size * 0.034 * (0.6 + L.thornEffort * st.effort) * pop * (0.7 + 0.6 * h1);
+          const s = size * 0.034 * (0.6 + L.thornEffort * st.effort) * pop * pres * (0.7 + 0.6 * h1);
           place.put(x, y, ang, s, Shape.Thorn, tint(st.colour, THORN, nat * 0.6, st.intensity * tone), flex, h0);
         }
         continue;

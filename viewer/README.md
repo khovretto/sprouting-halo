@@ -74,8 +74,10 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   switches as if you had set it there (saved with the project, undoable in the DAW), and you can
   change single tracks afterwards. Leaves & decorations → "theme comes from: this preset" forces
   the viewer's theme for every track instead (for taps that are not connected).
-- **Idle halo squish and tilt** (Setup: fit to avatar) flatten the resting ring like a halo seen slightly
-  from above, for a 3D look. The recording halo opens round.
+- **Idle halo sideways, squish and tilt** (Setup: fit to avatar) hang the resting ring to one
+  side and flatten it like a halo seen slightly from above, for a 3D look. Squish changes the
+  ring's shape only (lines and leaves keep their size). The recording halo opens round and
+  centred.
 
 ## Use with OBS
 
@@ -118,9 +120,12 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   Leaves, Colours, Live halo, Voice response, Glow, Wind & shiver, Take commit, Many takes, then
   the setup folders (fit to avatar, connection, test & preview). Rarely needed values sit in each
   folder's Advanced fold. Hover a row for its description. **H** hides the panel.
-- **Presets:** eight built-in looks (Sprout, Calm garden, Lush ivy, Winter branches, Festive
-  wreath, Stage, Minimal, Bramble). Presets only change the look, never the fit to the avatar or
-  the colour palette. Changed rows get a **↺** button: click returns the value to the active
+- **Presets** come in three kinds, picked independently on the tabs of the Presets folder:
+  **Visual** (how it looks: Sprout, Lush ivy, Winter branches, Festive wreath, Red bramble,
+  Minimal, Neon stage), **Reactivity** (how it answers the voice: Responsive, Calm, Punchy,
+  Subtle, Vibrato-sensitive) and **Testing** (fake singer and preview, this browser only).
+  None of them touches the fit to the avatar or the colour palette; a visual preset can lean
+  everything toward its own colour (Colours → tint). Changed rows get a **↺** button: click returns the value to the active
   preset, Shift-click to the factory default; folders with changes show a dot and the preset
   title a star. *Save as new preset* stores your own (in this browser); Export / Import move them
   as .json. Switching away from unsaved tweaks keeps them as "Unsaved tweaks" in the list.
@@ -129,7 +134,9 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   Thin lines are what the tap sends, bold lines what the viewer makes of it. Header buttons
   switch between the live halo and each take, change the history length, freeze and close;
   hover them for what they do. Click the graphs to freeze, hover to read values at any moment.
-- **Tooltips:** hover any row or folder title in the panel.
+- **Tooltips:** hover any row or folder title in the panel. Settings driven by the voice say
+  exactly how they read it ("Reads: …"). In the voice scope, hover a value on the right to see
+  what it is and which settings use it; click one to open it in the panel.
 - **Your avatar picture:** Test & preview → Load avatar PNG shows your own picture (transparency
   kept) instead of the grey shape, with picture x / y / height and the placeholder opacity. It is
   stored in this browser only and never shown in OBS.

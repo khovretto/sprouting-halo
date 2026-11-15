@@ -95,6 +95,10 @@ export const defaults = {
     variety: 0.6,
     /** How much dimmer the inside of a plant is than its rim. */
     depthShade: 0.6,
+    /** A colour every branch, leaf and the halo lean toward (a look's own colouring, over your palette). */
+    tint: '#ffffff',
+    /** How far toward the tint colour (0 = your palette as is). */
+    tintAmount: 0,
     /** Decoration size multiplier. */
     decoSize: 1.8,
     /** How much decorations glow, relative to the branches (dense themes blow out above ~0.6). */
@@ -157,6 +161,8 @@ export const defaults = {
     spawnSeconds: 0.9,
     /** Several live tracks: each gets its own halo, nested inside the first, this much smaller. */
     ringSpacing: 0.14,
+    /** Move the resting halo sideways (with tilt it can hang to one side). The recording halo opens centred. */
+    restX: 0,
     /** Flatten the resting halo vertically, like a ring seen from slightly above (0 = flat-on
      *  circle). The recording halo opens round. */
     squish: 0,

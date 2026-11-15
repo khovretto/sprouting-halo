@@ -5,13 +5,14 @@
 // comments in params.ts. Presets (presets.ts): built-in looks, saved looks, a revert button on
 // every changed row (to the active preset; Shift-click: the factory default).
 
-import { FolderApi, ListBladeApi, Pane } from 'tweakpane';
+import { ButtonApi, FolderApi, ListBladeApi, Pane, TabPageApi } from 'tweakpane';
 import { defaults, Params } from './params';
 import paramsSource from './params.ts?raw';
-import { FOLDER_HINTS, FOLDERS, LABELS, scopeOf, TIPS } from './panel-layout';
+import { FOLDER_HINTS, FOLDERS, LABELS, TIPS } from './panel-layout';
 import { installTooltips, tip } from './tooltip';
 import {
-  applyPreset, BUILTIN_PRESETS, getPath, isDirty, loadStore, lookDiff, PATHS, Preset, presetValue, same, saveStore, slug, Values,
+  applyPreset, BUILTINS, diffOf, getPath, isDirty, Kind, KIND_TITLES, kindOf, KINDS, loadStore, PATHS, presetValue, Preset,
+  PresetStore, same, saveStore, slug, STORE_KEY, Values,
 } from './presets';
 
 const STORAGE_KEY = 'sprout.viewer.params.v2';
@@ -62,6 +63,7 @@ const RANGES: Record<string, Spec> = {
   'look.themeFrom': { options: { 'Each track (Sprout Tap window)': 'tracks', 'This preset (all tracks)': 'preset' } },
   'look.theme': { options: { Branches: 'branches', Leaves: 'leaves', Thorns: 'thorns', 'Christmas wreath': 'wreath' } },
   'look.density': { min: 0, max: 1 },
+  'look.tintAmount': { min: 0, max: 1 },
   'look.decoSize': { min: 0.2, max: 4 },
   'look.decoGlow': { min: 0, max: 1.5 },
   'look.naturalTint': { min: 0, max: 1 },
@@ -128,6 +130,7 @@ const RANGES: Record<string, Spec> = {
   'motion.shiverDeg': { min: 0, max: 12 },
   'motion.shiverSensitivity': { min: 0, max: 4 },
   'halo.squish': { min: 0, max: 0.85 },
+  'halo.restX': { min: -1, max: 1 },
   'halo.tilt': { min: -45, max: 45 },
   'avatar.imageX': { min: -2, max: 2 },
   'avatar.imageY': { min: -3, max: 2 },
@@ -230,6 +233,8 @@ export interface UIStatus {
 export interface UI {
   /** Re-read all values from params (after a remote update), without reporting it as a change. */
   refresh(): void;
+  /** Open a setting's folder(s), scroll it into view and flash it. */
+  reveal(path: string): void;
 }
 
 // ---- Tooltips from the doc comments in params.ts ------------------------------------------------
@@ -277,6 +282,8 @@ const CSS = `
   font: 12px/1 sans-serif; visibility: hidden; }
 .sprout-mod .sprout-rv { visibility: visible; }
 .sprout-mod .tp-lblv_l { color: #cfe8ff; }
+@keyframes sprout-flash { 0%, 40% { background: rgba(143,208,255,0.35); } 100% { background: transparent; } }
+.sprout-flash { animation: sprout-flash 1.6s ease-out; border-radius: 3px; }
 .sprout-desc { color: #9aa0a8; font: 11px/1.35 sans-serif; padding: 2px 8px 6px; white-space: normal; }
 `;
 
@@ -291,19 +298,24 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     document.head.appendChild(st);
   }
   const store = loadStore();
-  const all = () => [...BUILTIN_PRESETS, ...store.user];
-  const byId = (id: string | null) => (id ? all().find((x) => x.id === id) : undefined);
-  /** Active preset: keep the stored one, else the one the values match, else none (custom). */
-  const derive = (current: string | null): string | null => {
-    const cur = byId(current);
-    if (cur && !isDirty(p, cur)) return cur.id;
-    const m = all().find((x) => !isDirty(p, x));
+  const all = (k: Kind) => [...BUILTINS[k], ...store[k].user];
+  const byId = (k: Kind, id: string | null) => (id ? all(k).find((x) => x.id === id) : undefined);
+  /** Active preset of a kind: keep the stored one, else the one the values match, else none (custom). */
+  const derive = (k: Kind, current: string | null): string | null => {
+    const cur = byId(k, current);
+    if (cur && !isDirty(p, cur, k)) return cur.id;
+    const m = all(k).find((x) => !isDirty(p, x, k));
     if (m) return m.id;
     return cur ? cur.id : null;
   };
-  let active = derive(store.active);
-  const activePreset = () => byId(active);
-  const baseline = (path: string) => (scopeOf(path) === 'look' ? presetValue(activePreset(), path) : getPath(defaults, path));
+  const active = {} as Record<Kind, string | null>;
+  for (const k of KINDS) active[k] = derive(k, store[k].active);
+  const activePreset = (k: Kind) => byId(k, active[k]);
+  /** What a row reverts to: its kind's active preset, or the factory default for rig keys. */
+  const baseline = (path: string) => {
+    const k = kindOf(path);
+    return k ? presetValue(activePreset(k), path) : getPath(defaults, path);
+  };
 
   const pane = new Pane({ container, title: 'Sprout viewer  (H hides, G scope)' });
   installTooltips(container);
@@ -324,7 +336,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   const isQuiet = () => performance.now() < quietUntil;
   const userChange = () => {
     saveParams(p);
-    store.active = active;
+    for (const k of KINDS) store[k].active = active[k];
     saveStore(store);
     actions.changed();
   };
@@ -374,85 +386,76 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     URL.revokeObjectURL(a.href);
   };
 
-  // ---- Preset folder ----
-  const pf = pane.addFolder({ title: 'Preset', expanded: panelState.preset ?? true });
+  // ---- Presets: Visual, Reactivity and Testing, each on its own tab ----
+  const pf = pane.addFolder({ title: 'Presets', expanded: panelState.preset ?? true });
   remember('preset', pf);
   folderTip(pf, FOLDER_HINTS.preset);
+  const tab = pf.addTab({ pages: KINDS.map((k) => ({ title: KIND_TITLES[k] })) });
   const STASH = '__stash', CUSTOM = '__custom';
-  const listOptions = () => [
-    ...(active ? [] : [{ text: '(custom)', value: CUSTOM }]),
-    ...BUILTIN_PRESETS.map((x) => ({ text: x.name, value: x.id })),
-    ...[...store.user].sort((a, b) => a.name.localeCompare(b.name)).map((x) => ({ text: '· ' + x.name, value: x.id })),
-    ...(store.stash ? [{ text: 'Unsaved tweaks', value: STASH }] : []),
-  ];
-  let list = pf.addBlade({ view: 'list', label: 'preset', options: listOptions(), value: active ?? CUSTOM }) as ListBladeApi<string>;
-  const LIST_TIP = 'Pick a look. Built-in presets first, then your own (·). It also sets the theme in every Sprout Tap window.';
-  tip(list.element, LIST_TIP);
-  let suppressList = false;
-  // Description: a plain line under the list (a readonly text binding scrolls sideways).
-  const descEl = document.createElement('div');
-  descEl.className = 'sprout-desc';
-  const placeDesc = () => list.element.after(descEl);
-  placeDesc();
-  const saveBtn = pf.addButton({ title: 'Save' });
-  btnTip(saveBtn, 'Overwrite this saved preset with the current values.');
-  const nameObj = { name: 'My look' };
-  const nameRow = pf.addBinding(nameObj, 'name', { label: 'new name' });
-  tip(nameRow.element, 'Name for "Save as new preset".');
-  let namedFor: string | null | undefined;
-  const saveAsBtn = pf.addButton({ title: 'Save as new preset' });
-  btnTip(saveAsBtn, 'Save the current look under the name above. It is kept in this browser; use Export to move it.');
-  const revertAllBtn = pf.addButton({ title: 'Revert all changes' });
-  btnTip(revertAllBtn, 'Put every look value back to the active preset. Your changes are kept as "Unsaved tweaks" in the list.');
-  const delBtn = confirmButton(pf, 'Delete preset', 'Click again to delete', () => {
-    store.user = store.user.filter((x) => x.id !== active);
-    active = null;
-    afterPresetChange(false);
-  });
-  btnTip(delBtn, 'Delete this saved preset (asks for a second click). The values stay on screen.');
-  const exportBtn = pf.addButton({ title: 'Export preset (.json)' });
-  btnTip(exportBtn, 'Save the current look as a preset file to share or move to another browser.');
-  exportBtn.on('click', () => {
-    const pr = activePreset();
-    const name = pr?.name ?? 'custom';
-    download(`sprout-preset-${slug(name)}.json`, { sprout: 'preset', version: 1, name, description: pr?.description, values: lookDiff(p) });
-  });
-  const importBtn = pf.addButton({ title: 'Import… (preset or settings)' });
-  btnTip(importBtn, 'Load a preset file (adds it to the list) or a full settings file (replaces everything).');
-
-  const choose = (id: string) => {
-    if (id === CUSTOM) return;
-    const cur = activePreset();
-    const dirtyNow = active === null || isDirty(p, cur);
-    const stashFrom = dirtyNow ? lookDiff(p) : undefined;
-    if (id === STASH) {
-      const st = store.stash;
-      applyPreset(p, undefined);
-      if (st) deepMerge(p as unknown as Record<string, unknown>, st);
-      store.stash = stashFrom;
-      active = derive(null);
-    } else {
-      if (stashFrom) store.stash = stashFrom;
-      applyPreset(p, byId(id));
-      active = id;
-      actions.presetApplied(p.look.theme, p.look.density);
-    }
-    afterPresetChange(true);
+  const LIST_TIPS: Record<Kind, string> = {
+    visual: 'Pick a look: tree shape, leaves, colour tint and glow. Built-in looks first, then your own (·). It also sets the theme in every Sprout Tap window.',
+    reactivity: 'Pick how it answers your voice: growth speed, withering, brightness, glow flashes, motion and the planting animation. Built-in first, then your own (·).',
+    testing: 'Pick a test scene for this browser only: what the fake singer sings, how many takes, preview speed. Never sent to OBS.',
   };
-  list.on('change', (ev) => {
-    if (!suppressList) choose(ev.value);
-  });
-
-  /** Rebuild the list (options change after save / delete / import) and push the change out. */
-  function afterPresetChange(valuesChanged: boolean) {
-    const idx = pf.children.indexOf(list);
-    list.dispose();
-    list = pf.addBlade({ view: 'list', label: 'preset', options: listOptions(), value: active ?? CUSTOM, index: idx }) as ListBladeApi<string>;
+  interface Section {
+    k: Kind;
+    page: TabPageApi;
+    list: ListBladeApi<string>;
+    descEl: HTMLDivElement;
+    saveBtn: ButtonApi;
+    revertBtn: ButtonApi;
+    delBtn: ButtonApi;
+    nameObj: { name: string };
+    nameRow: { refresh(): void };
+    namedFor: string | null | undefined;
+    suppress: boolean;
+  }
+  const sections = {} as Record<Kind, Section>;
+  const listOptions = (k: Kind) => [
+    ...(active[k] ? [] : [{ text: '(custom)', value: CUSTOM }]),
+    ...BUILTINS[k].map((x) => ({ text: x.name, value: x.id })),
+    ...[...store[k].user].sort((a, b) => a.name.localeCompare(b.name)).map((x) => ({ text: '· ' + x.name, value: x.id })),
+    ...(store[k].stash ? [{ text: 'Unsaved tweaks', value: STASH }] : []),
+  ];
+  /** (Re)create a kind's preset list (its options change after save / delete / import). */
+  const makeList = (sec: Section, index?: number) => {
+    const list = sec.page.addBlade({ view: 'list', label: 'preset', options: listOptions(sec.k), value: active[sec.k] ?? CUSTOM, index }) as ListBladeApi<string>;
     list.on('change', (ev) => {
-      if (!suppressList) choose(ev.value);
+      if (!sec.suppress) choose(sec.k, ev.value);
     });
-    placeDesc();
-    tip(list.element, LIST_TIP);
+    tip(list.element, LIST_TIPS[sec.k]);
+    list.element.after(sec.descEl);
+    return list;
+  };
+  const rebuildList = (k: Kind) => {
+    const sec = sections[k];
+    const idx = sec.page.children.indexOf(sec.list);
+    sec.list.dispose();
+    sec.list = makeList(sec, idx);
+  };
+
+  function choose(k: Kind, id: string) {
+    if (id === CUSTOM) return;
+    const dirtyNow = active[k] === null || isDirty(p, activePreset(k), k);
+    const stashFrom = dirtyNow ? diffOf(p, k) : undefined;
+    if (id === STASH) {
+      const st = store[k].stash;
+      applyPreset(p, undefined, k);
+      if (st) deepMerge(p as unknown as Record<string, unknown>, st);
+      store[k].stash = stashFrom;
+      active[k] = derive(k, null);
+    } else {
+      if (stashFrom) store[k].stash = stashFrom;
+      applyPreset(p, byId(k, id), k);
+      active[k] = id;
+      if (k === 'visual') actions.presetApplied(p.look.theme, p.look.density);
+    }
+    afterPresetChange(k, true);
+  }
+
+  /** After a preset change in one kind: new list options, panel values, marks, save and sync. */
+  function afterPresetChange(k: Kind | null, valuesChanged: boolean) {
+    for (const kk of k ? [k] : KINDS) rebuildList(kk);
     if (valuesChanged) {
       quietUntil = performance.now() + 200;
       pane.refresh();
@@ -461,40 +464,26 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     userChange();
   }
 
-  saveBtn.on('click', () => {
-    const pr = activePreset();
-    if (!pr || pr.builtin) return;
-    pr.values = lookDiff(p);
-    afterPresetChange(false);
-  });
-  let overwriteArmed = 0;
-  saveAsBtn.on('click', () => {
-    let name = nameObj.name.trim().slice(0, 32);
-    if (!name) return;
-    if (BUILTIN_PRESETS.some((x) => x.name.toLowerCase() === name.toLowerCase())) name += ' (mine)';
-    const id = 'user:' + slug(name);
-    const existing = store.user.find((x) => x.id === id);
-    if (existing && performance.now() > overwriteArmed) {
-      overwriteArmed = performance.now() + 3000;
-      saveAsBtn.title = `Overwrite "${name}"?`;
-      setTimeout(() => (saveAsBtn.title = 'Save as new preset'), 3000);
-      return;
+  /** Values from a preset file: v2 files carry one kind; older ones are split by key. */
+  const addImportedPreset = (json: Record<string, unknown>, into: Kind | null) => {
+    const raw = (json.values ?? {}) as Values;
+    const kinds: Kind[] = json.kind && KINDS.includes(json.kind as Kind) ? [json.kind as Kind] : into ? [into] : KINDS;
+    let applied: Kind | null = null;
+    for (const k of kinds) {
+      const values = diffOf(raw, k);
+      if (!Object.keys(values).length && kinds.length > 1) continue;
+      let name = String(json.name ?? 'Imported').slice(0, 32);
+      if (all(k).some((x) => x.name.toLowerCase() === name.toLowerCase())) name += ' (imported)';
+      const pr = { id: 'user:' + slug(name), name, description: json.description as string | undefined, values };
+      store[k].user = [...store[k].user.filter((x) => x.id !== pr.id), pr];
+      applyPreset(p, pr, k);
+      active[k] = pr.id;
+      applied = k;
     }
-    overwriteArmed = 0;
-    saveAsBtn.title = 'Save as new preset';
-    const pr = { id, name, values: lookDiff(p) };
-    store.user = [...store.user.filter((x) => x.id !== id), pr];
-    active = id;
-    afterPresetChange(false);
-  });
-  revertAllBtn.on('click', () => {
-    if (active === null) return;
-    if (isDirty(p, activePreset())) store.stash = lookDiff(p);
-    applyPreset(p, activePreset());
-    afterPresetChange(true);
-  });
+    return applied;
+  };
 
-  const importFile = () => {
+  const importFile = (into: Kind | null, btn?: ButtonApi, idle?: string) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
@@ -505,30 +494,103 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       try {
         json = JSON.parse(await file.text());
       } catch {
-        importBtn.title = 'Not a valid .json file';
-        setTimeout(() => (importBtn.title = 'Import… (preset or settings)'), 3000);
+        if (btn && idle) {
+          btn.title = 'Not a valid .json file';
+          setTimeout(() => (btn.title = idle), 3000);
+        }
         return;
       }
-      if (json.sprout === 'preset') {
-        let name = String(json.name ?? 'Imported').slice(0, 32);
-        if (all().some((x) => x.name.toLowerCase() === name.toLowerCase())) name += ' (imported)';
-        const pr = { id: 'user:' + slug(name), name, description: json.description as string | undefined, values: (json.values ?? {}) as Values };
-        store.user = [...store.user.filter((x) => x.id !== pr.id), pr];
-        applyPreset(p, pr);
-        active = pr.id;
-      } else {
+      if (json.sprout === 'preset') addImportedPreset(json, into);
+      else {
         // A full settings file (or an export from before presets existed).
         deepMerge(p as unknown as Record<string, unknown>, migrate(json.sprout === 'settings' ? json.params : json));
-        if (json.sprout === 'settings' && Array.isArray(json.presets)) {
-          for (const pr of json.presets as Preset[]) store.user = [...store.user.filter((x) => x.id !== pr.id), pr];
+        const ps = json.presets as unknown;
+        if (Array.isArray(ps)) {
+          // v1 settings file: one list of presets, split by kind.
+          for (const pr of ps as Preset[])
+            for (const k of ['visual', 'reactivity'] as Kind[]) {
+              const values = diffOf(pr.values, k);
+              if (Object.keys(values).length) store[k].user = [...store[k].user.filter((x) => x.id !== pr.id), { ...pr, values }];
+            }
+        } else if (ps && typeof ps === 'object') {
+          const byKind = ps as Partial<PresetStore>;
+          for (const k of KINDS)
+            for (const pr of byKind[k]?.user ?? []) store[k].user = [...store[k].user.filter((x) => x.id !== pr.id), pr];
         }
-        active = derive(active);
+        for (const k of KINDS) active[k] = derive(k, active[k]);
       }
-      afterPresetChange(true);
+      afterPresetChange(null, true);
     };
     input.click();
   };
-  importBtn.on('click', importFile);
+
+  KINDS.forEach((k, i) => {
+    const page = tab.pages[i];
+    const descEl = document.createElement('div');
+    descEl.className = 'sprout-desc';
+    const sec = { k, page, descEl, namedFor: undefined, suppress: false } as unknown as Section;
+    sections[k] = sec;
+    sec.list = makeList(sec);
+    const what = KIND_TITLES[k].toLowerCase();
+    sec.saveBtn = page.addButton({ title: 'Save' });
+    btnTip(sec.saveBtn, `Overwrite this saved ${what} preset with the current values.`);
+    sec.nameObj = { name: 'Mine' };
+    const nameRow = page.addBinding(sec.nameObj, 'name', { label: 'new name' });
+    sec.nameRow = nameRow;
+    tip(nameRow.element, 'Name for "Save as new preset".');
+    const saveAsBtn = page.addButton({ title: 'Save as new preset' });
+    btnTip(saveAsBtn, `Save the current ${what} settings under the name above. Kept in this browser; use Export to move it.`);
+    sec.revertBtn = page.addButton({ title: 'Revert all changes' });
+    btnTip(sec.revertBtn, `Put every ${what} value back to the active preset. Your changes are kept as "Unsaved tweaks" in the list.`);
+    sec.delBtn = confirmButton(page as unknown as Folder, 'Delete preset', 'Click again to delete', () => {
+      store[k].user = store[k].user.filter((x) => x.id !== active[k]);
+      active[k] = null;
+      afterPresetChange(k, false);
+    });
+    btnTip(sec.delBtn, 'Delete this saved preset (asks for a second click). The values stay on screen.');
+    const exportBtn = page.addButton({ title: 'Export preset (.json)' });
+    btnTip(exportBtn, `Save the current ${what} settings as a preset file to share or move to another browser.`);
+    exportBtn.on('click', () => {
+      const pr = activePreset(k);
+      const name = pr?.name ?? 'custom';
+      download(`sprout-${k}-${slug(name)}.json`, { sprout: 'preset', version: 2, kind: k, name, description: pr?.description, values: diffOf(p, k) });
+    });
+    const importIdle = 'Import preset…';
+    const importBtn = page.addButton({ title: importIdle });
+    btnTip(importBtn, `Load a ${what} preset file (it is added to this list). Older preset files are split into their visual and reactivity parts.`);
+    importBtn.on('click', () => importFile(k, importBtn, importIdle));
+
+    sec.saveBtn.on('click', () => {
+      const pr = activePreset(k);
+      if (!pr || pr.builtin) return;
+      pr.values = diffOf(p, k);
+      afterPresetChange(k, false);
+    });
+    let overwriteArmed = 0;
+    saveAsBtn.on('click', () => {
+      let name = sec.nameObj.name.trim().slice(0, 32);
+      if (!name) return;
+      if (BUILTINS[k].some((x) => x.name.toLowerCase() === name.toLowerCase())) name += ' (mine)';
+      const id = 'user:' + slug(name);
+      if (store[k].user.some((x) => x.id === id) && performance.now() > overwriteArmed) {
+        overwriteArmed = performance.now() + 3000;
+        saveAsBtn.title = `Overwrite "${name}"?`;
+        setTimeout(() => (saveAsBtn.title = 'Save as new preset'), 3000);
+        return;
+      }
+      overwriteArmed = 0;
+      saveAsBtn.title = 'Save as new preset';
+      store[k].user = [...store[k].user.filter((x) => x.id !== id), { id, name, values: diffOf(p, k) }];
+      active[k] = id;
+      afterPresetChange(k, false);
+    });
+    sec.revertBtn.on('click', () => {
+      if (active[k] === null) return;
+      if (isDirty(p, activePreset(k), k)) store[k].stash = diffOf(p, k);
+      applyPreset(p, activePreset(k), k);
+      afterPresetChange(k, true);
+    });
+  });
 
   // ---- Parameter folders ----
   type Row = { path: string; binding: Binding; button: HTMLButtonElement };
@@ -547,6 +609,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   }
   if (unsorted.length) console.warn('Panel: keys missing from FOLDERS (shown under Unsorted):', unsorted);
 
+  const pathFolders = new Map<string, Folder[]>();
   const addRow = (folder: Folder, path: string, groups: Row[][]) => {
     const [section, key] = path.split('.');
     const obj = (p as unknown as Record<string, Record<string, unknown>>)[section];
@@ -589,14 +652,20 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     folderTip(folder, (spec as { hint?: string }).hint ?? FOLDER_HINTS[spec.id]);
     const fRows: Row[] = [];
     folderRows.push({ folder, title: spec.title, rows: fRows });
-    for (const path of [...spec.keys, ...(extra.get(spec.id) ?? [])]) addRow(folder, path, [fRows]);
+    for (const path of [...spec.keys, ...(extra.get(spec.id) ?? [])]) {
+      addRow(folder, path, [fRows]);
+      pathFolders.set(path, [folder]);
+    }
     if (spec.advanced?.length) {
       const adv = folder.addFolder({ title: 'Advanced', expanded: panelState[spec.id + '.adv'] ?? false });
       remember(spec.id + '.adv', adv);
       folderTip(adv, 'Values you rarely need to change.');
       const aRows: Row[] = [];
       folderRows.push({ folder: adv, title: 'Advanced', rows: aRows });
-      for (const path of spec.advanced) addRow(adv, path, [fRows, aRows]);
+      for (const path of spec.advanced) {
+        addRow(adv, path, [fRows, aRows]);
+        pathFolders.set(path, [folder, adv]);
+      }
     }
     if (spec.id === 'commit') {
       const tc = folder.addButton({ title: 'Test: commit the live take' });
@@ -619,13 +688,13 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       btnTip(folder.addButton({ title: 'Restart growth' }).on('click', () => actions.restart()),
         'Start the fake singer and all trees from the beginning.');
       btnTip(folder.addButton({ title: 'Export everything (.json)' }).on('click', () =>
-        download('sprout-settings.json', { sprout: 'settings', version: 1, params: p, presets: store.user })),
+        download('sprout-settings.json', { sprout: 'settings', version: 2, params: p, presets: store })),
         'Save every setting and your own presets to one file (a backup, or to move to another browser).');
-      btnTip(folder.addButton({ title: 'Import…' }).on('click', importFile), 'Load a settings file or a preset file.');
+      btnTip(folder.addButton({ title: 'Import…' }).on('click', () => importFile(null)), 'Load a settings file or a preset file.');
       const resetAll = confirmButton(folder, 'Reset everything', 'Click again to reset everything', () => {
         deepMerge(p as unknown as Record<string, unknown>, structuredClone(defaults));
-        active = 'default';
-        afterPresetChange(true);
+        for (const k of KINDS) active[k] = 'default';
+        afterPresetChange(null, true);
       });
       btnTip(resetAll, 'Every setting back to factory defaults, including the fit to your avatar and colours (asks for a second click).');
     }
@@ -649,7 +718,8 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       if (mod) {
         const b = baseline(r.path), d = getPath(defaults, r.path);
         const fmt = (x: unknown) => (typeof x === 'number' ? +x.toFixed(3) : String(x));
-        const pr = scopeOf(r.path) === 'look' ? activePreset()?.name : undefined;
+        const rk = kindOf(r.path);
+        const pr = rk ? activePreset(rk)?.name : undefined;
         tip(r.button, `Revert to ${fmt(b)}${pr ? ` (${pr})` : ''}` + (same(b, d) ? '' : `.
 Shift-click: factory default ${fmt(d)}`));
       }
@@ -667,28 +737,36 @@ Shift-click: factory default ${fmt(d)}`));
     const motion = p.motion as unknown as Record<string, unknown>;
     if ('shiver' in motion) hide('motion.shiverDeg', !motion.shiver);
 
-    const pr = activePreset();
-    const dirty = active === null ? false : isDirty(p, pr);
-    const desc = { text: '' };
-    pf.title = 'Preset: ' + (pr ? pr.name : 'Custom') + (dirty ? ' *' : '');
-    desc.text = pr?.description ?? (pr ? '' : 'Values match no preset.');
-    descEl.textContent = desc.text;
-    descEl.style.display = desc.text ? '' : 'none';
-    saveBtn.hidden = !pr || !!pr.builtin;
-    saveBtn.disabled = !dirty;
-    revertAllBtn.disabled = !dirty;
-    delBtn.hidden = !pr || !!pr.builtin;
-    // Suggest a name only when the active preset changes (never over what is being typed).
-    if (active !== namedFor) {
-      namedFor = active;
-      nameObj.name = pr ? (pr.builtin ? pr.name + ' 2' : pr.name) : 'My look';
-      nameRow.refresh();
-    }
-    if (list.value !== (active ?? CUSTOM)) {
-      suppressList = true;
-      list.value = active ?? CUSTOM;
-      suppressList = false;
-    }
+    const names: string[] = [];
+    let anyDirty = false;
+    KINDS.forEach((k, i) => {
+      const sec = sections[k];
+      const pr = activePreset(k);
+      const dirty = active[k] === null ? false : isDirty(p, pr, k);
+      anyDirty ||= dirty;
+      if (k !== 'testing') names.push((pr ? pr.name : 'Custom') + (dirty ? ' *' : ''));
+      tab.pages[i].title = KIND_TITLES[k] + (dirty ? ' *' : '');
+      const text = pr?.description ?? (pr ? '' : 'Values match no preset.');
+      sec.descEl.textContent = text;
+      sec.descEl.style.display = text ? '' : 'none';
+      sec.saveBtn.hidden = !pr || !!pr.builtin;
+      sec.saveBtn.disabled = !dirty;
+      sec.revertBtn.disabled = !dirty;
+      sec.delBtn.hidden = !pr || !!pr.builtin;
+      // Suggest a name only when the active preset changes (never over what is being typed).
+      if (active[k] !== sec.namedFor) {
+        sec.namedFor = active[k];
+        sec.nameObj.name = pr ? (pr.builtin ? pr.name + ' 2' : pr.name) : 'Mine';
+        sec.nameRow.refresh();
+      }
+      if (sec.list.value !== (active[k] ?? CUSTOM)) {
+        sec.suppress = true;
+        sec.list.value = active[k] ?? CUSTOM;
+        sec.suppress = false;
+      }
+    });
+    pf.title = 'Presets: ' + names.join(' · ');
+    void anyDirty;
   }
 
   let timer = 0;
@@ -702,32 +780,40 @@ Shift-click: factory default ${fmt(d)}`));
 
   // Another tab on the same origin saved a preset: pick up its library.
   window.addEventListener('storage', (e) => {
-    if (e.key !== 'sprout.viewer.presets.v1') return;
-    const s = loadStore();
-    store.user = s.user;
-    store.stash = s.stash;
-    afterPresetChangeSilent();
-  });
-  function afterPresetChangeSilent() {
-    const idx = pf.children.indexOf(list);
-    list.dispose();
-    list = pf.addBlade({ view: 'list', label: 'preset', options: listOptions(), value: active ?? CUSTOM, index: idx }) as ListBladeApi<string>;
-    list.on('change', (ev) => {
-      if (!suppressList) choose(ev.value);
-    });
-    placeDesc();
-    tip(list.element, LIST_TIP);
+    if (e.key !== STORE_KEY) return;
+    const st = loadStore();
+    for (const k of KINDS) {
+      store[k].user = st[k].user;
+      store[k].stash = st[k].stash;
+      rebuildList(k);
+    }
     updateMarks();
-  }
+  });
 
   function refresh() {
     quietUntil = performance.now() + 400;
     clearTimeout(timer);
     pane.refresh();
-    const before = active;
-    active = derive(active);
-    if (before !== active || (active === null) !== (before === null)) afterPresetChangeSilent();
-    else updateMarks();
+    for (const k of KINDS) {
+      const before = active[k];
+      active[k] = derive(k, before);
+      if (before !== active[k]) rebuildList(k);
+    }
+    updateMarks();
   }
-  return { refresh };
+  function reveal(path: string) {
+    const row = rows.find((r) => r.path === path);
+    if (!row) return;
+    container.style.display = '';
+    pane.expanded = true;
+    for (const f of pathFolders.get(path) ?? []) f.expanded = true;
+    row.binding.hidden = false;
+    setTimeout(() => {
+      row.binding.element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row.binding.element.classList.remove('sprout-flash');
+      void row.binding.element.offsetWidth;
+      row.binding.element.classList.add('sprout-flash');
+    }, 60);
+  }
+  return { refresh, reveal };
 }

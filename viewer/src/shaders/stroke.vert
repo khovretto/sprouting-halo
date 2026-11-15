@@ -30,6 +30,10 @@ vec2 toWorld(vec2 l, int i) {
 
 //#motion
 
+// Shape change (halo squish): moves the points only, so line widths stay as they are.
+uniform vec4 u_shape[MAX_LAYERS];
+vec2 shapeOf(vec2 p, int L) { return vec2(p.x, p.y * u_shape[L].x); }
+
 void main() {
   int layer = int(a_misc.y);
   vec4 m = u_mat[layer];
@@ -37,8 +41,8 @@ void main() {
 
   Branch br = branchOf(a_bend, a_misc.w, layer);
   float aa;
-  vec2 A = toWorld(bendPoint(a_ab.xy, a_rf.z, a_bend, br, layer, aa), layer);
-  vec2 B = toWorld(bendPoint(a_ab.zw, a_rf.w, a_bend, br, layer, aa), layer);
+  vec2 A = toWorld(shapeOf(bendPoint(a_ab.xy, a_rf.z, a_bend, br, layer, aa), layer), layer);
+  vec2 B = toWorld(shapeOf(bendPoint(a_ab.zw, a_rf.w, a_bend, br, layer, aa), layer), layer);
   float rA = a_rf.x * scale;
   float rB = a_rf.y * scale;
 

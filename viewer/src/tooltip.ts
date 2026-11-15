@@ -23,7 +23,7 @@ function ensureBox() {
   if (box) return box;
   box = document.createElement('div');
   Object.assign(box.style, {
-    position: 'fixed', zIndex: '1000', maxWidth: '280px', padding: '6px 8px', borderRadius: '5px',
+    position: 'fixed', zIndex: '1000', maxWidth: '360px', padding: '6px 8px', borderRadius: '5px',
     background: 'rgba(20,22,28,0.97)', color: '#e6e9ee', font: '12px/1.4 system-ui, sans-serif',
     boxShadow: '0 4px 14px rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)',
     pointerEvents: 'none', display: 'none', whiteSpace: 'pre-line',

@@ -102,6 +102,8 @@ export class Plant {
   tone = new Float32Array(0);
   /** Per node: pivot x, y, flex and heading of the shoot it belongs to (motion; bendFrames). */
   bend = new Float32Array(0);
+  /** Per-node leaf presence 0..1 (eased by decorateTree, so leaves fade in and out). */
+  leafState = new Float32Array(0);
   /** Per-node: the lowest leaf density at which this node carries a leaf (2 = never). */
   leafRank = new Float32Array(0);
   private childVis = new Float32Array(0);
@@ -272,6 +274,7 @@ export class Plant {
     this.target = new Float32Array(n);
     this.life = new Float32Array(n).fill(1);
     this.leafLife = new Float32Array(n).fill(1);
+    this.leafState = new Float32Array(n);
     return height;
   }
 

@@ -97,6 +97,39 @@ export const LANES: Lane[] = [
   },
 ];
 
+/** What each graphed value is, and which settings read it (for the readout popups). */
+export const USED_BY: Record<string, { what: string; paths: string[] }> = {
+  level: { what: 'Loudness as Sprout.exe sends it: the last 10 ms in dB, −55 dB = 0 up to −10 dB = 1. Above 0.05 counts as singing.',
+    paths: ['growth.secondsToFull', 'halo.openRadius', 'motion.kickDeg', 'response.phraseGap'] },
+  energy: { what: 'Loudness smoothed again in the viewer (rises in ~30 ms, falls in ~0.2 s).',
+    paths: ['response.brightness', 'glow.levelGain', 'glow.pitchShine', 'glow.softGlow', 'halo.singSpeed', 'halo.sproutRate', 'motion.flutterDeg', 'look.blossoms'] },
+  slow: { what: 'Loudness averaged over about 1 s.', paths: ['motion.swayDeg', 'motion.idle'] },
+  midi: { what: 'The detected note (43 ms window); 0 = no pitch.', paths: ['growth.witherOnPitchDip', 'growth.witherDipSemitones'] },
+  pitchHeld: { what: 'The last sung note, held through pauses and smoothed (~0.1 s); C3 = 0 up to F6 = 1 for the visuals.',
+    paths: ['response.pitchSteer', 'glow.pitchShine', 'look.blossoms', 'plants.moodShaping', 'halo.sproutLength'] },
+  effortRaw: { what: 'Vocal effort as Sprout.exe sends it: overtones against the fundamental plus loudness, compared with your own average (0.5 = usual).',
+    paths: ['response.effortWidth', 'look.thornEffort', 'motion.kickDeg', 'halo.sproutLength', 'plants.moodShaping'] },
+  effort: { what: 'Effort smoothed in the viewer (~0.2 s).',
+    paths: ['response.effortWidth', 'look.thornEffort', 'motion.kickDeg', 'halo.sproutLength', 'look.blossoms', 'plants.moodShaping'] },
+  breath: { what: 'Breathiness: noise between the harmonics plus unclear pitch.', paths: ['motion.flutterDeg', 'glow.softGlow', 'halo.sproutCurl'] },
+  softness: { what: 'Softness = 0.7 × (1 − effort) + 0.3 × breath.',
+    paths: ['glow.softGlow', 'halo.sproutCurl', 'motion.springiness', 'plants.softDroop', 'plants.moodShaping'] },
+  vibRaw: { what: 'Vibrato depth as Sprout.exe sends it: needs ~0.45 s of one note, 3.5–9 Hz, at least ±0.08 semitone; ±0.58 semitone = 1.',
+    paths: ['motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity', 'plants.moodShaping'] },
+  vib: { what: 'Vibrato depth smoothed in the viewer (~0.15 s).', paths: ['motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity'] },
+  vibRate: { what: 'Vibrato rate (Hz ÷ 10); the shimmer follows it.', paths: ['motion.shiver', 'motion.shiverDeg'] },
+  flash: { what: 'Jumps to 1 on every note start, fades with a 0.25 s time constant.',
+    paths: ['glow.onsetGain', 'response.brightness', 'motion.kickDeg', 'halo.sproutRate', 'commit.syncToOnset'] },
+  voice: { what: 'Singing right now: loudness above 0.05.', paths: ['growth.secondsToFull', 'growth.witherOnPause', 'response.phraseGap'] },
+  phraseOn: { what: 'Inside a phrase: until the silence is longer than “pause that ends a phrase”.',
+    paths: ['response.phraseGap', 'growth.newTreeEachPhrase', 'growth.restBrightness', 'response.release'] },
+  open: { what: 'How far the live halo has opened, or how much of this take\'s newest tree has grown.',
+    paths: ['growth.secondsToFull', 'halo.openRadius', 'response.release'] },
+  wither: { what: 'How far the outer twigs have grown back in a pause or pitch dip.',
+    paths: ['growth.witherOnPause', 'growth.witherSeconds', 'growth.witherDepth', 'growth.twigFadeSeconds', 'growth.witherOnPitchDip'] },
+  alpha: { what: 'Brightness of this take\'s newest tree.', paths: ['growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds'] },
+};
+
 const CAP = 60 * 40; // samples kept (40 s at 60 fps)
 
 export class Scope {
@@ -110,6 +143,15 @@ export class Scope {
   private hoverY = -1;
   private ctx: CanvasRenderingContext2D;
   private buttons: { x: number; y: number; w: number; h: number; label: string; tip: string; act: () => void }[] = [];
+  /** Readout rows on the right (hit areas for the "used by" popup). */
+  private readouts: { key: string; label: string; x: number; y: number; w: number; h: number }[] = [];
+  private pop: HTMLDivElement | null = null;
+  private popKey = '';
+  private popHide = 0;
+  /** Open a setting in the panel (set by the app). */
+  onReveal?: (path: string) => void;
+  /** Panel label of a setting (set by the app). */
+  labelOf: (path: string) => string = (p) => p;
   title = '';
   /** Names of the layers the scope can follow (0 = live halo, then takes). */
   layers: string[] = [];
@@ -134,9 +176,76 @@ export class Scope {
     });
     canvas.addEventListener('mousemove', (e) => {
       [this.hoverX, this.hoverY] = at(e);
+      const ro = this.readouts.find((r) => this.hoverX >= r.x && this.hoverX <= r.x + r.w && this.hoverY >= r.y && this.hoverY <= r.y + r.h);
+      if (ro) this.showPop(ro, e.clientY);
+      else this.schedulePopHide();
       canvas.style.cursor = hit(this.hoverX, this.hoverY) ? 'pointer' : 'crosshair';
     });
-    canvas.addEventListener('mouseleave', () => (this.hoverX = this.hoverY = -1));
+    canvas.addEventListener('mouseleave', () => {
+      this.hoverX = this.hoverY = -1;
+      this.schedulePopHide();
+    });
+  }
+
+  /** The popup for a readout: what the value is and which settings use it, as links. */
+  private showPop(ro: { key: string; label: string }, clientY: number) {
+    clearTimeout(this.popHide);
+    const info = USED_BY[ro.key];
+    if (!info) return;
+    if (!this.pop) {
+      const d = document.createElement('div');
+      Object.assign(d.style, {
+        position: 'fixed', zIndex: '1001', maxWidth: '320px', padding: '8px 10px', borderRadius: '6px',
+        background: 'rgba(20,22,28,0.97)', color: '#e6e9ee', font: '12px/1.45 system-ui, sans-serif',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.14)', display: 'none',
+      } as CSSStyleDeclaration);
+      d.addEventListener('mouseenter', () => clearTimeout(this.popHide));
+      d.addEventListener('mouseleave', () => this.schedulePopHide());
+      document.body.appendChild(d);
+      this.pop = d;
+    }
+    const d = this.pop;
+    if (this.popKey !== ro.key) {
+      this.popKey = ro.key;
+      d.replaceChildren();
+      const head = document.createElement('div');
+      head.style.fontWeight = '600';
+      head.textContent = ro.label;
+      const what = document.createElement('div');
+      what.style.margin = '2px 0 6px';
+      what.style.color = '#b8bec8';
+      what.textContent = info.what;
+      const used = document.createElement('div');
+      used.textContent = 'Settings that use it (click to open):';
+      d.append(head, what, used);
+      for (const path of info.paths) {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.textContent = this.labelOf(path);
+        Object.assign(a.style, { display: 'block', color: '#8fd0ff', textDecoration: 'none', padding: '1px 0 1px 8px' } as CSSStyleDeclaration);
+        a.addEventListener('mouseenter', () => (a.style.textDecoration = 'underline'));
+        a.addEventListener('mouseleave', () => (a.style.textDecoration = 'none'));
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.onReveal?.(path);
+        });
+        d.appendChild(a);
+      }
+    }
+    d.style.display = 'block';
+    const r = this.canvas.getBoundingClientRect();
+    const x = Math.min(window.innerWidth - d.offsetWidth - 8, r.right + 8);
+    const left = x < r.right ? r.right - d.offsetWidth - 260 : x;
+    d.style.left = `${Math.max(8, left)}px`;
+    d.style.top = `${Math.max(8, Math.min(window.innerHeight - d.offsetHeight - 8, clientY - 20))}px`;
+  }
+
+  private schedulePopHide() {
+    clearTimeout(this.popHide);
+    this.popHide = window.setTimeout(() => {
+      if (this.pop) this.pop.style.display = 'none';
+      this.popKey = '';
+    }, 300);
   }
 
   private pick(delta: number) {
@@ -252,6 +361,7 @@ export class Scope {
       }
     }
 
+    this.readouts = [];
     LANES.forEach((lane, li) => {
       const top = header + li * laneH, bot = top + laneH - 8;
       const Y = (v: number) => bot - ((v - lane.min) / (lane.max - lane.min)) * (bot - top);
@@ -320,6 +430,11 @@ export class Scope {
         const txt = isNaN(v) ? '–' : lane.fmt ? lane.fmt(s.key, v) : v.toFixed(2);
         ctx.fillStyle = s.colour;
         ctx.fillText(`${s.label}`, x1 + 8, top + 6 + si * 12);
+        this.readouts.push({ key: s.key, label: s.label, x: x1 + 2, y: top + si * 12, w: cssW - x1 - 4, h: 12 });
+        if (this.popKey === s.key) {
+          ctx.strokeStyle = 'rgba(143,208,255,0.6)';
+          ctx.strokeRect(x1 + 2.5, top + si * 12 + 0.5, cssW - x1 - 5, 11);
+        }
         ctx.fillStyle = '#eee';
         ctx.textAlign = 'right';
         ctx.fillText(txt, cssW - 6, top + 6 + si * 12);

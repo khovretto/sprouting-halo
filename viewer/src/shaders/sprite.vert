@@ -23,6 +23,9 @@ vec2 toWorld(vec2 l, int i) {
 
 //#motion
 
+// Shape change (halo squish): moves the leaf and turns it with the curve; its size stays.
+uniform vec4 u_shape[MAX_LAYERS];
+
 out vec2 v_uv;            // x across (-0.5..0.5), y along (0 base .. 1 tip)
 flat out float v_shape;
 flat out vec4 v_col;
@@ -54,6 +57,9 @@ void main() {
   float twist = 1.0 - 0.3 * leafy * clamp(C.y * 4.0, 0.0, 1.0)
               * max(0.0, vn(u_windT * (210.0 / 64.0) + off + 7.0, seed + 3u));
 
+  float sq = u_shape[layer].x;
+  p.y *= sq;
+  dirL = normalize(vec2(dirL.x, dirL.y * sq) + vec2(1e-6, 0.0));
   vec2 base = u_org[layer].xy + vec2(M.x * p.x + M.z * p.y, M.y * p.x + M.w * p.y);
   vec2 dirW = vec2(M.x * dirL.x + M.z * dirL.y, M.y * dirL.x + M.w * dirL.y);
   float scale = sqrt(abs(M.x * M.w - M.y * M.z));

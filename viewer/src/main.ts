@@ -7,6 +7,7 @@ import type { FeatureFrame, LayerFeatures, Theme } from './features';
 import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
 import { Scope } from './scope';
+import { LABELS } from './panel-layout';
 import { clearAvatarImage, loadAvatarImage, pickAvatarImage } from './avatar-image';
 import { LayerMotion, Wind } from './motion';
 import { CommitAnimation, CommitHooks, CommitTarget, HaloSnapshot, StrandLook } from './growth/commit';
@@ -55,6 +56,7 @@ interface LiveHalo {
   spawnT0: number;
   /** Set when this track stopped being live: the halo fades out. */
   endT0?: number;
+  cx: number;
   cy: number;
   R: number;
   look: { theme: Theme; density: number; colour: string };
@@ -105,6 +107,8 @@ function start() {
   scope.onSelect = (k) => scopeSet(() => (params.scene.scopeLayer = k));
   scope.onSeconds = (d) => scopeSet(() => (params.scene.scopeSeconds = clamp(params.scene.scopeSeconds + d, 4, 40)));
   scope.onClose = () => scopeSet(() => (params.scene.showScope = false));
+  scope.onReveal = (path) => ui?.reveal(path);
+  scope.labelOf = (path) => LABELS[path] ?? path.split('.')[1];
   let scopeTarget = '';
   const fake = new FakeSource(params.fake.seed);
   const live = new LiveSource();
@@ -139,7 +143,7 @@ function start() {
     haloSeed += 1000;
     return {
       id, vine: new HaloVine(haloSeed, params), drive: new Drive(), open: 0, spawnT0: t,
-      cy: params.halo.restY, R: params.halo.restRadius,
+      cx: params.halo.restX, cy: params.halo.restY, R: params.halo.restRadius,
       look: { theme: params.look.theme, density: params.look.density, colour: params.colours.live },
       motion: new LayerMotion(haloSeed),
     };
@@ -437,7 +441,7 @@ function start() {
     const n = sk.n;
     return {
       sk, vis: h.vine.vis.slice(0, n), alpha: h.vine.alpha.slice(0, n), ids: h.vine.ids.slice(0, n),
-      cx: 0, cy: h.cy, R: h.R, theme: h.look.theme, density: h.look.density, colour: hexToRgb(h.look.colour),
+      cx: h.cx, cy: h.cy, R: h.R, theme: h.look.theme, density: h.look.density, colour: tinted(hexToRgb(h.look.colour)),
       seed: h.vine.seed, lead: h.vine.leadTip(),
       sizeMul: Math.pow(clamp(h.R / Math.max(0.05, params.halo.openRadius), 0.25, 1), 0.7),
       idle: 1 - smooth(clamp(h.open)),
@@ -448,7 +452,7 @@ function start() {
   function targetOf(s: Slot, layer: number): CommitTarget | undefined {
     const g = s.gens.current ?? s.gens.gens[s.gens.gens.length - 1];
     if (!g) return undefined;
-    return { place: s.place, spinAngle: spin * s.place.tierDir, plant: g.tree, layer, colour: hexToRgb(s.colour) };
+    return { place: s.place, spinAngle: spin * s.place.tierDir, plant: g.tree, layer, colour: tinted(hexToRgb(s.colour)) };
   }
 
   /** A strand look as a regular Look (multipliers on a moderately loud voice). */
@@ -464,7 +468,7 @@ function start() {
         // It starts with the halo's squish and tilt and turns round as it winds up and spins.
         const k = (snap.idle ?? 1) * (1 - windE);
         const sq = 1 - clamp(params.halo.squish, 0, 0.95) * k;
-        layerU.set(L, cx, cy, Math.PI / 2 + rot + params.halo.tilt * deg * k, R, STILL, 1, sq);
+        layerU.set(L, cx, cy, Math.PI / 2 + rot + params.halo.tilt * deg * k, R, STILL, sq);
         const lk = strandLook(look);
         pushRing(front, L, look.colour, lk, ringAlpha * look.alpha, R, 0);
         pushTree(front, snap.sk, snap.vis, L, look.colour, lk, look.alpha, R, params.glow.front, nodeAlpha);
@@ -550,6 +554,7 @@ function start() {
       const o = smooth(clamp(h.open));
       const nest = Math.max(0.2, 1 - k * hp.ringSpacing); // later live tracks nest inside
       h.cy = lerp(hp.restY, hp.openY, o);
+      h.cx = lerp(hp.restX, 0, o);
       h.R = lerp(hp.restRadius, hp.openRadius, o) * nest;
     });
     endingHalos = endingHalos.filter((h) => t - (h.endT0 ?? t) < params.transitions.liveEndSeconds);
@@ -646,8 +651,19 @@ function start() {
   // ---- Drawing -----------------------------------------------------------------------------------
   let plantLayerCount = 0;
   let lastView: View | null = null;
+  /** The look's tint over a palette colour. */
+  const tinted = (c: RGB): RGB => {
+    const k = clamp(params.look.tintAmount);
+    if (k <= 0) return c;
+    const tc = hexToRgb(params.look.tint);
+    return [lerp(c[0], tc[0], k), lerp(c[1], tc[1], k), lerp(c[2], tc[2], k)];
+  };
+  let lastDrawT = 0;
   function draw() {
     const tDraw0 = performance.now();
+    // Sim seconds since the last drawn frame (leaf fades); a jump (restart, fast-forward) snaps.
+    const drawDt = t - lastDrawT > 0 && t - lastDrawT < 0.5 ? t - lastDrawT : 0;
+    lastDrawT = t;
     document.body.className = obs ? '' : `backdrop-${params.scene.backdrop}`;
     backUnder.reset();
     back.reset();
@@ -659,7 +675,7 @@ function start() {
     const drawPlant = (s: Slot, alpha: number, look: Look, fall: number) => {
       const pl = s.place;
       const angle = pl.angle + spin * pl.tierDir;
-      const base = hexToRgb(s.colour);
+      const base = tinted(hexToRgb(s.colour));
       // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
       const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
       look = { ...look, glow: look.glow * clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4) };
@@ -669,7 +685,8 @@ function start() {
         pushTree(back, g.tree.sk, g.tree.vis, layer, base, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend);
         decorateTree(g.tree.sk, g.tree.vis, params,
           styleOf(layer, base, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density), backDeco,
-          { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend });
+          { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend,
+            leafState: g.tree.leafState, dt: drawDt });
       }
     };
 
@@ -715,8 +732,8 @@ function start() {
       const R = h.R * spawn;
       // Squish and tilt are for the small resting halo only; the recording halo opens round.
       const idle = 1 - smooth(clamp(h.open));
-      layerU.set(layer, 0, h.cy, Math.PI / 2 + hp.tilt * deg * idle, R, h.motion, 1, 1 - clamp(hp.squish, 0, 0.95) * idle);
-      const base = hexToRgb(h.look.colour);
+      layerU.set(layer, h.cx, h.cy, Math.PI / 2 + hp.tilt * deg * idle, R, h.motion, 1 - clamp(hp.squish, 0, 0.95) * idle);
+      const base = tinted(hexToRgb(h.look.colour));
       const look = lookOf(h.drive);
       pushRing(front, layer, base, look, fade, R, h.drive.energy);
       // More origins = more vine, so fewer leaves on each part of it.

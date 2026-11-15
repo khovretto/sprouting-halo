@@ -88,12 +88,15 @@ export class LayerUniforms {
   mA = new Float32Array(4 * MAX_LAYERS);
   mB = new Float32Array(4 * MAX_LAYERS);
   mC = new Float32Array(4 * MAX_LAYERS);
+  /** Shape change of the layer's points only (x = vertical squash); widths and sizes stay. */
+  shape = new Float32Array(4 * MAX_LAYERS).fill(1);
 
   /**
    * Local +Y of layer i points along `angle` (radians, 0 = right, pi/2 = up), scaled by `scale`.
    * `sx`/`sy` squash the local axes before rotation (used to fold the halo into a stem).
    */
-  set(i: number, ox: number, oy: number, angle: number, scale: number, motion: MotionState = STILL, sx = 1, sy = 1) {
+  set(i: number, ox: number, oy: number, angle: number, scale: number, motion: MotionState = STILL, squash = 1) {
+    const sx = 1, sy = 1;
     if (i < 0 || i >= MAX_LAYERS) return;
     const th = angle - Math.PI / 2;
     const c = Math.cos(th) * scale, s = Math.sin(th) * scale;
@@ -103,6 +106,7 @@ export class LayerUniforms {
     this.mA.set(motion.a, i * 4);
     this.mB.set(motion.b, i * 4);
     this.mC.set(motion.c, i * 4);
+    this.shape[i * 4] = squash;
   }
 }
 
@@ -213,6 +217,7 @@ export class Renderer {
       u_mA: layers.mA,
       u_mB: layers.mB,
       u_mC: layers.mC,
+      u_shape: layers.shape,
       u_windT: windT,
       u_view: [(2 * view.s) / view.W, (2 * view.s) / view.H, view.cx, view.cy],
       u_px: 1 / view.s,
