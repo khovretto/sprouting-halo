@@ -25,6 +25,7 @@ vec2 toWorld(vec2 l, int i) {
 
 // Shape change (halo squish): moves the leaf and turns it with the curve; its size stays.
 uniform vec4 u_shape[MAX_LAYERS];
+uniform vec4 u_texInfo[16]; // theme textures: half-width, flutter, own colours
 
 out vec2 v_uv;            // x across (-0.5..0.5), y along (0 base .. 1 tip)
 flat out float v_shape;
@@ -44,6 +45,7 @@ void main() {
   // The decoration's own motion about its base. Thorns are rigid.
   float sid = a_shape.x;
   float leafy = sid < 0.5 ? 1.0 : sid < 1.5 ? 0.0 : sid < 2.5 ? 0.3 : sid < 3.5 ? 0.5 : sid < 4.5 ? 0.8 : 0.4;
+  if (sid > 15.5) leafy = u_texInfo[int(sid + 0.5) - 16].y;
   uint ls = hashU(floatBitsToUint(a_shape.w) ^ hashU(floatBitsToUint(a_bend.x) ^ hashU(floatBitsToUint(a_bend.y) + uint(layer))));
   float lh = float(ls & 1023u) / 1023.0, off = lh * 64.0;
   uint seed = 70000u + (ls >> 12) * 4u;
@@ -72,6 +74,7 @@ void main() {
   // holly 0.40, blossom 0.42 half-width) plus one pixel. Widen hw here if a shape is widened.
   float pad = u_px / size;
   float hw = sid < 0.5 ? 0.34 : sid < 1.5 ? 0.24 : sid < 2.5 ? 0.42 : sid < 3.5 ? 0.05 : sid < 4.5 ? 0.40 : 0.42;
+  if (sid > 15.5) hw = u_texInfo[int(sid + 0.5) - 16].x;
   float sx = (gl_VertexID & 1) == 0 ? -1.0 : 1.0;
   float sy = (gl_VertexID & 2) == 0 ? 0.0 : 1.0;
   vec2 uv = vec2(sx * (hw + pad), mix(-pad, 1.0 + pad, sy));

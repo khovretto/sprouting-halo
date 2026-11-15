@@ -1,0 +1,265 @@
+// The /themes page (docs/fable-consult-5-colour-themes-panel.md, C.3): make your own themes.
+// The normal renderer shows the theme being edited (fake singer, two takes and the halo); this
+// panel edits it. Save sends it to Sprout.exe (themes folder next to it), so OBS gets it too;
+// "Use in viewer" makes it the theme of every viewer.
+
+import { Pane } from 'tweakpane';
+import { allThemes, BUILTIN_SHAPES, isBuiltin, setDraft, ThemeDef, ThemePart, themeDef } from './themes';
+import { installTooltips, tip } from './tooltip';
+import { installSelectMenus } from './select-menu';
+import { slug } from './presets';
+
+export interface ThemeEditorHooks {
+  /** Send a message to Sprout.exe; false when not connected. */
+  send(msg: Record<string, unknown>): boolean;
+  connected(): boolean;
+  /** Make `id` the theme of every viewer (synced). */
+  useInViewer(id: string): void;
+  /** Show `id` in this page's preview. */
+  preview(id: string): void;
+}
+
+const PLACES: Record<string, string> = {
+  'Spaced along branches (like leaves)': 'spaced',
+  'Several on every node (like needles)': 'every',
+  'At branch tips (like blossoms)': 'tips',
+  'Small clusters (like berries)': 'clusters',
+  'Mirrored pairs (like holly)': 'pairs',
+};
+
+const newPart = (): ThemePart => ({ place: 'spaced', shape: 'leaf', size: 1, amount: 1, role: 'leaf', natural: '#52c757', colour: 'tint', glow: 1, flutter: 1, opens: 'always', sizeFrom: 'none' });
+
+/** Shrink a picked image to at most 256 × 256 and return it as a PNG data URL. */
+async function fileToTexture(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  URL.revokeObjectURL(url);
+  const k = Math.min(1, 256 / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(img.naturalWidth * k));
+  c.height = Math.max(1, Math.round(img.naturalHeight * k));
+  c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/png');
+}
+
+const b64 = (text: string) => {
+  const bytes = new TextEncoder().encode(text);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+
+export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks) {
+  installTooltips(container);
+  installSelectMenus(container);
+  let pane: Pane | null = null;
+  let current: ThemeDef = JSON.parse(JSON.stringify(themeDef('leaves')!));
+  let editable = false;
+  let status = 'Pick a theme, or start a new one.';
+
+  const select = (id: string) => {
+    const d = themeDef(id);
+    if (!d) return;
+    current = JSON.parse(JSON.stringify(d));
+    editable = !isBuiltin(id);
+    status = editable ? 'Edit the parts; Save keeps it in Sprout.exe.' : 'A built-in theme: Duplicate to make your own version.';
+    show();
+  };
+  const show = () => {
+    setDraft(editable ? current : null);
+    hooks.preview(current.id);
+    rebuild();
+  };
+  /** A value changed: update the preview only (the panel stays). */
+  const touched = () => {
+    if (editable) setDraft(current);
+  };
+
+  function rebuild() {
+    pane?.dispose();
+    pane = new Pane({ container, title: 'Sprout themes' });
+    const p = pane;
+    // Status line: plain text under the title (a readonly text field would scroll sideways).
+    const statusEl = document.createElement('div');
+    statusEl.style.cssText = 'color:#b8bec8;font:11px/1.4 system-ui,sans-serif;padding:4px 8px 6px;white-space:normal';
+    statusEl.textContent = status;
+    p.element.querySelector('.tp-rotv_c')?.prepend(statusEl);
+    const setStatus = (s: string) => {
+      status = s;
+      statusEl.textContent = s;
+    };
+
+    // ---- Theme list ----
+    const opts = allThemes().map((d) => ({ text: (isBuiltin(d.id) ? '' : '· ') + d.name, value: d.id }));
+    if (!opts.some((o) => o.value === current.id)) opts.push({ text: '· ' + current.name + ' (not saved)', value: current.id });
+    const list = p.addBlade({ view: 'list', label: 'theme', options: opts, value: current.id }) as unknown as { on(e: 'change', f: (ev: { value: string }) => void): void; element: HTMLElement };
+    tip(list.element, 'Built-in themes first, then yours (·).');
+    list.on('change', (ev) => select(ev.value));
+    const row = (title: string, tipText: string, fn: () => void) => {
+      const b = p.addButton({ title });
+      tip(b.element.querySelector('button'), tipText);
+      b.on('click', fn);
+      return b;
+    };
+    row('New theme', 'Start an empty theme with one leaf part.', () => {
+      const name = 'My theme ' + (allThemes().length - 3);
+      current = { id: uniqueId(name), name, version: 1, parts: [newPart()], textures: {} };
+      editable = true;
+      status = 'A new theme: give it a name, set its parts, then Save.';
+      show();
+    });
+    row('Duplicate', 'Copy this theme as a new one of your own.', () => {
+      const name = current.name + ' copy';
+      current = { ...JSON.parse(JSON.stringify(current)), id: uniqueId(name), name };
+      editable = true;
+      status = 'A copy: change it, then Save.';
+      show();
+    });
+    row('Import… (.json)', 'Load a theme file (exported from this page).', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json,.json';
+      input.onchange = async () => {
+        const f = input.files?.[0];
+        if (!f) return;
+        try {
+          const d = JSON.parse(await f.text()) as ThemeDef;
+          if (!Array.isArray(d.parts)) throw new Error();
+          current = { ...d, version: 1, id: uniqueId(d.name || 'imported'), name: d.name || 'Imported' };
+          editable = true;
+          status = 'Imported: Save to keep it.';
+          show();
+        } catch {
+          setStatus('That file is not a Sprout theme.');
+        }
+      };
+      input.click();
+    });
+
+    if (!editable) {
+      p.addBlade({ view: 'separator' });
+      const parts = current.parts.map((x) => `${x.shape} (${x.place})`).join(', ') || 'no decorations';
+      p.addBinding({ parts }, 'parts', { readonly: true, label: 'parts' });
+      return;
+    }
+
+    // ---- Theme ----
+    p.addBlade({ view: 'separator' });
+    const nameRow = p.addBinding(current, 'name', { label: 'name' });
+    tip(nameRow.element, 'The name shown in the theme lists.');
+    nameRow.on('change', () => touched());
+    p.addBinding({ id: current.id }, 'id', { readonly: true, label: 'file' });
+
+    current.parts.forEach((part, k) => {
+      part.colour ??= 'tint';
+      part.glow ??= 1;
+      part.flutter ??= 1;
+      part.opens ??= 'always';
+      part.sizeFrom ??= 'none';
+      const f = p.addFolder({ title: `Part ${k + 1}: ${part.shape.replace('tex:', '')}`, expanded: k === current.parts.length - 1 || current.parts.length <= 2 });
+      const add = (key: keyof ThemePart, o: Record<string, unknown>, tipText: string, rebuildAfter = false) => {
+        const b = f.addBinding(part as unknown as Record<string, unknown>, key as string, o);
+        tip(b.element, tipText);
+        b.on('change', () => (rebuildAfter ? show() : touched()));
+      };
+      add('place', { label: 'where', options: PLACES }, 'Where on the branches this part grows.');
+      const shapes: Record<string, string> = Object.fromEntries(BUILTIN_SHAPES.map((s) => [s, s]));
+      for (const t of Object.keys(current.textures ?? {})) shapes['picture: ' + t] = 'tex:' + t;
+      add('shape', { label: 'shape', options: shapes }, 'A built-in shape, or one of the pictures you loaded for this theme.', true);
+      const load = f.addButton({ title: 'Load a picture (PNG)…' });
+      tip(load.element.querySelector('button'), 'A PNG with transparency, drawn pointing UP with its stalk at the bottom centre. White or grey pictures take their colour from the colour settings ("tint"); colourful ones can keep their own colours. Scaled to fit 256 × 256.');
+      load.on('click', () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/png,image/webp,image/*';
+        input.onchange = async () => {
+          const file = input.files?.[0];
+          if (!file) return;
+          try {
+            const url = await fileToTexture(file);
+            const name = slug(file.name.replace(/\.[a-z0-9]+$/i, '')).slice(0, 24) || 'picture';
+            current.textures = { ...(current.textures ?? {}), [name]: url };
+            part.shape = 'tex:' + name;
+            show();
+          } catch {
+            setStatus('Could not read that picture.');
+          }
+        };
+        input.click();
+      });
+      add('size', { label: 'size', min: 0.2, max: 3 }, 'Size compared with the built-in part in that place (1 = the same).');
+      add('amount', { label: 'amount', min: 0, max: 2 }, 'How many, compared with the built-in part (1 = the same; the track\'s amount still applies).');
+      add('role', { label: 'coloured as', options: { 'Leaves colour': 'leaf', 'Blossoms & berries colour': 'accent' } }, 'Which colour settings paint it (Look → Colours).');
+      add('natural', { label: 'natural colour', view: 'color' }, 'Its own colour when the colour settings say "Theme colour".');
+      add('colour', { label: 'picture colours', options: { 'Tinted by the colour settings': 'tint', 'Keep the picture\'s own colours': 'own' } }, 'For pictures: tint a white/grey picture, or keep a colourful picture as it is (it still brightens and dims with the voice).');
+      add('glow', { label: 'glow', min: 0, max: 3 }, 'How much it glows compared with leaves.');
+      add('flutter', { label: 'flutter', min: 0, max: 1 }, 'How much it flutters in the wind (0 = rigid like a thorn, 1 = like a leaf).');
+      add('opens', { label: 'opens', options: { Always: 'always', 'On long held notes (like blossoms)': 'bloom' } }, 'Always there, or only opening on long held notes.');
+      add('sizeFrom', { label: 'grows with effort', options: { No: 'none', Yes: 'effort' } }, 'Grows bigger with vocal effort (like thorns).');
+      const rm = f.addButton({ title: 'Remove this part' });
+      rm.on('click', () => {
+        current.parts.splice(k, 1);
+        show();
+      });
+    });
+    if (current.parts.length < 6) {
+      const addPart = p.addButton({ title: '+ Add a part' });
+      tip(addPart.element.querySelector('button'), 'Up to 6 parts: e.g. leaves, flowers at the tips, berries.');
+      addPart.on('click', () => {
+        current.parts.push(newPart());
+        show();
+      });
+    }
+
+    // ---- Save / use / export / delete ----
+    p.addBlade({ view: 'separator' });
+    row('Save', 'Keep this theme in Sprout.exe (themes folder next to it), so every viewer and OBS can use it.', () => {
+      if (!hooks.connected()) return setStatus('Not connected to Sprout.exe: open this page from http://localhost:7777/themes with Sprout.exe running.');
+      const text = JSON.stringify({ ...current, version: 1 });
+      if (text.length > 1.9e6) return setStatus('Too big to save (over 2 MB): use fewer or smaller pictures.');
+      hooks.send({ type: 'themeSave', id: current.id, data: b64(text) });
+      setStatus(`Saved "${current.name}".`);
+    });
+    row('Use in viewer', 'Save, then make this the theme of every viewer and OBS (every track; "theme comes from" switches to this preset).', () => {
+      if (!hooks.connected()) return setStatus('Not connected to Sprout.exe.');
+      hooks.send({ type: 'themeSave', id: current.id, data: b64(JSON.stringify({ ...current, version: 1 })) });
+      hooks.useInViewer(current.id);
+      setStatus(`"${current.name}" is now the theme of every viewer.`);
+    });
+    row('Export (.json)', 'Download this theme as a file to share or back up.', () => {
+      const blob = new Blob([JSON.stringify({ ...current, version: 1 }, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `sprout-theme-${current.id}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    let armed = 0;
+    const del = row('Delete', 'Delete this theme from Sprout.exe (asks for a second click).', () => {
+      if (performance.now() > armed) {
+        armed = performance.now() + 3000;
+        del.title = 'Click again to delete';
+        setTimeout(() => (del.title = 'Delete'), 3000);
+        return;
+      }
+      if (!hooks.connected()) return setStatus('Not connected to Sprout.exe.');
+      hooks.send({ type: 'themeDelete', id: current.id });
+      select('leaves');
+    });
+  }
+
+  const uniqueId = (name: string) => {
+    const base = slug(name).slice(0, 34) || 'theme';
+    let id = base, n = 2;
+    while (isBuiltin(id) || allThemes().some((d) => d.id === id)) id = `${base}-${n++}`;
+    return id;
+  };
+
+  select('leaves');
+  return {
+    /** The theme list changed (saved elsewhere): keep editing, refresh the list. */
+    refresh: () => rebuild(),
+  };
+}

@@ -9,6 +9,8 @@ import type { FeatureFrame, LayerFeatures, Theme } from './features';
 import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
 import { Scope } from './scope';
+import { loadThemes, onThemesChanged } from './themes';
+import { buildThemeEditor } from './theme-editor';
 import { Ink, inkAt, newInk, ringS, setInk } from './colour';
 import { LABELS } from './panel-layout';
 import { clearAvatarImage, loadAvatarImage, pickAvatarImage } from './avatar-image';
@@ -104,14 +106,23 @@ function start() {
     document.documentElement.classList.add('controls');
     document.title = 'Sprout controls';
   }
+  // /themes (or ?themes): make your own themes, with a live preview.
+  const themesPage = /\/themes\/?$/.test(location.pathname) || query.has('themes');
+  let editorTheme = 'leaves';
+  if (themesPage) document.title = 'Sprout themes';
   const renderer = controls ? (null as unknown as Renderer) : new Renderer(glCanvas);
   const overlay = new Overlay(ovCanvas);
   if (!obs && !controls) void loadAvatarImage().then((img) => (overlay.image = img));
+  /** Where Sprout.exe serves the theme files ('' = offline: built-in themes only). */
+  const themeBase = () =>
+    offline ? '' : !import.meta.env.DEV && location.protocol.startsWith('http') ? location.origin : `http://localhost:${params.source.port}`;
+  onThemesChanged(() => ui?.themesChanged());
+  if (themeBase()) void loadThemes(themeBase());
   const scopeCanvas = document.getElementById('scope') as HTMLCanvasElement;
   const scope = new Scope(scopeCanvas);
   const scopeSet = (fn: () => void) => {
     fn();
-    saveParams(params);
+    if (!themesPage) saveParams(params);
     ui?.refresh();
   };
   scope.onSelect = (k) => scopeSet(() => (params.scene.scopeLayer = k));
@@ -223,7 +234,7 @@ function start() {
       any = true;
     }
     if (any) {
-      saveParams(params);
+      if (!themesPage) saveParams(params);
       ui?.refresh();
     }
   };
@@ -241,12 +252,17 @@ function start() {
   // Settings are only ever sent when someone changes them in a panel; connecting never pushes a
   // viewer's stored settings onto the others. A viewer that connects adopts the latest shared ones.
   live.onMessage = (msg: ViewerMessage) => {
+    if (msg.type === 'themes') {
+      // A theme was saved or deleted (any page): read the list again.
+      void loadThemes(themeBase());
+      return;
+    }
     if (msg.type === 'detect') {
       // Sprout.exe's current voice detection (on connect, or after any viewer changed it).
       const d = params.detect as unknown as Record<string, number>;
       for (const k of Object.keys(d)) if (typeof msg[k] === 'number') d[k] = +(msg[k] as number).toFixed(3);
       detectSent = JSON.stringify(params.detect);
-      saveParams(params);
+      if (!themesPage) saveParams(params);
       ui?.refresh();
       return;
     }
@@ -274,6 +290,26 @@ function start() {
   if (obs) {
     panel.remove();
     ovCanvas.remove();
+  } else if (themesPage) {
+    // /themes: the theme editor replaces the panel; the preview always shows the fake singer.
+    params.source.mode = 'fake';
+    params.scene.layers = 3;
+    params.fake.recording = true;
+    const editor = buildThemeEditor(panel, {
+      send: (msg) => {
+        if (live.status !== 'connected') return false;
+        live.send(msg as ViewerMessage);
+        return true;
+      },
+      connected: () => live.status === 'connected',
+      useInViewer: (id) => {
+        params.look.theme = id;
+        params.look.themeFrom = 'preset';
+        sendParams();
+      },
+      preview: (id) => (editorTheme = id),
+    });
+    onThemesChanged(() => editor.refresh());
   } else {
     ui = buildUI(panel, params, {
       restart: () => runAction('restart', true),
@@ -286,7 +322,7 @@ function start() {
           params.avatar.useImage = true;
           params.scene.showAvatar = true;
           if (params.avatar.opacity < 0.5) params.avatar.opacity = 1;
-          saveParams(params);
+          if (!themesPage) saveParams(params);
           ui?.refresh();
         }
       },
@@ -306,7 +342,7 @@ function start() {
     if (e.key === 'h' || e.key === 'H') panel.style.display = panel.style.display === 'none' ? '' : 'none';
     if ((e.key === 'g' || e.key === 'G') && !obs) {
       params.scene.showScope = !params.scene.showScope;
-      saveParams(params);
+      if (!themesPage) saveParams(params);
       ui?.refresh();
     }
   });
@@ -583,6 +619,11 @@ function start() {
   // ---- Simulation ------------------------------------------------------------------------------
   function simulate(dt: number, realDt: number): FeatureFrame {
     t += dt;
+    if (themesPage) {
+      // The editor's theme on every layer of the preview (not saved, not synced).
+      params.look.theme = editorTheme;
+      params.look.themeFrom = 'preset';
+    }
     wind.update(dt, params);
     const ff = pickFrame(dt);
     const lives = ff.layers.filter((l) => l.role === 'live' && l.id !== 'live-none');

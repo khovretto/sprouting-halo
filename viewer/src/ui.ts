@@ -12,6 +12,7 @@ import { FOLDER_HINTS, FOLDERS, FolderSpec, LABELS, MACROS, macroPos, macroValue
 import { installTooltips, tip } from './tooltip';
 import { installSelectMenus } from './select-menu';
 import { GradientEditor } from './gradient-editor';
+import { allThemes } from './themes';
 import { setPath } from './presets';
 import {
   applyPreset, BUILTINS, diffOf, getPath, isDirty, Kind, KIND_TITLES, kindOf, KINDS, loadStore, PATHS, presetValue, Preset,
@@ -293,6 +294,8 @@ export interface UI {
   refresh(): void;
   /** Open a setting's folder(s), scroll it into view and flash it. */
   reveal(path: string): void;
+  /** The user themes changed (rebuild the theme list). */
+  themesChanged(): void;
 }
 
 // ---- Tooltips from the doc comments in params.ts ------------------------------------------------
@@ -730,6 +733,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   if (unsorted.length) console.warn('Panel: keys missing from FOLDERS (shown under Unsorted):', unsorted);
 
   const pathFolders = new Map<string, Folder[]>();
+  let themeRowAt: number | undefined;
   const editors: { obj: Record<string, unknown>; key: string; ed: GradientEditor; binding: Binding }[] = [];
   let gradTimer = 0;
   const addRow = (folder: Folder, path: string, groups: Row[][]) => {
@@ -740,6 +744,9 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     const opts: Record<string, unknown> = { label: LABELS[path] ?? key, ...(RANGES[path] ?? {}) };
     const isGradient = !!opts.gradient;
     delete opts.gradient;
+    // The theme list: built-ins plus the user themes Sprout.exe has (rebuilt when they change).
+    if (path === 'look.theme') opts.options = Object.fromEntries(allThemes().map((d) => [d.name, d.id]));
+    if (themeRowAt !== undefined && path === 'look.theme') opts.index = themeRowAt;
     if (typeof v === 'string' && v.startsWith('#')) opts.view = 'color';
     else if (typeof v === 'number' && opts.min === undefined) {
       opts.min = Math.min(0, v * 4);
@@ -842,6 +849,11 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
         pathFolders.set(path, [folder, adv]);
         pathTab.set(path, spec.tab);
       }
+    }
+    if (spec.id === 'theme') {
+      const et = folder.addButton({ title: 'Edit themes…' });
+      btnTip(et, 'Make your own themes with your own pictures (opens the theme editor of Sprout.exe in a new tab).');
+      et.on('click', () => window.open(`http://localhost:${p.source.port}/themes`, '_blank'));
     }
     if (spec.id === 'commit') {
       const tc = folder.addButton({ title: 'Test: commit the live take' });
@@ -1018,5 +1030,22 @@ Shift-click: factory default ${fmt(d)}`));
       row.binding.element.classList.add('sprout-flash');
     }, 60);
   }
-  return { refresh, reveal };
+  /** The user themes changed: rebuild the theme dropdown with the new list. */
+  function themesChanged() {
+    const r = rows.find((x) => x.path === 'look.theme');
+    const folders = pathFolders.get('look.theme');
+    if (!r || !folders) return;
+    const folder = folders[folders.length - 1];
+    themeRowAt = folder.children.indexOf(r.binding as unknown as (typeof folder.children)[number]);
+    (r.binding as unknown as { dispose(): void }).dispose();
+    rows.splice(rows.indexOf(r), 1);
+    for (const f of folderRows) {
+      const k = f.rows.indexOf(r);
+      if (k >= 0) f.rows.splice(k, 1);
+    }
+    addRow(folder, 'look.theme', folderRows.filter((f) => f.folder === folder || folders.includes(f.folder)).map((f) => f.rows));
+    themeRowAt = undefined;
+    updateMarks();
+  }
+  return { refresh, reveal, themesChanged };
 }

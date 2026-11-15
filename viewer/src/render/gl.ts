@@ -45,7 +45,7 @@ export class Program {
       this.uniforms.set(key, {
         loc: gl.getUniformLocation(p, info.name)!,
         type: info.type,
-        unit: info.type === gl.SAMPLER_2D ? unit++ : -1,
+        unit: info.type === gl.SAMPLER_2D || info.type === gl.SAMPLER_2D_ARRAY ? unit++ : -1,
       });
     }
   }
@@ -65,6 +65,11 @@ export class Program {
         case gl.SAMPLER_2D:
           gl.activeTexture(gl.TEXTURE0 + u.unit);
           gl.bindTexture(gl.TEXTURE_2D, v as WebGLTexture);
+          gl.uniform1i(u.loc, u.unit);
+          break;
+        case gl.SAMPLER_2D_ARRAY:
+          gl.activeTexture(gl.TEXTURE0 + u.unit);
+          gl.bindTexture(gl.TEXTURE_2D_ARRAY, v as WebGLTexture);
           gl.uniform1i(u.loc, u.unit);
           break;
         case gl.FLOAT:

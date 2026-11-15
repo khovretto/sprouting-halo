@@ -9,6 +9,7 @@ import type { Instances } from './render/renderer';
 import type { Skeleton } from './growth/skeleton';
 import { clamp, hash1, lerp, RGB } from './math';
 import { Ink, inkAt } from './colour';
+import { customDef, shapeId, ThemeDef, ThemePart } from './themes';
 
 const enum Shape {
   Leaf = 0,
@@ -28,8 +29,8 @@ const HOLLY: RGB = [0.1, 0.45, 0.2];
 const BERRY: RGB = [0.9, 0.08, 0.14];
 
 export interface DecoStyle {
-  /** Per-track look (from the tap plugin, or the viewer fallback). */
-  theme: Theme;
+  /** Per-track look (from the tap plugin, or the viewer fallback): a built-in or user theme id. */
+  theme: Theme | string;
   density: number;
   layer: number;
   /** Colour roles for leaves (and thorns, needles, holly) and accents (blossoms, berries). */
@@ -65,6 +66,19 @@ const easeOutBack = (t: number) => {
 };
 
 const TAU2 = Math.PI * 2;
+const natCache = new Map<string, RGB>();
+/** A part's natural colour as RGB (cached). */
+function natOf(part: ThemePart): RGB {
+  let c = natCache.get(part.natural);
+  if (!c) {
+    const m = /^#?([0-9a-f]{6})/i.exec(part.natural);
+    const v = m ? parseInt(m[1], 16) : 0xffffff;
+    c = [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+    natCache.set(part.natural, c);
+  }
+  return c;
+}
+export type { ThemeDef };
 /** A part's colour from its role (natural colour, natScale variety, brightness gain). */
 const col = (ink: Ink, natural: RGB, s: number, h: number, natScale: number, gain: number) =>
   inkAt(ink, s, h, tintA, natural, natScale, gain) as [number, number, number];
@@ -86,7 +100,7 @@ class Placer {
 
   constructor(private out: Instances, private st: DecoStyle) {}
 
-  put(x: number, y: number, angle: number, size: number, shape: Shape, col: [number, number, number],
+  put(x: number, y: number, angle: number, size: number, shape: Shape | number, col: [number, number, number],
       flex: number, h: number, glowMul = 1) {
     const st = this.st;
     let a = st.alpha * this.nodeAlpha;
@@ -134,6 +148,8 @@ export interface TreeExtras {
 export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: DecoStyle, out: Instances, extras: TreeExtras = {}) {
   const L = p.look;
   if (st.theme === 'branches' || st.density <= 0) return;
+  const custom = customDef(st.theme);
+  if (custom && !custom.parts.length) return;
   const place = new Placer(out, st);
   const underPlace = extras.under ? new Placer(extras.under, { ...st, glow: 0 }) : null;
   const unit = Math.max(1e-3, st.unit);
@@ -168,7 +184,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     const v = ls[i];
     return v < 0.003 ? 0 : v * v * (3 - 2 * v);
   };
-  const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns');
+  const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns') && !custom;
   for (let i = 1; i < sk.n; i++) {
     const f = vis[i];
     if (f <= 0.02) continue;
@@ -201,6 +217,75 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     const x = sk.x[i], y = sk.y[i], flex = sk.flex[i];
     const side = h1 < 0.5 ? -1 : 1;
     const tone = extras.tone ? extras.tone[i] : 1;
+
+    if (custom) {
+      // A user theme: its parts, placed by the same rules as the built-in themes.
+      const bId = extras.branchId, bDone = extras.branchDone;
+      const allowed = !rank || (f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1));
+      const visTip = !!rank && allowed && (tipScratch[i] === 1 || tipScratch[i] === 2);
+      let spacedDone = false;
+      for (const part of custom.parts) {
+        const sid = shapeId(custom.id, part.shape);
+        if (sid < 0) continue;
+        const ink = part.role === 'accent' ? st.accent : st.leaf;
+        const nat = natOf(part);
+        const own = part.colour === 'own';
+        const gl = part.glow ?? 1;
+        const eff = part.sizeFrom === 'effort' ? 0.6 + L.thornEffort * st.effort : 1;
+        const amt = Math.max(0, part.amount);
+        const colourFor = (s: number, h: number, natScale: number, gain: number) =>
+          own ? ((tintA[0] = tintA[1] = tintA[2] = gain), tintA) : col(ink, nat, s, h, natScale, gain);
+        switch (part.place) {
+          case 'spaced': {
+            const has = rank ? allowed && (rank[i] <= Math.min(1, dens * amt) || (visTip && dens > 0.1)) : h0 < dens * 0.45 * amt || (terminal && dens > 0.15);
+            const pres = rank && !spacedDone ? presence(i, has) : has ? 1 : 0;
+            spacedDone = true;
+            if (pres <= 0) break;
+            const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * lerp(0.95, 0.5 + 0.8 * h2, variety);
+            const sz = size * 0.055 * part.size * eff * lerp(1, 0.6 + 0.65 * h2, variety) * pop * pres;
+            place.put(x, y, ang, sz, sid, colourFor(flex * st.sScale, h2, lerp(1, 0.4 + 1.2 * h2, variety), st.intensity * tone), flex, h0, gl);
+            break;
+          }
+          case 'tips': {
+            if (!(allowed && (terminal || visTip) && h3 < 0.35 * L.blossoms * amt)) break;
+            const open = part.opens === 'bloom' ? st.bloom : 1;
+            if (open <= 0.02) break;
+            const s = size * 0.075 * part.size * eff * open * pop * (0.8 + 0.4 * h2);
+            place.put(x, y, dir, s, sid, colourFor(flex * st.sScale, h3, 1, st.intensity * 1.1), flex, h3, gl);
+            break;
+          }
+          case 'every': {
+            if (rank && (!allowed || rank[i] > 1.5)) break;
+            const n = 1 + Math.floor(dens * 3 * amt);
+            for (let k = 0; k < n; k++) {
+              const hk = hash1(id * 3.1 + k * 17.3 + st.seed);
+              const s2 = k % 2 ? 1 : -1;
+              place.put(x, y, dir + s2 * (0.45 + 0.9 * hk), size * 0.05 * part.size * eff * (0.8 + 0.4 * hk) * pop, sid,
+                colourFor(flex * st.sScale, hk, 1, st.intensity), flex, hk, gl);
+            }
+            break;
+          }
+          case 'clusters': {
+            if (rank && (!allowed || rank[i] > 1.5)) break;
+            if (h2 >= (0.04 + 0.1 * dens) * amt) break;
+            for (let k = 0; k < 3; k++) {
+              const a = (k / 3) * Math.PI * 2 + h3 * 6;
+              place.put(x + (Math.cos(a) * 0.014) / unit, y + (Math.sin(a) * 0.014) / unit, a, size * 0.03 * part.size * eff * pop, sid,
+                colourFor(flex * st.sScale, h3, 1, st.intensity), flex, h3, gl);
+            }
+            break;
+          }
+          case 'pairs': {
+            if (rank && (!allowed || rank[i] > 1.5)) break;
+            if (h3 >= (0.05 + 0.08 * dens) * amt) break;
+            for (const s2 of [-1, 1])
+              place.put(x, y, dir + s2 * 0.8, size * 0.07 * part.size * eff * pop, sid, colourFor(flex * st.sScale, h1, 1, st.intensity), flex, h1, gl);
+            break;
+          }
+        }
+      }
+      continue;
+    }
 
     if (rank) {
       // Take plants: spaced leaves, with size and tint variety and a dim under-layer. Leaves sit
@@ -305,6 +390,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
 export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number) => number, out: Instances, always = 0) {
   const L = p.look;
   if (st.theme === 'branches' || st.density <= 0) return;
+  const custom = customDef(st.theme);
+  const ringPart = custom?.parts.find((x) => x.place === 'spaced' || x.place === 'every');
+  if (custom && !ringPart) return;
   const place = new Placer(out, st);
   const unit = Math.max(1e-3, st.unit);
   const size = (L.decoSize * (st.sizeMul ?? 1)) / unit;
@@ -324,6 +412,17 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
     const x = Math.cos(a), y = Math.sin(a);
     const tangent = a + Math.PI / 2;
     const alt = k % 2 ? 1 : -1;
+    if (custom && ringPart) {
+      const sid = shapeId(custom.id, ringPart.shape);
+      if (sid >= 0 && h0 < dens * 0.8 * ringPart.amount) {
+        const own = ringPart.colour === 'own';
+        const c = own ? ((tintA[0] = tintA[1] = tintA[2] = st.intensity), tintA)
+          : col(ringPart.role === 'accent' ? st.accent : st.leaf, natOf(ringPart), a / TAU2, h0, 1, st.intensity);
+        place.put(x, y, a + (alt > 0 ? 0 : Math.PI) + alt * (0.7 + 0.4 * h1), size * 0.045 * ringPart.size * pop * (0.7 + 0.6 * h1),
+          sid, c, 0, h0, ringPart.glow ?? 1);
+      }
+      continue;
+    }
     switch (st.theme) {
       case 'leaves':
         if (h0 < dens * 0.8)

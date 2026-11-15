@@ -1,0 +1,183 @@
+// Themes (docs/fable-consult-5-colour-themes-panel.md, C). A theme is a named set of up to 6
+// decoration parts. The four built-in themes keep their own code in deco.ts; user themes run
+// through one generic loop over their parts, and may use their own PNG textures.
+//
+// User themes live in a "themes" folder next to Sprout.exe (one JSON per theme, textures embedded),
+// so the OBS page gets them too. Read: GET /theme-files/index.json and /theme-files/<id>.json;
+// write: the "themeSave" / "themeDelete" WebSocket messages (local pages only).
+
+export type Place = 'spaced' | 'every' | 'tips' | 'clusters' | 'pairs';
+export type BuiltinShape = 'leaf' | 'thorn' | 'berry' | 'needle' | 'holly' | 'blossom';
+
+export interface ThemePart {
+  place: Place;
+  /** A built-in shape, or `tex:<name>` for one of this theme's textures. */
+  shape: string;
+  /** Relative to the built-in size for that placement (1 = unchanged). */
+  size: number;
+  /** Weight on the track's density (1 = unchanged). */
+  amount: number;
+  /** Which colour role paints it. */
+  role: 'leaf' | 'accent';
+  /** '#rrggbb', used when the role's source is "theme". */
+  natural: string;
+  /** tint: a white / grey texture coloured by the role. own: keeps its own colours. */
+  colour?: 'tint' | 'own';
+  glow?: number;
+  /** 0 rigid .. 1 like a leaf. */
+  flutter?: number;
+  /** Grows with vocal effort (look.thornEffort). */
+  sizeFrom?: 'effort' | 'none';
+  /** bloom: opens on long held notes like blossoms. */
+  opens?: 'always' | 'bloom';
+}
+
+export interface ThemeDef {
+  id: string;
+  name: string;
+  version: 1;
+  parts: ThemePart[];
+  /** name -> PNG data URL (at most 256 × 256). */
+  textures?: Record<string, string>;
+}
+
+export const BUILTIN_IDS = ['leaves', 'thorns', 'wreath', 'branches'];
+export const BUILTIN_THEMES: ThemeDef[] = [
+  {
+    id: 'leaves', name: 'Leaves', version: 1, parts: [
+      { place: 'spaced', shape: 'leaf', size: 1, amount: 1, role: 'leaf', natural: '#52c757', flutter: 1 },
+      { place: 'tips', shape: 'blossom', size: 1, amount: 1, role: 'accent', natural: '#ffd1e6', glow: 1.4, opens: 'bloom', flutter: 0.4 },
+    ],
+  },
+  {
+    id: 'thorns', name: 'Thorns', version: 1, parts: [
+      { place: 'spaced', shape: 'thorn', size: 1, amount: 1, role: 'leaf', natural: '#ebdbb3', flutter: 0, sizeFrom: 'effort' },
+    ],
+  },
+  {
+    id: 'wreath', name: 'Christmas wreath', version: 1, parts: [
+      { place: 'every', shape: 'needle', size: 1, amount: 1, role: 'leaf', natural: '#298c4d', glow: 0.5, flutter: 0.5 },
+      { place: 'clusters', shape: 'berry', size: 1, amount: 1, role: 'accent', natural: '#e61424', glow: 1.3, flutter: 0.3 },
+      { place: 'pairs', shape: 'holly', size: 1, amount: 1, role: 'leaf', natural: '#1a7333', flutter: 0.8 },
+    ],
+  },
+  { id: 'branches', name: 'Branches (no decorations)', version: 1, parts: [] },
+];
+
+const SHAPE_IDS: Record<string, number> = { leaf: 0, thorn: 1, berry: 2, needle: 3, holly: 4, blossom: 5 };
+
+// ---- Registry ------------------------------------------------------------------------------------
+
+const custom = new Map<string, ThemeDef>();
+/** Theme being edited on the /themes page (shown in its preview, not saved). */
+let draft: ThemeDef | null = null;
+let listeners: (() => void)[] = [];
+
+export const isBuiltin = (id: string) => BUILTIN_IDS.includes(id);
+export function themeDef(id: string): ThemeDef | undefined {
+  if (draft && draft.id === id) return draft;
+  return custom.get(id) ?? BUILTIN_THEMES.find((t) => t.id === id);
+}
+/** A user theme (generic part loop), or undefined for a built-in one. */
+export const customDef = (id: string) => (isBuiltin(id) ? undefined : themeDef(id));
+export const allThemes = (): ThemeDef[] => [...BUILTIN_THEMES, ...[...custom.values()].sort((a, b) => a.name.localeCompare(b.name))];
+export function onThemesChanged(fn: () => void) {
+  listeners.push(fn);
+}
+const changed = () => {
+  void refreshTextures();
+  for (const fn of listeners) fn();
+};
+
+export function setDraft(def: ThemeDef | null) {
+  draft = def ? JSON.parse(JSON.stringify(def)) : null;
+  changed();
+}
+
+/** Load every user theme from Sprout.exe (base = http://host:port). */
+export async function loadThemes(base: string) {
+  try {
+    const ids = (await (await fetch(`${base}/theme-files/index.json`, { cache: 'no-store' })).json()) as string[];
+    const got = await Promise.all(ids.slice(0, 64).map(async (id) => {
+      try {
+        const def = (await (await fetch(`${base}/theme-files/${id}.json`, { cache: 'no-store' })).json()) as ThemeDef;
+        return def && Array.isArray(def.parts) ? { ...def, id } : null;
+      } catch {
+        return null;
+      }
+    }));
+    custom.clear();
+    for (const d of got) if (d) custom.set(d.id, d);
+    changed();
+  } catch {
+    /* no Sprout.exe (offline page): built-in themes only */
+  }
+}
+
+// ---- Textures: up to 16 layers of one texture array ------------------------------------------------
+
+export interface TexLayer {
+  layer: number;
+  image: HTMLCanvasElement;
+  /** Half-width of the drawn quad (0.5 × aspect, in the shape's units). */
+  halfWidth: number;
+  flutter: number;
+  own: boolean;
+}
+const texLayers = new Map<string, TexLayer>(); // `${themeId}:${name}`
+let texRev = 0;
+export const textureRevision = () => texRev;
+export const textureLayers = () => [...texLayers.values()];
+
+async function toCanvas(url: string): Promise<{ c: HTMLCanvasElement; aspect: number } | null> {
+  const img = new Image();
+  img.src = url;
+  try {
+    await img.decode();
+  } catch {
+    return null;
+  }
+  // Fit inside 256 × 256 with a 2 px clear border, bottom-centred (the stalk at the base).
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d')!;
+  const k = Math.min(252 / img.naturalWidth, 252 / img.naturalHeight);
+  const w = img.naturalWidth * k, h = img.naturalHeight * k;
+  ctx.drawImage(img, (256 - w) / 2, 254 - h, w, h);
+  return { c, aspect: img.naturalWidth / Math.max(1, img.naturalHeight) };
+}
+
+async function refreshTextures() {
+  const want: { key: string; url: string; part: ThemePart }[] = [];
+  const defs = [...(draft ? [draft] : []), ...custom.values()];
+  for (const d of defs)
+    for (const part of d.parts)
+      if (part.shape.startsWith('tex:')) {
+        const name = part.shape.slice(4), url = d.textures?.[name];
+        if (url && !want.some((w) => w.key === `${d.id}:${name}`)) want.push({ key: `${d.id}:${name}`, url, part });
+      }
+  const next = new Map<string, TexLayer>();
+  for (const w of want.slice(0, 16)) {
+    const t = await toCanvas(w.url);
+    if (!t) continue;
+    next.set(w.key, {
+      layer: next.size, image: t.c, halfWidth: 0.5 * Math.min(2, Math.max(0.15, t.aspect)),
+      flutter: w.part.flutter ?? 1, own: w.part.colour === 'own',
+    });
+  }
+  texLayers.clear();
+  for (const [k, v] of next) texLayers.set(k, v);
+  texRev++;
+}
+
+/** Shape id for the sprite shader: 0..5 built-in shapes, 16 + layer for textures (-1 = missing). */
+export function shapeId(themeId: string, shape: string): number {
+  if (shape.startsWith('tex:')) {
+    const t = texLayers.get(`${themeId}:${shape.slice(4)}`);
+    return t ? 16 + t.layer : -1;
+  }
+  return SHAPE_IDS[shape] ?? 0;
+}
+
+/** Leaf-like flutter of a built-in shape (sprite.vert uses the same table). */
+export const BUILTIN_SHAPES = Object.keys(SHAPE_IDS);

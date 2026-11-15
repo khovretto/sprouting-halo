@@ -9,6 +9,7 @@ import blurFS from '../shaders/blur.frag?raw';
 import compositeFS from '../shaders/composite.frag?raw';
 import motionGLSL from '../shaders/motion.glsl?raw';
 import { hexToRgb } from '../math';
+import { textureLayers, textureRevision } from '../themes';
 
 export const MAX_LAYERS = 32;
 export const FLOATS_PER_INSTANCE = 20;
@@ -165,6 +166,10 @@ export class Renderer {
     this.blur = new Program(gl, fullscreenVS, blurFS, 'blur');
     this.composite = new Program(gl, fullscreenVS, compositeFS, 'composite');
 
+    // Theme textures: one texture array, 1 × 1 × 1 until a theme with textures is in use.
+    this.texArr = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texArr);
+    gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, 1, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     this.emptyVao = gl.createVertexArray()!;
     this.vao = gl.createVertexArray()!;
     this.buf = gl.createBuffer()!;
@@ -205,6 +210,36 @@ export class Renderer {
     prog.use().set(uniforms);
     gl.bindVertexArray(this.emptyVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  private texArr: WebGLTexture;
+  private texSeen = -1;
+  private texBig = false;
+  /** Per texture layer: half-width, flutter, own colours (sprite shaders). */
+  private texInfo = new Float32Array(64);
+
+  /** Upload the theme textures when they changed (256 × 256 × 16, premultiplied, mipmapped). */
+  private syncTextures() {
+    if (textureRevision() === this.texSeen) return;
+    this.texSeen = textureRevision();
+    const gl = this.gl, layers = textureLayers();
+    if (!layers.length) return;
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texArr);
+    if (!this.texBig) {
+      gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, 256, 256, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      this.texBig = true;
+    }
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    for (const t of layers) {
+      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, t.layer, 256, 256, 1, gl.RGBA, gl.UNSIGNED_BYTE, t.image);
+      this.texInfo.set([t.halfWidth, t.flutter, t.own ? 1 : 0, 0], t.layer * 4);
+    }
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
   /** GPU time of the last measured frame (ms), smoothed; -1 = no timer available. */
@@ -261,7 +296,10 @@ export class Renderer {
     gl.clearBufferfv(gl.COLOR, 1, [0, 0, 0, 0]);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    this.syncTextures();
     const common = {
+      u_tex: this.texArr,
+      u_texInfo: this.texInfo,
       u_org: layers.org,
       u_mat: layers.mat,
       u_mA: layers.mA,

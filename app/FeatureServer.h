@@ -48,6 +48,9 @@ public:
     // Restore saved settings (the text of a settingsMessage()).
     void restoreSettings (const std::string& message);
 
+    // Folder of user themes: GET /theme-files/index.json lists them, /theme-files/<id>.json serves one.
+    void setThemesDir (const std::wstring& dir);
+
     int clientCount() const;
     uint16_t port() const;
     bool isRunning() const;

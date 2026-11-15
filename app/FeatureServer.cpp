@@ -132,7 +132,7 @@ std::wstring utf8ToWide (const std::string& s)
 }
 
 constexpr size_t kMaxPendingOutput = 256 * 1024; // a WebSocket client further behind than this skips frames
-constexpr size_t kMaxRequestSize   = 256 * 1024; // also the largest viewer message (preset)
+constexpr size_t kMaxRequestSize   = 2 * 1024 * 1024; // also the largest viewer message (a theme with textures)
 } // namespace
 
 // ---------------------------------------------------------------------------------------------
@@ -143,6 +143,7 @@ struct FeatureServer::Impl
         SOCKET s = INVALID_SOCKET;
         bool ws = false;
         bool closing = false; // close once `out` is flushed
+        bool localOrigin = false; // the page came from this machine (may save themes)
         std::string in, out;
     };
 
@@ -150,6 +151,7 @@ struct FeatureServer::Impl
     bool wsaStarted = false;
     uint16_t port = 0;
     std::wstring webRoot;
+    std::wstring themesDir;
     std::vector<Conn> conns;
 
     // Viewer-to-viewer relay: text messages from one viewer (panel settings, actions) go to all
@@ -241,6 +243,14 @@ struct FeatureServer::Impl
             c.out += "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                      "Sec-WebSocket-Accept: " + base64 (digest.data(), digest.size()) + "\r\n\r\n";
             c.ws = true;
+            {
+                // Only pages served from this machine may write theme files (any web page can open
+                // a WebSocket to localhost).
+                const std::string origin = lower (header (req, "Origin"));
+                for (const char* ok : { "http://localhost:", "http://127.0.0.1:", "http://[::1]:" })
+                    if (origin.rfind (ok, 0) == 0)
+                        c.localOrigin = true;
+            }
             if (! lastParams.empty())
                 c.out += frame (0x1, lastParams);
             if (! welcome.empty())
@@ -263,6 +273,44 @@ struct FeatureServer::Impl
         target = target.substr (0, target.find_first_of ("?#"));
         if (target.empty() || target.back() == '/')
             target += "index.html";
+        // User themes, from the themes folder next to Sprout.exe.
+        if (target.rfind ("/theme-files/", 0) == 0)
+        {
+            const std::string name = target.substr (13);
+            if (themesDir.empty())
+                return respond ("404 Not Found", "text/plain", "No themes folder");
+            if (name == "index.json")
+            {
+                std::string list = "[";
+                WIN32_FIND_DATAW fd;
+                HANDLE h = FindFirstFileW ((themesDir + L"\\*.json").c_str(), &fd);
+                if (h != INVALID_HANDLE_VALUE)
+                {
+                    do
+                    {
+                        std::wstring w = fd.cFileName;
+                        w = w.substr (0, w.size() - 5);
+                        std::string id;
+                        for (wchar_t ch : w)
+                            if (ch < 128) id += (char) ch;
+                        if (list.size() > 1) list += ',';
+                        list += '"' + id + '"';
+                    } while (FindNextFileW (h, &fd));
+                    FindClose (h);
+                }
+                return respond ("200 OK", "application/json", list + "]");
+            }
+            bool ok = name.size() > 5 && name.size() < 50 && name.substr (name.size() - 5) == ".json";
+            for (size_t i = 0; ok && i + 5 < name.size(); ++i)
+                ok = std::isalnum ((unsigned char) name[i]) || name[i] == '-';
+            if (! ok)
+                return respond ("400 Bad Request", "text/plain", "Bad theme name");
+            std::ifstream tf (themesDir + L"\\" + utf8ToWide (name), std::ios::binary);
+            if (! tf)
+                return respond ("404 Not Found", "text/plain", "No such theme");
+            const std::string body ((std::istreambuf_iterator<char> (tf)), std::istreambuf_iterator<char>());
+            return respond ("200 OK", "application/json", body);
+        }
         // Page routes without a file extension (/controls) are the viewer itself.
         if (target.find ('.', target.find_last_of ('/')) == std::string::npos)
             target = "/index.html";
@@ -332,7 +380,10 @@ struct FeatureServer::Impl
                 c.out += frame (0xA, payload);
             if (opcode == 0x1) // text from a viewer: relay to the other viewers
             {
-                if (payload.rfind ("{\"type\":\"tapLook\"", 0) == 0 || payload.rfind ("{\"type\":\"detect\"", 0) == 0)
+                const bool themeWrite = payload.rfind ("{\"type\":\"themeSave\"", 0) == 0 || payload.rfind ("{\"type\":\"themeDelete\"", 0) == 0;
+                if (themeWrite && ! c.localOrigin)
+                    continue; // refused: not a local page
+                if (themeWrite || payload.rfind ("{\"type\":\"tapLook\"", 0) == 0 || payload.rfind ("{\"type\":\"detect\"", 0) == 0)
                 {
                     if (appInbox.size() < 64)
                         appInbox.push_back (std::move (payload));
@@ -511,6 +562,11 @@ void FeatureServer::broadcast (const std::string& text)
             f = Impl::frame (0x1, text);
         c.out += f;
     }
+}
+
+void FeatureServer::setThemesDir (const std::wstring& dir)
+{
+    impl->themesDir = dir;
 }
 
 const std::string& FeatureServer::settingsMessage() const

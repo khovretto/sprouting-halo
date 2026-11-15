@@ -491,6 +491,90 @@ void saveDetect()
     std::fclose (f);
 }
 
+// ---- User themes: <folder of Sprout.exe>\themes\<id>.json ----------------------------------------
+std::wstring themesDir()
+{
+    std::wstring f = detectFile();
+    return f.substr (0, f.find_last_of (L"\\/")) + L"\\themes";
+}
+
+std::string stringField (const std::string& msg, const char* key)
+{
+    const std::string k = std::string ("\"") + key + "\":\"";
+    const size_t p = msg.find (k);
+    if (p == std::string::npos)
+        return {};
+    const size_t a = p + k.size(), b = msg.find ('"', a);
+    return b == std::string::npos ? std::string() : msg.substr (a, b - a);
+}
+
+bool validThemeId (const std::string& id)
+{
+    if (id.empty() || id.size() > 40)
+        return false;
+    for (char ch : id)
+        if (! (std::islower ((unsigned char) ch) || std::isdigit ((unsigned char) ch) || ch == '-'))
+            return false;
+    return id != "leaves" && id != "thorns" && id != "wreath" && id != "branches";
+}
+
+std::string base64Decode (const std::string& in)
+{
+    auto val = [] (char ch) -> int {
+        if (ch >= 'A' && ch <= 'Z') return ch - 'A';
+        if (ch >= 'a' && ch <= 'z') return ch - 'a' + 26;
+        if (ch >= '0' && ch <= '9') return ch - '0' + 52;
+        if (ch == '+') return 62;
+        if (ch == '/') return 63;
+        return -1;
+    };
+    std::string out;
+    int acc = 0, bits = 0;
+    for (char ch : in)
+    {
+        const int v = val (ch);
+        if (v < 0)
+            continue;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if (bits >= 8)
+        {
+            bits -= 8;
+            out += (char) ((acc >> bits) & 0xFF);
+        }
+    }
+    return out;
+}
+
+/** themeSave / themeDelete from a local page. Returns true when the folder changed. */
+bool handleThemeMessage (const std::string& msg)
+{
+    const std::string id = stringField (msg, "id");
+    if (! validThemeId (id))
+        return false;
+    const std::wstring dir = themesDir();
+    CreateDirectoryW (dir.c_str(), nullptr);
+    const std::wstring path = dir + L"\\" + std::wstring (id.begin(), id.end()) + L".json";
+    if (msg.rfind ("{\"type\":\"themeDelete\"", 0) == 0)
+        return DeleteFileW (path.c_str()) != 0;
+    // At most 64 themes.
+    int count = 0;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW ((dir + L"\\*.json").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE)
+    {
+        do ++count; while (FindNextFileW (h, &fd));
+        FindClose (h);
+    }
+    if (count >= 64 && GetFileAttributesW (path.c_str()) == INVALID_FILE_ATTRIBUTES)
+        return false;
+    const std::string data = base64Decode (stringField (msg, "data"));
+    if (data.empty() || data[0] != '{')
+        return false;
+    writeFile (path, data);
+    return true;
+}
+
 // {"type":"tapLook","theme":"wreath","density":0.8,...} -> a look request in every voice tap's slot.
 void applyTapLook (const std::string& msg, sprout::Bus& bus, const std::array<TapState, sprout::kMaxSlots>& taps)
 {
@@ -590,6 +674,8 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
     loadDetect();
     web.setWelcome (detectJson());
     web.restoreSettings (readFile (settingsFile()));
+    CreateDirectoryW (themesDir().c_str(), nullptr);
+    web.setThemesDir (themesDir());
     uint64_t savedSettings = web.settingsVersion();
     double settingsDirtySince = -1.0;
     if (cfg.webPort > 0 && ! web.start ((uint16_t) cfg.webPort, findWebRoot (cfg.webRoot)))
@@ -692,7 +778,14 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
         // sets its own parameters, so the DAW saves the change with the project).
         for (const std::string& msg : web.takeAppMessages())
         {
-            if (msg.rfind ("{\"type\":\"detect\"", 0) == 0)
+            if (msg.rfind ("{\"type\":\"themeSave\"", 0) == 0 || msg.rfind ("{\"type\":\"themeDelete\"", 0) == 0)
+            {
+                // A theme was saved or deleted: every viewer re-reads the list.
+                static int themesRev = 0;
+                if (handleThemeMessage (msg))
+                    web.broadcast ("{\"type\":\"themes\",\"rev\":" + std::to_string (++themesRev) + "}");
+            }
+            else if (msg.rfind ("{\"type\":\"detect\"", 0) == 0)
             {
                 // Voice detection changed in a viewer: apply, keep, and tell every viewer.
                 applyDetect (msg);

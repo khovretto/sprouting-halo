@@ -11,6 +11,8 @@ flat in float v_uvPerPx;
 flat in float v_seed;
 
 uniform vec4 u_glowTint; // rgb, amount: the glow leans toward this colour
+uniform highp sampler2DArray u_tex; // theme textures (shape ids 16..31)
+uniform vec4 u_texInfo[16];         // half-width, flutter, own colours
 layout(location = 0) out vec4 o_colour;
 layout(location = 1) out vec4 o_glow;
 
@@ -21,6 +23,21 @@ float outsideSpan(float y) { return max(-y, y - 1.0); }
 void main() {
   float x = v_uv.x, y = v_uv.y;
   int shape = int(v_shape + 0.5);
+  if (shape >= 16) {
+    // A theme texture: drawn pointing up, base at the bottom, premultiplied alpha.
+    vec4 info = u_texInfo[shape - 16];
+    vec2 tuv = vec2(x / (2.0 * info.x) + 0.5, 1.0 - y);
+    if (tuv.x < 0.0 || tuv.x > 1.0 || tuv.y < 0.0 || tuv.y > 1.0) discard;
+    vec4 tx = texture(u_tex, vec3(tuv, float(shape - 16)));
+    float gain = max(v_col.r, max(v_col.g, v_col.b));
+    vec3 rgb = tx.rgb * mix(v_col.rgb, vec3(gain), info.z); // tinted by the role, or own colours
+    float a = tx.a * v_col.a;
+    if (a <= 0.003) discard;
+    o_colour = vec4(rgb * v_col.a, a);
+    vec3 gc = mix(rgb, u_glowTint.rgb * dot(rgb, vec3(0.2126, 0.7152, 0.0722)) * 2.0, u_glowTint.a);
+    o_glow = vec4(gc * v_col.a * v_glow, a);
+    return;
+  }
   vec3 col = v_col.rgb;
   float d;
 

@@ -3,7 +3,8 @@
 // WebSocket feed from Sprout.exe (sources/live.ts).
 
 export type Role = 'live' | 'take' | 'instrument';
-export type Theme = 'branches' | 'leaves' | 'thorns' | 'wreath';
+/** A built-in theme, or the id of a user theme (themes.ts). */
+export type Theme = 'branches' | 'leaves' | 'thorns' | 'wreath' | (string & {});
 
 export interface LayerFeatures {
   /** Stable identity: a take keeps its plant while this stays the same (e.g. "slot-3"). */

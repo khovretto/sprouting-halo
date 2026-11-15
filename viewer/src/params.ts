@@ -89,7 +89,7 @@ export const defaults = {
     themeFrom: 'tracks' as 'tracks' | 'preset',
     /** Fallback theme. Each track sets its own theme and amount in the Sprout Tap window; this
      *  is used only for the fake singer and taps set to "Viewer default". */
-    theme: 'leaves' as 'branches' | 'leaves' | 'thorns' | 'wreath',
+    theme: 'leaves' as string,
     /** Fallback decoration amount (per track in the Sprout Tap window): leaf *spacing* on take
      *  plants (low = sparse, high = close), so leaves never pile up. */
     density: 0.55,

@@ -154,6 +154,26 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   steps at 8 fps (frame-rate independence checks). `sprout.bench(240)` times simulation,
   instance building and GL submission per frame; `sprout.perf()` shows the live averages.
 
+## Colours, themes and the panel
+
+- **Panel tabs:** Look (Visual preset), Reaction (Reactivity preset, grouped by what the voice
+  does), Setup (fit, detection, performance, connection, test). "show advanced" shows the rarely
+  needed settings. Combined sliders (fullness, liveliness, pace) move several settings at once.
+- **Colours** (Look → Colours): branches, leaves, blossoms & berries and the halo each take their
+  colour from the take colour, the theme's natural colours, or a **gradient** that can flow with
+  time, run from root to tip, shift per take, follow the voice (pitch, loudness, effort, airiness,
+  vibrato, note starts) or scatter per leaf. Quick buttons: Still, Root→tip, Flow, Sparkle, Sing
+  it. The gradient picker: click the bar to edit; click to add a stop, drag to move, drag down or
+  right-click to remove; Smooth / Linear / Steps, Loop, Reverse, Spread, presets (Rainbow, Fire,
+  Ice, Sakura…), take-colour stops, copy / paste as text. Your take colours are kept across presets.
+- **Blossoms** open only on notes held longer than "blossoms after holding" (1.5 s).
+- **Themes** (http://localhost:7777/themes, or Look → Theme & leaves → Edit themes…): make your
+  own from up to six parts, each a built-in shape or your own PNG (drawn pointing up, stalk at the
+  bottom; white pictures take the colour settings, colourful ones can keep their own), placed like
+  leaves, needles, blossoms, berries or holly. Save keeps it in the `themes` folder next to
+  Sprout.exe, so OBS gets it; "Use in viewer" makes it everyone's theme. Custom themes apply to
+  tracks on "Viewer default" (the VST's own list stays the four built-ins for now).
+
 ## Controls and sync
 
 - **http://localhost:7777/controls**: the panel and the voice scope only, nothing drawn (no
