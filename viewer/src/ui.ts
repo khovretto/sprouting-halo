@@ -11,6 +11,7 @@ import paramsSource from './params.ts?raw';
 import { FOLDER_HINTS, FOLDERS, LABELS, TIPS } from './panel-layout';
 import { installTooltips, tip } from './tooltip';
 import { installSelectMenus } from './select-menu';
+import { GradientEditor } from './gradient-editor';
 import {
   applyPreset, BUILTINS, diffOf, getPath, isDirty, Kind, KIND_TITLES, kindOf, KINDS, loadStore, PATHS, presetValue, Preset,
   PresetStore, same, saveStore, slug, STORE_KEY, Values,
@@ -667,12 +668,16 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   if (unsorted.length) console.warn('Panel: keys missing from FOLDERS (shown under Unsorted):', unsorted);
 
   const pathFolders = new Map<string, Folder[]>();
+  const editors: { obj: Record<string, unknown>; key: string; ed: GradientEditor; binding: Binding }[] = [];
+  let gradTimer = 0;
   const addRow = (folder: Folder, path: string, groups: Row[][]) => {
     const [section, key] = path.split('.');
     const obj = (p as unknown as Record<string, Record<string, unknown>>)[section];
     if (!obj || !(key in obj)) return;
     const v = obj[key];
     const opts: Record<string, unknown> = { label: LABELS[path] ?? key, ...(RANGES[path] ?? {}) };
+    const isGradient = !!opts.gradient;
+    delete opts.gradient;
     if (typeof v === 'string' && v.startsWith('#')) opts.view = 'color';
     else if (typeof v === 'number' && opts.min === undefined) {
       opts.min = Math.min(0, v * 4);
@@ -692,6 +697,25 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       userChange();
     });
     binding.element.querySelector('.tp-lblv_l')?.appendChild(button);
+    if (isGradient) {
+      // A gradient: the text field is replaced by the gradient bar and editor (full row width).
+      const input = binding.element.querySelector<HTMLElement>('.tp-lblv_v');
+      if (input) input.style.display = 'none';
+      const ed = new GradientEditor(String(obj[key]), (v) => {
+        obj[key] = v;
+        updateMarks();
+        // Sync at most ~15 times a second while a stop is dragged.
+        if (!gradTimer) gradTimer = window.setTimeout(() => {
+          gradTimer = 0;
+          userChange();
+        }, 70);
+      }, p.colours.take1);
+      ed.el.style.padding = '2px 4px 4px 8px';
+      ed.el.style.flexBasis = '100%';
+      binding.element.style.flexWrap = 'wrap';
+      binding.element.appendChild(ed.el);
+      editors.push({ obj, key, ed, binding });
+    }
     const row = { path, binding, button };
     rows.push(row);
     for (const g of groups) g.push(row);
@@ -769,6 +793,10 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     }
   }
   function markRows() {
+    for (const e of editors) {
+      e.ed.set(String(e.obj[e.key]));
+      e.ed.setTake(p.colours.take1);
+    }
     for (const r of rows) {
       const mod = !same(getPath(p, r.path), baseline(r.path));
       r.binding.element.classList.toggle('sprout-mod', mod);
@@ -795,6 +823,7 @@ Shift-click: factory default ${fmt(d)}`));
       hide(`${r}.takeMix`, role.source === 'take' || role.source === 'branches');
     }
     hide('glow.tint', false);
+    for (const e of editors) e.ed.el.style.display = e.binding.hidden ? 'none' : '';
     hide('growth.witherDipSemitones', !p.growth.witherOnPitchDip);
     hide('scene.scopeLayer', !p.scene.showScope);
     hide('scene.scopeSeconds', !p.scene.showScope);
