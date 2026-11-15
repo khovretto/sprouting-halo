@@ -111,8 +111,9 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'ivy', name: 'Lush ivy', description: 'Dense, overgrown canopy and a long leafy halo vine. Glow held back so the detail shows.',
       values: {
+        colLeaf: { takeMix: 0.4 },
         growth: { branching: 0.95, reach: 1.1, spread: 1.3, flatten: 0.45 },
-        look: { theme: 'leaves', density: 0.85, decoSize: 1.5, naturalTint: 0.6, variety: 0.8, depthShade: 0.8, decoGlow: 0.12 },
+        look: { theme: 'leaves', density: 0.85, decoSize: 1.5, variety: 0.8, depthShade: 0.8, decoGlow: 0.12 },
         plants: { wildness: 0.7, overlap: 0.8, clearance: 0.03, taper: 0.55, lift: 0.05, maxNodes: 3600 },
         halo: { origins: 2, tailDeg: 540, tailFade: 0.3, sproutLength: 16, alwaysLeaves: 0.7, wander: 0.14 },
         glow: { strength: 1.2, wide: 0.5, crowd: 1.1, inkMask: 0.85 },
@@ -121,8 +122,9 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'winter', name: 'Winter branches', description: 'Bare, fine twigs with a wide, cold, pale-blue haze.',
       values: {
+        colLeaf: { takeMix: 0.9 },
         growth: { branching: 0.25, spread: 0.7, flatten: 0.35 },
-        look: { theme: 'branches', density: 0.15, decoSize: 1.0, naturalTint: 0.1, variety: 0.35, depthShade: 0.4, tint: '#bfe3ff', tintAmount: 0.35 },
+        look: { theme: 'branches', density: 0.15, decoSize: 1.0, variety: 0.35, depthShade: 0.4, tint: '#bfe3ff', tintAmount: 0.35 },
         plants: { taper: 0.8, wildness: 0.6, lift: 0.35, clearance: 0.07, overlap: 0.25 },
         halo: { alwaysLeaves: 0.1, sproutLength: 8, sproutCurl: 0.4, tailDeg: 220 },
         glow: { strength: 1.9, radius: 2.6, wide: 1.2, base: 0.2, crowd: 0.4, knee: 1.2 },
@@ -131,8 +133,10 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'festive', name: 'Festive wreath', description: 'A full wreath for the halo, natural reds and greens.',
       values: {
+        colLeaf: { takeMix: 0.1 },
+        colAccent: { takeMix: 0.05 },
         growth: { branching: 0.7, flatten: 0.4 },
-        look: { theme: 'wreath', density: 0.8, decoSize: 2.2, naturalTint: 0.9, decoGlow: 0.35, variety: 0.7 },
+        look: { theme: 'wreath', density: 0.8, decoSize: 2.2, decoGlow: 0.35, variety: 0.7 },
         plants: { lift: 0.3 },
         halo: { origins: 2, tailDeg: 720, tailFade: 0.2, alwaysLeaves: 0.9, sproutLength: 7, sproutCurl: 0.5, wander: 0.04, ringWidth: 0.014, vineWidth: 0.01 },
         glow: { strength: 2.0, base: 0.45, crowd: 0.9 },
@@ -141,8 +145,9 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'bramble', name: 'Red bramble', description: 'A dense, drooping thicket of thorns in deep red, with little glow.',
       values: {
+        colLeaf: { takeMix: 0.95 },
         growth: { branching: 0.95, spread: 1.5, flatten: 0.6 },
-        look: { theme: 'thorns', density: 0.95, decoSize: 1.5, naturalTint: 0.05, variety: 0.8, depthShade: 0.85, decoGlow: 0.05, tint: '#c0142c', tintAmount: 0.88 },
+        look: { theme: 'thorns', density: 0.95, decoSize: 1.5, variety: 0.8, depthShade: 0.85, decoGlow: 0.05, tint: '#c0142c', tintAmount: 0.88 },
         plants: { lift: -0.2, taper: 0.85, wildness: 0.75, clearance: 0.03, overlap: 0.7, maxNodes: 3400 },
         halo: { sproutCurl: 0.3, sproutLength: 14, wander: 0.12, alwaysLeaves: 0.6 },
         glow: { strength: 0.75, radius: 1.3, wide: 0.35, base: 0.12, crowd: 1.1, inkMask: 0.85 },
@@ -151,8 +156,9 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'minimal', name: 'Minimal', description: 'Small and quiet with low glow. Stays out of the way; lightest on the GPU.',
       values: {
+        colLeaf: { takeMix: 0.8 },
         growth: { branching: 0.3, reach: 0.8 },
-        look: { density: 0.3, decoSize: 1.2, decoGlow: 0.1, naturalTint: 0.2 },
+        look: { density: 0.3, decoSize: 1.2, decoGlow: 0.1 },
         plants: { wildness: 0.25, maxNodes: 1500 },
         halo: { sproutLength: 7, alwaysLeaves: 0.2, tailDeg: 180, wander: 0.04 },
         glow: { strength: 0.8, radius: 1.2, wide: 0.3, base: 0.15 },
@@ -161,8 +167,8 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'neon', name: 'Neon stage', description: 'Bright, wide-arching trees and a strong glow for big moments.',
       values: {
+        colLeaf: { takeMix: 0.9 },
         growth: { branching: 0.7, spread: 1.4 },
-        look: { naturalTint: 0.1 },
         halo: { origins: 3, tailDeg: 200 },
         glow: { strength: 2.4, base: 0.2, knee: 1.2 },
       },

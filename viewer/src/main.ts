@@ -9,6 +9,7 @@ import type { FeatureFrame, LayerFeatures, Theme } from './features';
 import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
 import { Scope } from './scope';
+import { Ink, inkAt, newInk, ringS, setInk } from './colour';
 import { LABELS } from './panel-layout';
 import { clearAvatarImage, loadAvatarImage, pickAvatarImage } from './avatar-image';
 import { LayerMotion, Wind } from './motion';
@@ -362,11 +363,7 @@ function start() {
     return fake.update(dt, params);
   }
 
-  function colourAt(base: RGB, layer: number, flex: number): RGB {
-    if (params.colours.mode === 'rainbow')
-      return hsv2rgb((((t * params.colours.rainbowSpeed + flex * 0.15 + layer * 0.13) % 1) + 1) % 1, 0.7, 1);
-    return base;
-  }
+
 
   /**
    * intensity: < 1 = quieter (applied as opacity, so a resting halo turns see-through instead of
@@ -393,12 +390,24 @@ function start() {
 
   let shown = new Uint8Array(0);
   /** Push a skeleton's visible segments. */
-  function pushTree(out: Instances, sk: Skeleton, vis: Float32Array, layer: number, base: RGB,
+  // Colour inks: one per layer and role (branch or halo, leaf, accent), refilled every frame.
+  const inkPool: Ink[][] = Array.from({ length: MAX_LAYERS + 8 }, () => [newInk(), newInk(), newInk()]);
+  const C = [0, 0, 0];
+  /** Inks for a layer: stroke (branches, or the halo), leaf and accent. */
+  function inksFor(layer: number, take: RGB, k: number, d: Drive | undefined, halo: boolean) {
+    const pool = inkPool[Math.max(0, Math.min(inkPool.length - 1, layer))];
+    setInk(pool[0], params, halo ? 'colHalo' : 'colBranch', take, k, t, d);
+    setInk(pool[1], params, 'colLeaf', take, k, t, d);
+    setInk(pool[2], params, 'colAccent', take, k, t, d);
+    return { stroke: pool[0], leaf: pool[1], accent: pool[2] };
+  }
+
+  function pushTree(out: Instances, sk: Skeleton, vis: Float32Array, layer: number, ink: Ink,
                     look: Look, alpha: number, unit: number, frontGlow = params.glow.front, nodeAlpha?: ArrayLike<number>,
-                    tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>) {
+                    tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>, sScale = 1, ring = false) {
     const u = Math.max(1e-3, unit);
     if (alpha <= 0.005) return;
-    const rainbow = params.colours.mode === 'rainbow', bright = brighten(look), fade = fadeOf(look);
+    const bright = brighten(look), fade = fadeOf(look);
     // shown[i]: a child segment of node i is drawn (so the segment ending at i can end flat).
     if (shown.length < sk.n) shown = new Uint8Array(sk.n * 2);
     shown.fill(0, 0, sk.n);
@@ -414,7 +423,7 @@ function start() {
       const na = nodeAlpha ? nodeAlpha[i] : 1;
       if (na <= 0.005) continue;
       const ax = sk.x[pa], ay = sk.y[pa];
-      const c = rainbow ? colourAt(base, layer, sk.flex[i]) : base;
+      const c = inkAt(ink, ring ? ringS(sk.x[i], sk.y[i], ink.loop) : sk.flex[i] * sScale, 0.5, C);
       const tn = tone ? tone[i] : 1;
       const k = bright * tn;
       out.stroke(
@@ -431,14 +440,14 @@ function start() {
     }
   }
 
-  function pushRing(out: Instances, layer: number, base: RGB, look: Look, alpha: number, unit: number, level: number) {
+  function pushRing(out: Instances, layer: number, ink: Ink, look: Look, alpha: number, unit: number, level: number) {
     const h = params.halo;
     const N = 160;
     const w = (h.ringWidth * look.width * (1 + 0.6 * level)) / Math.max(1e-3, unit);
     // A clean circle: its oval / trefoil motion comes from the layer's ring mode (shaders/motion.glsl).
     for (let k = 0; k < N; k++) {
       const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU;
-      const c = colourAt(base, layer, a0);
+      const c = inkAt(ink, (k / N) * (ink.loop ? 1 : 2), 0.5, C);
       const s = look.shine, i = brighten(look);
       out.stroke(Math.cos(a0), Math.sin(a0), Math.cos(a1), Math.sin(a1), w, w, 0, 0,
         lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * fadeOf(look), look.glow, layer);
@@ -454,10 +463,10 @@ function start() {
     return [-Math.sin(th) / s, -Math.cos(th) / s];
   }
 
-  function styleOf(layer: number, colour: RGB, look: Look, alpha: number, unit: number, seed: number, d: Drive,
-                   fall: number, downX: number, downY: number, theme: Theme, density: number): DecoStyle {
+  function styleOf(layer: number, inks: { leaf: Ink; accent: Ink }, look: Look, alpha: number, unit: number, seed: number, d: Drive,
+                   fall: number, downX: number, downY: number, theme: Theme, density: number, sScale = 1): DecoStyle {
     return {
-      theme, density, layer, colour, alpha: alpha * fadeOf(look), glow: look.glow * params.look.decoGlow, unit, seed, effort: d.effort,
+      theme, density, layer, leaf: inks.leaf, accent: inks.accent, sScale, alpha: alpha * fadeOf(look), glow: look.glow * params.look.decoGlow, unit, seed, effort: d.effort,
       bloom: look.bloom * params.look.blossoms, fall, downX, downY, intensity: brighten(look),
     };
   }
@@ -515,6 +524,21 @@ function start() {
     intensity: 1, glow: (params.glow.base + 0.5 * params.glow.levelGain) * sl.glow, shine: sl.shine, width: sl.width, bloom: 0,
   });
 
+  /** The flying halo / strand is one colour (it changes from live to take colour on the way). */
+  const commitInks = (L: number, colour: RGB) => {
+    const pool = inkPool[Math.max(0, Math.min(inkPool.length - 1, L))];
+    for (const ink of pool) {
+      ink.lut = null;
+      ink.natural = false;
+      ink.loop = false;
+      ink.take = colour;
+      ink.takeMix = 1;
+      ink.tintK = 0;
+      ink.mid = [colour[0], colour[1], colour[2]];
+    }
+    return { stroke: pool[0], leaf: pool[1], accent: pool[2] };
+  };
+
   function commitHooks(fxLayer: number, nextLayer: () => number): CommitHooks {
     return {
       ring(snap, cx, cy, R, rot, look, ringAlpha, nodeAlpha, windE) {
@@ -525,18 +549,20 @@ function start() {
         const sq = 1 - clamp(params.halo.squish, 0, 0.95) * k;
         layerU.set(L, cx, cy, Math.PI / 2 + rot + params.halo.tilt * deg * k, R, STILL, sq);
         const lk = strandLook(look);
-        pushRing(front, L, look.colour, lk, ringAlpha * look.alpha, R, 0);
-        pushTree(front, snap.sk, snap.vis, L, look.colour, lk, look.alpha, R, params.glow.front, nodeAlpha);
-        const st = styleOf(L, look.colour, lk, look.alpha, R, snap.seed, commitDrive, 0, 0, -1 / R, snap.theme, snap.density);
+        const inks = commitInks(L, look.colour);
+        pushRing(front, L, inks.stroke, lk, ringAlpha * look.alpha, R, 0);
+        pushTree(front, snap.sk, snap.vis, L, inks.stroke, lk, look.alpha, R, params.glow.front, nodeAlpha);
+        const st = styleOf(L, inks, lk, look.alpha, R, snap.seed, commitDrive, 0, 0, -1 / R, snap.theme, snap.density);
         st.sizeMul = snap.sizeMul;
         decorateTree(snap.sk, snap.vis, params, st, frontDeco, { ids: snap.ids, alpha: nodeAlpha });
       },
       strand(sk, vis, nodeAlpha, ids, L, look, snap, unit) {
         const lk = strandLook(look);
-        pushTree(back, sk, vis, L, look.colour, lk, look.alpha, 1, params.glow.front, nodeAlpha);
+        const inks = commitInks(L, look.colour);
+        pushTree(back, sk, vis, L, inks.stroke, lk, look.alpha, 1, params.glow.front, nodeAlpha);
         const s = slots.find((x) => x.commit && x.commit.snap === snap);
         const [dx, dy] = s ? localDown(s.place.angle + spin * s.place.tierDir, s.place.scale) : [0, -1];
-        const st = styleOf(L, look.colour, lk, look.alpha, unit, snap.seed, commitDrive, 0, dx, dy, snap.theme, snap.density);
+        const st = styleOf(L, inks, lk, look.alpha, unit, snap.seed, commitDrive, 0, dx, dy, snap.theme, snap.density);
         st.sizeMul = snap.sizeMul;
         decorateTree(sk, vis, params, st, backDeco, { ids, alpha: nodeAlpha });
       },
@@ -738,16 +764,18 @@ function start() {
     const drawPlant = (s: Slot, alpha: number, look: Look, fall: number) => {
       const pl = s.place;
       const angle = pl.angle + spin * pl.tierDir;
-      const base = tinted(hexToRgb(s.colour));
+      const inks = inksFor(layer, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false);
       // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
+      const base = inks.stroke.mid;
       const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
       look = { ...look, glow: look.glow * clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4) };
       const [dx, dy] = localDown(angle, pl.scale);
       for (const g of s.gens.gens) {
         const a = alpha * g.alpha;
-        pushTree(back, g.tree.sk, g.tree.vis, layer, base, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend);
+        const sScale = 1 / Math.max(1e-3, g.tree.maxFlex);
+        pushTree(back, g.tree.sk, g.tree.vis, layer, inks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend, sScale);
         decorateTree(g.tree.sk, g.tree.vis, params,
-          styleOf(layer, base, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density), backDeco,
+          styleOf(layer, inks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), backDeco,
           { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend,
             leafState: g.tree.leafState, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone });
       }
@@ -796,14 +824,14 @@ function start() {
       // Squish and tilt are for the small resting halo only; the recording halo opens round.
       const idle = 1 - smooth(clamp(h.open));
       layerU.set(layer, h.cx, h.cy, Math.PI / 2 + hp.tilt * deg * idle, R, h.motion, 1 - clamp(hp.squish, 0, 0.95) * idle);
-      const base = tinted(hexToRgb(h.look.colour));
+      const inks = inksFor(layer, hexToRgb(h.look.colour), Math.max(0, halos.indexOf(h)), h.drive, true);
       const look = lookOf(h.drive);
-      pushRing(front, layer, base, look, fade, R, h.drive.energy);
+      pushRing(front, layer, inks.stroke, look, fade, R, h.drive.energy);
       // More origins = more vine, so fewer leaves on each part of it.
       const origins = Math.max(1, Math.round(hp.origins));
-      const style = styleOf(layer, base, look, fade, R, h.vine.seed, h.drive, 0, 0, -1 / R, h.look.theme, h.look.density / origins);
+      const style = styleOf(layer, inks, look, fade, R, h.vine.seed, h.drive, 0, 0, -1 / R, h.look.theme, h.look.density / origins);
       style.sizeMul = Math.pow(clamp(R / Math.max(0.05, hp.openRadius), 0.25, 1), 0.7);
-      pushTree(front, h.vine.sk, h.vine.vis, layer, base, look, fade, R, params.glow.front, h.vine.alpha, undefined, h.vine.order, h.vine.bend);
+      pushTree(front, h.vine.sk, h.vine.vis, layer, inks.stroke, look, fade, R, params.glow.front, h.vine.alpha, undefined, h.vine.order, h.vine.bend, 1, true);
       decorateTree(h.vine.sk, h.vine.vis, params, style, frontDeco, { ids: h.vine.ids, alpha: h.vine.alpha, order: h.vine.order, bend: h.vine.bend, leafGrow: h.vine.leaf });
       decorateRing(params, { ...style, density: h.look.density }, (a) => h.vine.coverage(a, params), frontDeco, hp.alwaysLeaves);
       layer++;

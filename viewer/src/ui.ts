@@ -18,7 +18,7 @@ import {
 
 const STORAGE_KEY = 'sprout.viewer.params.v2';
 
-type Spec = { min?: number; max?: number; step?: number; options?: Record<string, string | number> };
+type Spec = { min?: number; max?: number; step?: number; options?: Record<string, string | number>; gradient?: boolean };
 
 const RANGES: Record<string, Spec> = {
   'source.mode': { options: { 'Auto (live when connected)': 'auto', 'Live taps only': 'live', 'Fake singer': 'fake' } },
@@ -68,11 +68,8 @@ const RANGES: Record<string, Spec> = {
   'look.blossomHold': { min: 0, max: 5 },
   'look.decoSize': { min: 0.2, max: 4 },
   'look.decoGlow': { min: 0, max: 1.5 },
-  'look.naturalTint': { min: 0, max: 1 },
   'look.blossoms': { min: 0, max: 1 },
   'look.thornEffort': { min: 0, max: 3 },
-  'colours.mode': { options: { 'Take colours': 'take', Rainbow: 'rainbow' } },
-  'colours.rainbowSpeed': { min: 0, max: 0.5 },
   'halo.restRadius': { min: 0.05, max: 1 },
   'halo.restY': { min: -1, max: 1.5 },
   'halo.openRadius': { min: 0.3, max: 2 },
@@ -137,6 +134,43 @@ const RANGES: Record<string, Spec> = {
   'avatar.imageX': { min: -2, max: 2 },
   'avatar.imageY': { min: -3, max: 2 },
   'avatar.imageHeight': { min: 0.5, max: 8 },
+  'colBranch.source': { options: { 'Track colour': 'take', 'Theme colour': 'theme', Gradient: 'gradient' } },
+  'colBranch.gradient': { gradient: true },
+  'colBranch.takeMix': { min: 0, max: 1 },
+  'colBranch.along': { min: -2, max: 2 },
+  'colBranch.speed': { min: -1, max: 1 },
+  'colBranch.voice': { options: { Nothing: 'none', Pitch: 'pitch', Loudness: 'loudness', Effort: 'effort', Airiness: 'breath', Vibrato: 'vibrato', 'Note starts': 'flash' } },
+  'colBranch.voiceAmount': { min: -1, max: 1 },
+  'colBranch.perTake': { min: 0, max: 1 },
+  'colBranch.scatter': { min: 0, max: 1 },
+  'colLeaf.source': { options: { 'Track colour': 'take', 'Theme colour': 'theme', Gradient: 'gradient' } },
+  'colLeaf.gradient': { gradient: true },
+  'colLeaf.takeMix': { min: 0, max: 1 },
+  'colLeaf.along': { min: -2, max: 2 },
+  'colLeaf.speed': { min: -1, max: 1 },
+  'colLeaf.voice': { options: { Nothing: 'none', Pitch: 'pitch', Loudness: 'loudness', Effort: 'effort', Airiness: 'breath', Vibrato: 'vibrato', 'Note starts': 'flash' } },
+  'colLeaf.voiceAmount': { min: -1, max: 1 },
+  'colLeaf.perTake': { min: 0, max: 1 },
+  'colLeaf.scatter': { min: 0, max: 1 },
+  'colAccent.source': { options: { 'Track colour': 'take', 'Theme colour': 'theme', Gradient: 'gradient' } },
+  'colAccent.gradient': { gradient: true },
+  'colAccent.takeMix': { min: 0, max: 1 },
+  'colAccent.along': { min: -2, max: 2 },
+  'colAccent.speed': { min: -1, max: 1 },
+  'colAccent.voice': { options: { Nothing: 'none', Pitch: 'pitch', Loudness: 'loudness', Effort: 'effort', Airiness: 'breath', Vibrato: 'vibrato', 'Note starts': 'flash' } },
+  'colAccent.voiceAmount': { min: -1, max: 1 },
+  'colAccent.perTake': { min: 0, max: 1 },
+  'colAccent.scatter': { min: 0, max: 1 },
+  'colHalo.source': { options: { 'Same as branches': 'branches', 'Track colour': 'take', Gradient: 'gradient' } },
+  'colHalo.gradient': { gradient: true },
+  'colHalo.takeMix': { min: 0, max: 1 },
+  'colHalo.along': { min: -2, max: 2 },
+  'colHalo.speed': { min: -1, max: 1 },
+  'colHalo.voice': { options: { Nothing: 'none', Pitch: 'pitch', Loudness: 'loudness', Effort: 'effort', Airiness: 'breath', Vibrato: 'vibrato', 'Note starts': 'flash' } },
+  'colHalo.voiceAmount': { min: -1, max: 1 },
+  'colHalo.perTake': { min: 0, max: 1 },
+  'colHalo.scatter': { min: 0, max: 1 },
+  'glow.tintAmount': { min: 0, max: 1 },
   'glow.strength': { min: 0, max: 6 },
   'glow.radius': { min: 0.2, max: 5 },
   'glow.wide': { min: 0, max: 3 },
@@ -168,8 +202,17 @@ const RANGES: Record<string, Spec> = {
   'fake.highNotes': { min: 0, max: 1 },
 };
 
-/** Older settings files: the sine sway/tremble became wind and shiver. */
+/** Older settings files: the sine sway/tremble became wind and shiver; the rainbow mode and
+ *  natural tint became the colour roles. */
 export function migrate(v: unknown) {
+  const o = v as Record<string, Record<string, unknown>> | null;
+  const col = o?.colours;
+  if (o && col && col.mode === 'rainbow') {
+    o.colBranch = { ...(o.colBranch ?? {}), source: 'gradient', ...(typeof col.rainbowSpeed === 'number' ? { speed: col.rainbowSpeed } : {}) };
+    o.colHalo = { ...(o.colHalo ?? {}), source: 'branches' };
+  }
+  const nt = o?.look?.naturalTint;
+  if (o && typeof nt === 'number' && o.colLeaf?.takeMix === undefined) o.colLeaf = { ...(o.colLeaf ?? {}), takeMix: 1 - nt };
   const m = (v as { motion?: Record<string, unknown> } | null)?.motion;
   if (m) {
     if (typeof m.tremble === 'boolean' && m.shiver === undefined) m.shiver = m.tremble;
@@ -743,7 +786,15 @@ Shift-click: factory default ${fmt(d)}`));
       f.folder.title = f.title + (any ? ' •' : '');
     }
     const hide = (path: string, h: boolean) => rows.filter((r) => r.path === path).forEach((r) => (r.binding.hidden = h));
-    hide('colours.rainbowSpeed', p.colours.mode !== 'rainbow');
+    // Colour roles: the gradient and its movers only when the source is a gradient.
+    for (const r of ['colBranch', 'colLeaf', 'colAccent', 'colHalo'] as const) {
+      const role = p[r] as { source: string; voice: string };
+      const grad = role.source === 'gradient';
+      for (const k of ['gradient', 'along', 'speed', 'voice', 'voiceAmount', 'perTake', 'scatter']) hide(`${r}.${k}`, !grad);
+      hide(`${r}.voiceAmount`, !grad || role.voice === 'none');
+      hide(`${r}.takeMix`, role.source === 'take' || role.source === 'branches');
+    }
+    hide('glow.tint', false);
     hide('growth.witherDipSemitones', !p.growth.witherOnPitchDip);
     hide('scene.scopeLayer', !p.scene.showScope);
     hide('scene.scopeSeconds', !p.scene.showScope);

@@ -8,6 +8,7 @@ import type { Theme } from './features';
 import type { Instances } from './render/renderer';
 import type { Skeleton } from './growth/skeleton';
 import { clamp, hash1, lerp, RGB } from './math';
+import { Ink, inkAt } from './colour';
 
 const enum Shape {
   Leaf = 0,
@@ -18,6 +19,7 @@ const enum Shape {
   Blossom = 5,
 }
 
+// Natural colours of the built-in parts (used when a colour role's source is "theme").
 const LEAF: RGB = [0.32, 0.78, 0.34];
 const PETAL: RGB = [1.0, 0.82, 0.9];
 const THORN: RGB = [0.92, 0.86, 0.7];
@@ -30,7 +32,11 @@ export interface DecoStyle {
   theme: Theme;
   density: number;
   layer: number;
-  colour: RGB;
+  /** Colour roles for leaves (and thorns, needles, holly) and accents (blossoms, berries). */
+  leaf: Ink;
+  accent: Ink;
+  /** Node flex → 0 (root) .. 1 (tip) for the colour along a branch. */
+  sScale: number;
   alpha: number;
   glow: number;
   /** Sizes are divided by this (the halo is built in unit-circle space). */
@@ -57,6 +63,11 @@ const easeOutBack = (t: number) => {
   const c1 = 1.70158, c3 = c1 + 1;
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 };
+
+const TAU2 = Math.PI * 2;
+/** A part's colour from its role (natural colour, natScale variety, brightness gain). */
+const col = (ink: Ink, natural: RGB, s: number, h: number, natScale: number, gain: number) =>
+  inkAt(ink, s, h, tintA, natural, natScale, gain) as [number, number, number];
 
 // Scratch colours: Placer.put copies the numbers at once, so one shared array per use is safe.
 const tintA: [number, number, number] = [0, 0, 0], tintB: [number, number, number] = [0, 0, 0];
@@ -128,7 +139,6 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   const unit = Math.max(1e-3, st.unit);
   const size = (L.decoSize * (st.sizeMul ?? 1)) / unit;
   const dens = st.density;
-  const nat = L.naturalTint;
   const variety = clamp(L.variety);
   const rank = extras.rank;
   // Take plants: which nodes are visible tips right now (no child drawn): growing and withered
@@ -211,7 +221,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
           // Inner leaves (dim tone) come out a little smaller.
           const sz = size * 0.055 * lerp(1, 0.6 + 0.65 * h2, variety) * lerp(0.85, 1.1, clamp((tone - 0.6) / 0.48)) * pop * pres;
           const inten = st.intensity * tone * lerp(1, 0.72 + 0.43 * h3, variety);
-          const c = tint(st.colour, LEAF, clamp(nat * lerp(1, 0.4 + 1.2 * h2, variety)), inten);
+          const c = inkAt(st.leaf, flex * st.sScale, h2, tintA, LEAF, lerp(1, 0.4 + 1.2 * h2, variety), inten) as [number, number, number];
           const toUnder = underPlace && hash1(id * 7.7 + st.seed) < 0.4;
           if (toUnder) {
             tintB[0] = c[0] * 0.6;
@@ -222,7 +232,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         }
         if (allowed && (terminal || visTip) && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
           const s = size * 0.075 * st.bloom * pop * (0.8 + 0.4 * h2);
-          place.put(pxv, pyv, dir, s, Shape.Blossom, tint(st.colour, PETAL, 0.4 + 0.5 * nat, st.intensity * 1.1), flex, h3, 1.4);
+          place.put(pxv, pyv, dir, s, Shape.Blossom, col(st.accent, PETAL, flex * st.sScale, h3, 1, st.intensity * 1.1), flex, h3, 1.4);
         }
         continue;
       }
@@ -231,7 +241,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         if (pres > 0) {
           const ang = dir + side * (0.95 + 0.25 * h2);
           const s = size * 0.034 * (0.6 + L.thornEffort * st.effort) * pop * pres * (0.7 + 0.6 * h1);
-          place.put(x, y, ang, s, Shape.Thorn, tint(st.colour, THORN, nat * 0.6, st.intensity * tone), flex, h0);
+          place.put(x, y, ang, s, Shape.Thorn, col(st.leaf, THORN, flex * st.sScale, h0, 0.6, st.intensity * tone), flex, h0);
         }
         continue;
       }
@@ -243,11 +253,11 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       case 'leaves': {
         if (h0 < dens * 0.45 || (terminal && dens > 0.15)) {
           const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * (0.75 + 0.4 * h2);
-          place.put(x, y, ang, size * 0.055 * (0.7 + 0.6 * h2) * pop, Shape.Leaf, tint(st.colour, LEAF, nat, st.intensity), flex, h0);
+          place.put(x, y, ang, size * 0.055 * (0.7 + 0.6 * h2) * pop, Shape.Leaf, col(st.leaf, LEAF, flex * st.sScale, h2, 1, st.intensity), flex, h0);
         }
         if (terminal && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
           const s = size * 0.075 * st.bloom * pop * (0.8 + 0.4 * h2);
-          place.put(x, y, dir, s, Shape.Blossom, tint(st.colour, PETAL, 0.4 + 0.5 * nat, st.intensity * 1.1), flex, h3, 1.4);
+          place.put(x, y, dir, s, Shape.Blossom, col(st.accent, PETAL, flex * st.sScale, h3, 1, st.intensity * 1.1), flex, h3, 1.4);
         }
         break;
       }
@@ -255,7 +265,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         if (!terminal && h0 < dens * 0.6) {
           const ang = dir + side * (0.95 + 0.25 * h2);
           const s = size * 0.034 * (0.6 + L.thornEffort * st.effort) * pop * (0.7 + 0.6 * h1);
-          place.put(x, y, ang, s, Shape.Thorn, tint(st.colour, THORN, nat * 0.6, st.intensity), flex, h0);
+          place.put(x, y, ang, s, Shape.Thorn, col(st.leaf, THORN, flex * st.sScale, h0, 0.6, st.intensity), flex, h0);
         }
         break;
       }
@@ -265,18 +275,18 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
           const hk = hash1(id * 3.1 + k * 17.3 + st.seed);
           const s2 = k % 2 ? 1 : -1;
           place.put(x, y, dir + s2 * (0.45 + 0.9 * hk), size * 0.05 * (0.8 + 0.4 * hk) * pop, Shape.Needle,
-            tint(st.colour, PINE, nat, st.intensity), flex, hk, 0.5);
+            col(st.leaf, PINE, flex * st.sScale, hk, 1, st.intensity), flex, hk, 0.5);
         }
         if (h2 < 0.04 + 0.1 * dens) {
           for (let k = 0; k < 3; k++) {
             const a = (k / 3) * Math.PI * 2 + h3 * 6;
             const ox = Math.cos(a) * 0.014 / unit, oy = Math.sin(a) * 0.014 / unit;
-            place.put(x + ox, y + oy, a, size * 0.03 * pop, Shape.Berry, tint(st.colour, BERRY, 0.6 + 0.4 * nat, st.intensity), flex, h3, 1.3);
+            place.put(x + ox, y + oy, a, size * 0.03 * pop, Shape.Berry, col(st.accent, BERRY, flex * st.sScale, h3, 1, st.intensity), flex, h3, 1.3);
           }
         }
         if (h3 < 0.05 + 0.08 * dens) {
           for (const s2 of [-1, 1])
-            place.put(x, y, dir + s2 * 0.8, size * 0.07 * pop, Shape.Holly, tint(st.colour, HOLLY, nat, st.intensity), flex, h1);
+            place.put(x, y, dir + s2 * 0.8, size * 0.07 * pop, Shape.Holly, col(st.leaf, HOLLY, flex * st.sScale, h1, 1, st.intensity), flex, h1);
         }
         break;
       }
@@ -299,7 +309,6 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
   const unit = Math.max(1e-3, st.unit);
   const size = (L.decoSize * (st.sizeMul ?? 1)) / unit;
   const dens = st.density;
-  const nat = L.naturalTint;
   const spacing = st.theme === 'wreath' ? 0.07 : st.theme === 'thorns' ? 0.2 : 0.3;
 
   let k = 0;
@@ -319,27 +328,27 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
       case 'leaves':
         if (h0 < dens * 0.8)
           place.put(x, y, a + (alt > 0 ? 0 : Math.PI) + alt * (0.7 + 0.4 * h1), size * 0.045 * pop * (0.7 + 0.6 * h1),
-            Shape.Leaf, tint(st.colour, LEAF, nat, st.intensity), 0, h0);
+            Shape.Leaf, col(st.leaf, LEAF, a / TAU2, h0, 1, st.intensity), 0, h0);
         break;
       case 'thorns':
         if (h0 < dens)
           place.put(x, y, a + (alt > 0 ? 0 : Math.PI) + (h1 - 0.5) * 0.6,
-            size * 0.03 * (0.6 + L.thornEffort * st.effort) * pop, Shape.Thorn, tint(st.colour, THORN, nat * 0.6, st.intensity), 0, h0);
+            size * 0.03 * (0.6 + L.thornEffort * st.effort) * pop, Shape.Thorn, col(st.leaf, THORN, a / TAU2, h0, 0.6, st.intensity), 0, h0);
         break;
       case 'wreath':
         for (const s2 of [-1, 1])
           place.put(x, y, tangent + (s2 > 0 ? 0 : Math.PI) + s2 * (0.35 + 0.6 * h1) * alt, size * 0.055 * pop * (0.8 + 0.4 * h0),
-            Shape.Needle, tint(st.colour, PINE, nat, st.intensity), 0, h1, 0.5);
+            Shape.Needle, col(st.leaf, PINE, a / TAU2, h1, 1, st.intensity), 0, h1, 0.5);
         if (k % 12 === 0 && h0 < 0.4 + 0.6 * dens)
           for (let b = 0; b < 3; b++) {
             const ba = (b / 3) * Math.PI * 2 + h1 * 6;
             place.put(x + (Math.cos(ba) * 0.015) / unit, y + (Math.sin(ba) * 0.015) / unit, ba, size * 0.032 * pop,
-              Shape.Berry, tint(st.colour, BERRY, 0.6 + 0.4 * nat, st.intensity), 0, h0, 1.3);
+              Shape.Berry, col(st.accent, BERRY, a / TAU2, h0, 1, st.intensity), 0, h0, 1.3);
           }
         if (k % 18 === 6)
           for (const s2 of [-1, 1])
             place.put(x, y, tangent + s2 * 0.9 + (s2 > 0 ? 0 : Math.PI), size * 0.075 * pop, Shape.Holly,
-              tint(st.colour, HOLLY, nat, st.intensity), 0, h1);
+              col(st.leaf, HOLLY, a / TAU2, h1, 1, st.intensity), 0, h1);
         break;
     }
   }

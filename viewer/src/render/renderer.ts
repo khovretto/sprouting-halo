@@ -8,6 +8,7 @@ import copyFS from '../shaders/copy.frag?raw';
 import blurFS from '../shaders/blur.frag?raw';
 import compositeFS from '../shaders/composite.frag?raw';
 import motionGLSL from '../shaders/motion.glsl?raw';
+import { hexToRgb } from '../math';
 
 export const MAX_LAYERS = 32;
 export const FLOATS_PER_INSTANCE = 20;
@@ -129,6 +130,9 @@ export interface GlowSettings {
   inkMask: number;
   /** Soft roll-off of bright glow instead of clipping (0 = off). */
   knee: number;
+  /** The glow leans toward this colour by tintAmount. */
+  tint: string;
+  tintAmount: number;
 }
 
 export class Renderer {
@@ -265,6 +269,7 @@ export class Renderer {
       u_mC: layers.mC,
       u_shape: layers.shape,
       u_windT: windT,
+      u_glowTint: [...hexToRgb(glow.tint), Math.min(1, Math.max(0, glow.tintAmount))],
       u_view: [(2 * view.s) / view.W, (2 * view.s) / view.H, view.cx, view.cy],
       u_px: 1 / view.s,
     };

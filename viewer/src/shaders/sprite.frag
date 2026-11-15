@@ -10,6 +10,7 @@ flat in float v_glow;
 flat in float v_uvPerPx;
 flat in float v_seed;
 
+uniform vec4 u_glowTint; // rgb, amount: the glow leans toward this colour
 layout(location = 0) out vec4 o_colour;
 layout(location = 1) out vec4 o_glow;
 
@@ -69,5 +70,7 @@ void main() {
   float cov = clamp(0.5 - d / v_uvPerPx, 0.0, 1.0) * v_col.a;
   if (cov <= 0.0) discard;
   o_colour = vec4(col, 1.0) * cov;
-  o_glow = vec4(col * v_glow, 1.0) * cov;
+  vec3 gsrc = col;
+  vec3 gc = mix(gsrc, u_glowTint.rgb * dot(gsrc, vec3(0.2126, 0.7152, 0.0722)) * 2.0, u_glowTint.a);
+  o_glow = vec4(gc * v_glow, 1.0) * cov;
 }

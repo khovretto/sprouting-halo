@@ -1,3 +1,5 @@
+import { RAINBOW } from './gradient';
+
 // Every tweakable value lives here. Anything added to `defaults` shows up in the panel
 // automatically, is saved with presets, and syncs to other open viewers through Sprout.exe.
 // Slider ranges are in ui.ts (RANGES); each range is chosen so the whole slider visibly matters.
@@ -103,8 +105,6 @@ export const defaults = {
     decoSize: 1.8,
     /** How much decorations glow, relative to the branches (dense themes blow out above ~0.6). */
     decoGlow: 0.2,
-    /** 0 = decorations in the take colour, 1 = natural colours (green, red berries…). */
-    naturalTint: 0.35,
     /** Blossoms open on full / high singing (leaves theme). */
     blossoms: 0.7,
     /** Blossoms open only on a note held longer than this (seconds), and close after it ends. */
@@ -112,9 +112,8 @@ export const defaults = {
     /** Thorns grow with vocal effort (thorns theme). */
     thornEffort: 1,
   },
+  /** Your palette: the live halo colour and one colour per take (unless a track uses its DAW colour). */
   colours: {
-    mode: 'take' as 'take' | 'rainbow',
-    rainbowSpeed: 0.05,
     live: '#2fb84f',
     take1: '#b5e61d',
     take2: '#3d4fd6',
@@ -123,6 +122,61 @@ export const defaults = {
     take5: '#ffb347',
     take6: '#a77bff',
     take7: '#4fd1ff',
+  },
+  /** Colour of the take trees' branches (docs/fable-consult-5-colour-themes-panel.md, A). */
+  colBranch: {
+    /** take: the take's colour. theme: the theme's natural colour. gradient: the gradient below. */
+    source: 'take' as 'take' | 'theme' | 'gradient',
+    gradient: RAINBOW,
+    /** How much of the take colour is mixed back in (0 = pure gradient or natural colour). */
+    takeMix: 0,
+    /** Gradient lengths from root to tip (negative runs the other way). */
+    along: 0.3,
+    /** Gradient lengths per second (the colours travel). */
+    speed: 0.05,
+    /** What in the voice moves the colour along the gradient. */
+    voice: 'none' as 'none' | 'pitch' | 'loudness' | 'effort' | 'breath' | 'vibrato' | 'flash',
+    voiceAmount: 0.5,
+    /** Each further take starts this far along the gradient. */
+    perTake: 0.13,
+    /** Random spread per leaf (decorations only). */
+    scatter: 0,
+  },
+  /** Colour of leaves, thorns and needles. */
+  colLeaf: {
+    source: 'theme' as 'take' | 'theme' | 'gradient',
+    gradient: 'ok;0:1f6b2e,0.5:52c757,1:b5e61d',
+    takeMix: 0.65,
+    along: 1,
+    speed: 0,
+    voice: 'none' as 'none' | 'pitch' | 'loudness' | 'effort' | 'breath' | 'vibrato' | 'flash',
+    voiceAmount: 0.5,
+    perTake: 0,
+    scatter: 0.25,
+  },
+  /** Colour of blossoms and berries. */
+  colAccent: {
+    source: 'theme' as 'take' | 'theme' | 'gradient',
+    gradient: 'ok;0:ff7ac8,0.6:ffd1e6,1:ffffff',
+    takeMix: 0.35,
+    along: 0,
+    speed: 0,
+    voice: 'none' as 'none' | 'pitch' | 'loudness' | 'effort' | 'breath' | 'vibrato' | 'flash',
+    voiceAmount: 0.5,
+    perTake: 0,
+    scatter: 0.5,
+  },
+  /** Colour of the halo ring and its vine (branches = the same settings as the trees' branches). */
+  colHalo: {
+    source: 'take' as 'branches' | 'take' | 'gradient',
+    gradient: RAINBOW,
+    takeMix: 0,
+    along: 1,
+    speed: 0.05,
+    voice: 'none' as 'none' | 'pitch' | 'loudness' | 'effort' | 'breath' | 'vibrato' | 'flash',
+    voiceAmount: 0.5,
+    perTake: 0.15,
+    scatter: 0,
   },
   halo: {
     /** Number of points the live vine grows from, spread evenly round the ring (1 = one point). */
@@ -292,6 +346,9 @@ export const defaults = {
     inkMask: 0.7,
     /** Bright glow rolls off softly instead of clipping to a flat colour (0 = off). */
     knee: 0.8,
+    /** A colour the glow leans toward (the strokes keep theirs). */
+    tint: '#ffffff',
+    tintAmount: 0,
   },
   /** Performance: how often and how large the picture is drawn. Shared with OBS, never part of a preset. */
   perf: {
