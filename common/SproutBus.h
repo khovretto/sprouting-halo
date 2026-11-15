@@ -1,12 +1,13 @@
 // SproutBus.h - shared-memory protocol between Sprout Tap plugins and the Sprout app.
 //
-// One named file mapping ("Local\SproutBus_v3") holds a fixed array of slots.
+// One named file mapping ("Local\SproutBus_v4") holds a fixed array of slots.
 // Each tap plugin instance claims one slot and is its ONLY writer:
 //   - metadata + per-block features are published under a seqlock,
 //   - dry mono audio goes into a per-slot ring buffer,
 //   - a heartbeat says the instance is still alive.
 // The app only reads, except for look requests (lookSeq / lookTheme / lookDensityBits: a viewer
-// picked a preset), which the tap applies to its own parameters. Works across processes, so DAWs that sandbox plugins are fine.
+// picked a preset), which the tap applies to its own parameters, and the list of user themes in
+// the header (v4), which the tap shows in its window. Works across processes, so DAWs that sandbox plugins are fine.
 #pragma once
 
 #ifndef NOMINMAX
@@ -24,11 +25,14 @@
 namespace sprout
 {
 constexpr uint32_t kMagic         = 0x54525053; // 'SPRT'
-constexpr uint32_t kVersion       = 3; // 2: per-track look; 3: app -> tap look requests
+constexpr uint32_t kVersion       = 4; // 2: per-track look; 3: app -> tap look requests; 4: user themes
 constexpr uint32_t kMaxSlots      = 16;
 constexpr uint32_t kAudioRingSize = 1u << 15; // 32768 samples, ~0.68 s at 48 kHz
 constexpr uint32_t kNameLength    = 64;
-constexpr wchar_t  kMappingName[] = L"Local\\SproutBus_v3";
+constexpr wchar_t  kMappingName[] = L"Local\\SproutBus_v4";
+constexpr uint32_t kThemeIdLength = 48; // user theme ids are at most 40 characters
+constexpr uint32_t kThemeNameLength = 48;
+constexpr uint32_t kMaxThemeList  = 64;
 
 // A slot whose heartbeat is older than this is considered gone.
 constexpr uint64_t kAliveTimeoutMs = 1000;
@@ -63,6 +67,8 @@ struct SlotInfo
     float    density     = 0.55f; // decorations per branch, 0..1
     uint32_t colourMode  = 0;     // 0 track colour (palette if the track has none), 1 viewer palette
     uint32_t reserved[8] {};      // room for more without a protocol change; [0] = DAW is recording
+    // A user theme id (v4); when not empty it wins over `theme`.
+    char     customTheme[kThemeIdLength] {};
 };
 
 // Order of the tap's Theme choice; the app sends the names to the viewer.
@@ -85,19 +91,84 @@ struct alignas (64) Slot
     std::atomic<uint32_t> lookSeq;
     std::atomic<uint32_t> lookTheme;       // ThemeChoice
     std::atomic<uint32_t> lookDensityBits; // float bits, 0..1
+    char                  lookCustom[kThemeIdLength]; // user theme id, or empty for lookTheme (v4)
     SlotInfo              info;
     std::atomic<uint64_t> audioWritePos; // total mono samples ever written
     float                 audio[kAudioRingSize];
 };
 
+// The user themes in Sprout.exe's themes folder (v4). Written by the app under a seqlock.
+struct ThemeList
+{
+    std::atomic<uint32_t> seq; // odd while the app is updating; 0 = never written
+    uint32_t count;
+    char     ids[kMaxThemeList][kThemeIdLength];
+    char     names[kMaxThemeList][kThemeNameLength];
+};
+
 struct Bus
 {
-    uint32_t magic;
-    uint32_t version;
-    uint32_t slotCount;
-    uint32_t reserved;
-    Slot     slots[kMaxSlots];
+    uint32_t  magic;
+    uint32_t  version;
+    uint32_t  slotCount;
+    uint32_t  reserved;
+    ThemeList themes;
+    Slot      slots[kMaxSlots];
 };
+
+struct ThemeEntry
+{
+    char id[kThemeIdLength];
+    char name[kThemeNameLength];
+};
+
+// App side (the only writer): replace the theme list.
+inline void publishThemes (Bus& bus, const ThemeEntry* entries, uint32_t count)
+{
+    ThemeList& t = bus.themes;
+    if (count > kMaxThemeList)
+        count = kMaxThemeList;
+    const uint32_t s = t.seq.load (std::memory_order_relaxed) & ~1u;
+    t.seq.store (s + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence (std::memory_order_release);
+    t.count = count;
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        std::memcpy (t.ids[i], entries[i].id, kThemeIdLength);
+        std::memcpy (t.names[i], entries[i].name, kThemeNameLength);
+        t.ids[i][kThemeIdLength - 1] = 0;
+        t.names[i][kThemeNameLength - 1] = 0;
+    }
+    t.seq.store (s + 2, std::memory_order_release);
+}
+
+// Tap side: copy the theme list (out holds kMaxThemeList). seqOut changes with every update.
+inline bool readThemes (const Bus& bus, ThemeEntry* out, uint32_t& count, uint32_t& seqOut)
+{
+    const ThemeList& t = bus.themes;
+    for (int attempt = 0; attempt < 8; ++attempt)
+    {
+        const uint32_t s1 = t.seq.load (std::memory_order_acquire);
+        if (s1 & 1u)
+            continue;
+        const uint32_t n = t.count < kMaxThemeList ? t.count : kMaxThemeList;
+        for (uint32_t i = 0; i < n; ++i)
+        {
+            std::memcpy (out[i].id, t.ids[i], kThemeIdLength);
+            std::memcpy (out[i].name, t.names[i], kThemeNameLength);
+            out[i].id[kThemeIdLength - 1] = 0;
+            out[i].name[kThemeNameLength - 1] = 0;
+        }
+        std::atomic_thread_fence (std::memory_order_acquire);
+        if (t.seq.load (std::memory_order_relaxed) == s1)
+        {
+            count = n;
+            seqOut = s1;
+            return true;
+        }
+    }
+    return false;
+}
 
 inline uint64_t nowMs() { return GetTickCount64(); }
 
@@ -216,7 +287,8 @@ public:
     }
 
     // A new look request from the app since the last call? (message thread)
-    bool pollLookRequest (uint32_t& theme, float& density)
+    // custom gets the user theme id (empty for a built-in theme).
+    bool pollLookRequest (uint32_t& theme, float& density, char (&custom)[kThemeIdLength])
     {
         if (slot == nullptr)
             return false;
@@ -227,6 +299,8 @@ public:
         theme = slot->lookTheme.load (std::memory_order_relaxed);
         const uint32_t bits = slot->lookDensityBits.load (std::memory_order_relaxed);
         std::memcpy (&density, &bits, sizeof (float));
+        std::memcpy (custom, slot->lookCustom, kThemeIdLength);
+        custom[kThemeIdLength - 1] = 0;
         return true;
     }
 
@@ -279,17 +353,22 @@ inline bool readInfo (const Slot& s, SlotInfo& out)
         if (s.seq.load (std::memory_order_relaxed) == s1)
         {
             out.name[kNameLength - 1] = 0;
+            out.customTheme[kThemeIdLength - 1] = 0;
             return true;
         }
     }
     return false;
 }
 
-// Ask the tap in this slot to switch its look (app side).
-inline void requestLook (Slot& s, ThemeChoice theme, float density)
+// Ask the tap in this slot to switch its look (app side). custom: a user theme id, or nullptr.
+inline void requestLook (Slot& s, ThemeChoice theme, float density, const char* custom = nullptr)
 {
     uint32_t bits = 0;
     std::memcpy (&bits, &density, sizeof (float));
+    std::memset (s.lookCustom, 0, kThemeIdLength);
+    if (custom != nullptr)
+        for (uint32_t i = 0; i + 1 < kThemeIdLength && custom[i] != 0; ++i)
+            s.lookCustom[i] = custom[i];
     s.lookTheme.store ((uint32_t) theme, std::memory_order_relaxed);
     s.lookDensityBits.store (bits, std::memory_order_relaxed);
     s.lookSeq.fetch_add (1, std::memory_order_release);

@@ -19,6 +19,8 @@ interface TapMessage {
   playing: boolean;
   bpm: number;
   theme?: Theme | 'default';
+  /** A user theme picked in the tap window (wins over theme). */
+  customTheme?: string;
   density?: number;
   trackColour?: boolean;
   recording?: boolean;
@@ -139,8 +141,8 @@ export class LiveSource {
         breath: s.tap.breath ?? 0,
         name: s.tap.name,
         colour: s.tap.colour || undefined,
-        theme: s.tap.theme && s.tap.theme !== 'default' ? s.tap.theme : undefined,
-        density: s.tap.theme && s.tap.theme !== 'default' ? s.tap.density : undefined,
+        theme: s.tap.customTheme || (s.tap.theme && s.tap.theme !== 'default' ? s.tap.theme : undefined),
+        density: s.tap.customTheme || (s.tap.theme && s.tap.theme !== 'default') ? s.tap.density : undefined,
         trackColour: s.tap.trackColour,
         recording: s.tap.recording,
       };

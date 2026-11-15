@@ -64,10 +64,13 @@ Outputs:
    - **Instrument** on a separate instrument track, if you have one.
 
    The same window sets this track's look in the viewer: **Theme** (leaves, thorns, Christmas
-   wreath, branches only, or viewer default), **Amount** of leaves/thorns, and **Colour** (the
-   Reaper track colour, or the viewer palette).
+   wreath, branches only, or viewer default), **Custom** (a theme made on the
+   `localhost:7777/themes` page; the list comes from Sprout.exe, so it is there while Sprout.exe
+   runs, and when set it is used instead of Theme), **Amount** of leaves/thorns, and **Colour** (the
+   Reaper track colour, or the viewer palette). The custom theme is saved with the project; a
+   preset with a custom theme sets it on every voice track.
 
-   This plugin speaks bus protocol v2: update Sprout.exe and every Sprout Tap instance together.
+   This plugin speaks bus protocol v4: update Sprout.exe and every Sprout Tap instance together.
 
    The plugin window shows "Connected" when it has a slot. Track name and color are picked up
    from Reaper automatically.

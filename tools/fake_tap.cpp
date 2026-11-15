@@ -1,7 +1,7 @@
 // fake_tap: stands in for Sprout Tap plugins so the app can be tested without a DAW.
 // Writes synthetic singing (phrases with vibrato, up to F6) into shared-memory slots in real time.
 //
-//   fake_tap [--takes N] [--instrument] [--seconds S]
+//   fake_tap [--takes N] [--instrument] [--seconds S] [--custom THEME_ID]
 //
 // Take 1 is the "live voice"; further takes sing a third / fifth above as playback layers.
 
@@ -78,11 +78,13 @@ int main (int argc, char** argv)
     int takes = 1;
     bool instrument = false;
     double seconds = 0.0; // 0 = forever
+    std::string custom;   // a user theme for take 1
     for (int i = 1; i < argc; ++i)
     {
         if (! std::strcmp (argv[i], "--takes") && i + 1 < argc)        takes = std::atoi (argv[++i]);
         else if (! std::strcmp (argv[i], "--instrument"))             instrument = true;
         else if (! std::strcmp (argv[i], "--seconds") && i + 1 < argc) seconds = std::atof (argv[++i]);
+        else if (! std::strcmp (argv[i], "--custom") && i + 1 < argc)  custom = argv[++i];
     }
     takes = std::max (1, std::min (takes, 6));
 
@@ -120,6 +122,7 @@ int main (int argc, char** argv)
 
     std::vector<uint32_t> lookTheme;
     std::vector<float> lookDensity;
+    std::vector<std::string> lookCustom;
     while (seconds <= 0.0 || written / kSampleRate < seconds)
     {
         for (size_t w = 0; w < writers.size(); ++w)
@@ -147,23 +150,39 @@ int main (int argc, char** argv)
             info.blockPeak = peak;
             // Look: leaves, thorns, wreath per take, until the app asks for another (a viewer preset).
             if (lookTheme.size() <= w)
-                lookTheme.push_back ((uint32_t) (w % 3)), lookDensity.push_back (0.55f);
+                lookTheme.push_back ((uint32_t) (w % 3)), lookDensity.push_back (0.55f), lookCustom.push_back (w == 0 ? custom : "");
             uint32_t reqTheme = 0;
             float reqDensity = 0.0f;
-            if (writers[w].pollLookRequest (reqTheme, reqDensity))
+            char reqCustom[sprout::kThemeIdLength] {};
+            if (writers[w].pollLookRequest (reqTheme, reqDensity, reqCustom))
             {
                 lookTheme[w] = reqTheme;
                 lookDensity[w] = reqDensity;
-                std::printf ("fake_tap: take %zu look request: theme %u, density %.2f\n", w + 1, reqTheme, reqDensity);
+                lookCustom[w] = reqCustom;
+                std::printf ("fake_tap: take %zu look request: theme %u, custom '%s', density %.2f\n", w + 1, reqTheme, reqCustom, reqDensity);
                 std::fflush (stdout);
             }
             info.theme = lookTheme[w];
             info.density = lookDensity[w];
+            std::snprintf (info.customTheme, sizeof (info.customTheme), "%s", lookCustom[w].c_str());
             info.colourMode = 1;
             info.reserved[0] = 1; // recording
             writers[w].writeAudio (chunk.data(), kChunk);
             writers[w].publishInfo (info);
             writers[w].heartbeat();
+        }
+        // The user themes the app lists (what the tap window offers).
+        static uint32_t themesSeen = 0;
+        static sprout::ThemeEntry themes[sprout::kMaxThemeList];
+        uint32_t themeCount = 0, themeSeq = 0;
+        if (sprout::readThemes (*bus.get(), themes, themeCount, themeSeq) && themeSeq != themesSeen)
+        {
+            themesSeen = themeSeq;
+            std::printf ("fake_tap: %u user theme(s):", themeCount);
+            for (uint32_t i = 0; i < themeCount; ++i)
+                std::printf (" %s='%s'", themes[i].id, themes[i].name);
+            std::printf ("\n");
+            std::fflush (stdout);
         }
         written += kChunk;
         std::this_thread::sleep_until (start + std::chrono::microseconds ((long long) (written / kSampleRate * 1e6)));

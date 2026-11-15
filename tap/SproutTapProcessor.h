@@ -52,6 +52,13 @@ public:
     bool isConnected() const { return writer.isClaimed(); }
     juce::String getTrackName() const;
 
+    // A user theme from Sprout.exe's themes folder (its id; empty = the Theme choice). Saved with
+    // the project as a property of the parameter state. Message thread.
+    juce::String getCustomTheme() const;
+    void setCustomTheme (const juce::String& id);
+    // The user themes Sprout.exe lists in the bus. Returns false when unchanged since `seq`.
+    bool getThemeList (juce::StringArray& ids, juce::StringArray& names, uint32_t& seq);
+
     juce::AudioProcessorValueTreeState params;
 
 private:
@@ -69,11 +76,14 @@ private:
     juce::AudioBuffer<float> monoBuffer;
     char cachedName[sprout::kNameLength] {};
     uint32_t cachedColour = 0;
+    char cachedCustom[sprout::kThemeIdLength] {};
 
     // Track properties arrive on the message thread; the audio thread is the only bus writer.
     mutable juce::SpinLock trackLock;
     juce::String trackName;
     uint32_t trackColour = 0;
+    char customTheme[sprout::kThemeIdLength] {}; // copy of the custom theme for the audio thread (trackLock)
+    void cacheCustomTheme();
 
     std::atomic<juce::AudioParameterChoice*> roleParam { nullptr };
     std::atomic<float>* themeParam = nullptr;   // per-track look, read on the audio thread

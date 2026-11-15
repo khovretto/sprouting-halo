@@ -27,8 +27,8 @@ export interface LayerFeatures {
   /** DAW track name / colour (#rrggbb), when known. */
   name?: string;
   colour?: string;
-  /** Per-track look from the tap plugin. Undefined = use the viewer's fallback. */
-  theme?: Theme;
+  /** Per-track look from the tap plugin: a built-in or user theme id. Undefined = use the viewer's fallback. */
+  theme?: Theme | string;
   density?: number;
   /** Use the DAW track colour (when the track has one) instead of the viewer palette. */
   trackColour?: boolean;

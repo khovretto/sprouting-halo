@@ -69,6 +69,14 @@ public:
         densitySlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 50, 20);
         densityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (p.params, "density", densitySlider);
         addRow (densityLabel, "Amount", densitySlider);
+        customBox.setTextWhenNothingSelected ("None");
+        customBox.setTooltip ("A theme made on Sprout's /themes page. When set, it is used instead of Theme.");
+        customBox.onChange = [this] {
+            const int i = customBox.getSelectedItemIndex();
+            if (! filling && i >= 0 && i < customIds.size())
+                proc.setCustomTheme (customIds[i]);
+        };
+        addRow (customLabel, "Custom", customBox);
         colourBox.addItemList (juce::StringArray { "Track colour", "Viewer palette" }, 1);
         colourAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (p.params, "colour", colourBox);
         addRow (colourLabel, "Colour", colourBox);
@@ -79,7 +87,7 @@ public:
 
         addAndMakeVisible (status);
 
-        setSize (380, 270);
+        setSize (380, 302);
         startTimerHz (4);
         timerCallback();
     }
@@ -99,6 +107,7 @@ public:
         };
         row (roleLabel, roleBox);
         row (themeLabel, themeBox);
+        row (customLabel, customBox);
         row (densityLabel, densitySlider);
         row (colourLabel, colourBox);
         r.removeFromTop (4);
@@ -107,8 +116,41 @@ public:
     }
 
 private:
+    // The custom theme box: "None", then Sprout.exe's user themes (and the saved one if missing).
+    void refreshCustom()
+    {
+        juce::StringArray ids, names;
+        const bool listChanged = proc.getThemeList (ids, names, themeSeq);
+        const juce::String current = proc.getCustomTheme();
+        if (! listChanged && current == shownCustom && customIds.size() > 0)
+            return;
+        if (listChanged)
+        {
+            listIds = ids;
+            listNames = names;
+        }
+        juce::StringArray allIds { "" }, allNames { "None" };
+        allIds.addArray (listIds);
+        allNames.addArray (listNames);
+        if (current.isNotEmpty() && ! allIds.contains (current))
+        {
+            allIds.add (current);
+            allNames.add (current + (themeSeq == 0 ? "" : " (not in Sprout)"));
+        }
+        filling = true;
+        customBox.clear (juce::dontSendNotification);
+        customBox.addItemList (allNames, 1);
+        customBox.setSelectedItemIndex (juce::jmax (0, allIds.indexOf (current)), juce::dontSendNotification);
+        filling = false;
+        customIds = allIds;
+        shownCustom = current;
+        // The built-in Theme is unused while a custom theme is set.
+        themeBox.setAlpha (current.isEmpty() ? 1.0f : 0.45f);
+    }
+
     void timerCallback() override
     {
+        refreshCustom();
         const auto name = proc.getTrackName();
         juce::String text = proc.isConnected() ? "Connected" : "Not connected (no free slot)";
         if (name.isNotEmpty())
@@ -131,8 +173,12 @@ private:
     }
 
     SproutTapProcessor& proc;
-    juce::Label title, roleLabel, themeLabel, densityLabel, colourLabel, status, hint;
-    juce::ComboBox roleBox, themeBox, colourBox;
+    juce::Label title, roleLabel, themeLabel, customLabel, densityLabel, colourLabel, status, hint;
+    juce::ComboBox roleBox, themeBox, customBox, colourBox;
+    juce::StringArray customIds, listIds, listNames;
+    juce::String shownCustom;
+    uint32_t themeSeq = 0xffffffffu; // forces the first read
+    bool filling = false;
     juce::Slider densitySlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> roleAttachment, themeAttachment, colourAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> densityAttachment;
@@ -189,8 +235,11 @@ void SproutTapProcessor::timerCallback()
     // notified, so the change is saved with the project and can be undone).
     uint32_t theme = 0;
     float density = 0.55f;
-    if (writer.pollLookRequest (theme, density))
+    char custom[sprout::kThemeIdLength] {};
+    if (writer.pollLookRequest (theme, density, custom))
     {
+        // A user theme, or a built-in one (which clears the custom theme).
+        setCustomTheme (juce::String::fromUTF8 (custom));
         auto set = [] (juce::RangedAudioParameter* p, float value) {
             if (p == nullptr)
                 return;
@@ -198,7 +247,7 @@ void SproutTapProcessor::timerCallback()
             p->setValueNotifyingHost (p->convertTo0to1 (value));
             p->endChangeGesture();
         };
-        if (theme <= (uint32_t) sprout::ThemeChoice::Branches)
+        if (custom[0] == 0 && theme <= (uint32_t) sprout::ThemeChoice::Branches)
             set (params.getParameter ("theme"), (float) theme);
         set (params.getParameter ("density"), juce::jlimit (0.0f, 1.0f, density));
     }
@@ -300,8 +349,10 @@ void SproutTapProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             cachedColour = trackColour;
             // copyToUTF8 never allocates and always null-terminates.
             trackName.copyToUTF8 (cachedName, sprout::kNameLength);
+            std::memcpy (cachedCustom, customTheme, sprout::kThemeIdLength);
         }
     }
+    std::memcpy (info.customTheme, cachedCustom, sprout::kThemeIdLength);
     info.colourArgb = cachedColour;
     std::memcpy (info.name, cachedName, sprout::kNameLength);
 
@@ -315,6 +366,47 @@ void SproutTapProcessor::updateTrackProperties (const TrackProperties& propertie
     const juce::SpinLock::ScopedLockType lock (trackLock);
     trackName   = properties.name.value_or (juce::String());
     trackColour = properties.colour.has_value() ? properties.colour->getARGB() : 0u;
+}
+
+juce::String SproutTapProcessor::getCustomTheme() const
+{
+    return params.state.getProperty ("customTheme").toString();
+}
+
+void SproutTapProcessor::setCustomTheme (const juce::String& id)
+{
+    if (id == getCustomTheme())
+        return;
+    params.state.setProperty ("customTheme", id, nullptr);
+    cacheCustomTheme();
+    updateHostDisplay (ChangeDetails().withNonParameterStateChanged (true)); // the project has changed
+}
+
+void SproutTapProcessor::cacheCustomTheme()
+{
+    char id[sprout::kThemeIdLength] {};
+    getCustomTheme().copyToUTF8 (id, sprout::kThemeIdLength);
+    const juce::SpinLock::ScopedLockType lock (trackLock);
+    std::memcpy (customTheme, id, sprout::kThemeIdLength);
+}
+
+bool SproutTapProcessor::getThemeList (juce::StringArray& ids, juce::StringArray& names, uint32_t& seq)
+{
+    if (! mapping.open())
+        return false;
+    static thread_local sprout::ThemeEntry entries[sprout::kMaxThemeList];
+    uint32_t count = 0, now = 0;
+    if (! sprout::readThemes (*mapping.get(), entries, count, now) || now == seq)
+        return false;
+    seq = now;
+    ids.clear();
+    names.clear();
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        ids.add (juce::String::fromUTF8 (entries[i].id));
+        names.add (juce::String::fromUTF8 (entries[i].name));
+    }
+    return true;
 }
 
 juce::String SproutTapProcessor::getTrackName() const
@@ -338,7 +430,10 @@ void SproutTapProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (params.state.getType()))
+        {
             params.replaceState (juce::ValueTree::fromXml (*xml));
+            cacheCustomTheme();
+        }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

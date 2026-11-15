@@ -9,7 +9,7 @@ import type { FeatureFrame, LayerFeatures, Theme } from './features';
 import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
 import { Scope } from './scope';
-import { loadThemes, onThemesChanged } from './themes';
+import { loadThemes, onThemesChanged, themeDef } from './themes';
 import { buildThemeEditor } from './theme-editor';
 import { Ink, inkAt, newInk, ringS, setInk } from './colour';
 import { LABELS } from './panel-layout';
@@ -365,7 +365,8 @@ function start() {
   };
   // A track's theme: its own (Sprout Tap window), unless the preset's theme applies to all tracks.
   const themeOf = (f?: LayerFeatures) => {
-    const own = params.look.themeFrom === 'tracks' && f?.theme;
+    // A user theme this viewer doesn't have (not loaded yet, or deleted) falls back to the preset's.
+    const own = params.look.themeFrom === 'tracks' && f?.theme && themeDef(f.theme);
     return { theme: own ? f.theme! : params.look.theme, density: own ? f.density ?? params.look.density : params.look.density };
   };
 

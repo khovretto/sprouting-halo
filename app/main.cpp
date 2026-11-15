@@ -384,6 +384,12 @@ std::string featureJson (const std::array<TapState, sprout::kMaxSlots>& taps, do
         j += num;
         // Per-track look from the tap's window.
         static const char* themes[] = { "leaves", "thorns", "wreath", "branches", "default" };
+        if (st.info.customTheme[0] != 0)
+        {
+            j += "\"customTheme\":";
+            appendJsonString (j, st.info.customTheme);
+            j += ',';
+        }
         std::snprintf (num, sizeof (num), "\"theme\":\"%s\",\"density\":%.3f,\"trackColour\":%s,\"recording\":%s}",
                        themes[std::min<uint32_t> (st.info.theme, 4)], std::clamp (st.info.density, 0.0f, 1.0f),
                        st.info.colourMode == 0 ? "true" : "false", st.info.reserved[0] ? "true" : "false");
@@ -575,6 +581,55 @@ bool handleThemeMessage (const std::string& msg)
     return true;
 }
 
+// The themes folder -> the bus, so the tap windows can list the user themes (id and name).
+void publishThemeList (sprout::Bus& bus)
+{
+    std::vector<sprout::ThemeEntry> list;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW ((themesDir() + L"\\*.json").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            std::wstring w = fd.cFileName;
+            std::string id;
+            for (wchar_t ch : w.substr (0, w.size() - 5))
+                id += ch < 128 ? (char) ch : '?';
+            if (! validThemeId (id) || list.size() >= sprout::kMaxThemeList)
+                continue;
+            // The name is near the start; don't read the textures.
+            std::string head (4096, '\0');
+            HANDLE f = CreateFileW ((themesDir() + L"\\" + w).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                    OPEN_EXISTING, 0, nullptr);
+            if (f != INVALID_HANDLE_VALUE)
+            {
+                DWORD got = 0;
+                ReadFile (f, head.data(), (DWORD) head.size(), &got, nullptr);
+                CloseHandle (f);
+                head.resize (got);
+            }
+            std::string name = stringField (head, "name");
+            if (name.empty())
+                name = id;
+            sprout::ThemeEntry e {};
+            std::snprintf (e.id, sizeof (e.id), "%s", id.c_str());
+            std::snprintf (e.name, sizeof (e.name), "%s", name.c_str());
+            list.push_back (e);
+        } while (FindNextFileW (h, &fd));
+        FindClose (h);
+    }
+    std::sort (list.begin(), list.end(), [] (const auto& a, const auto& b) { return _stricmp (a.name, b.name) < 0; });
+    // Only when it changed (or the bus is new), so tap windows don't rebuild their list for nothing.
+    std::string key;
+    for (const auto& e : list)
+        key += std::string (e.id) + '' + e.name + '';
+    static std::string lastKey = "";
+    if (key == lastKey && bus.themes.seq.load() != 0)
+        return;
+    lastKey = key;
+    sprout::publishThemes (bus, list.data(), (uint32_t) list.size());
+}
+
 // {"type":"tapLook","theme":"wreath","density":0.8,...} -> a look request in every voice tap's slot.
 void applyTapLook (const std::string& msg, sprout::Bus& bus, const std::array<TapState, sprout::kMaxSlots>& taps)
 {
@@ -595,17 +650,19 @@ void applyTapLook (const std::string& msg, sprout::Bus& bus, const std::array<Ta
         return msg.substr (a, b - a);
     };
     const std::string name = field ("theme");
-    sprout::ThemeChoice theme;
+    sprout::ThemeChoice theme = sprout::ThemeChoice::Leaves;
+    const char* custom = nullptr; // a user theme
     if (name == "leaves") theme = sprout::ThemeChoice::Leaves;
     else if (name == "thorns") theme = sprout::ThemeChoice::Thorns;
     else if (name == "wreath") theme = sprout::ThemeChoice::Wreath;
     else if (name == "branches") theme = sprout::ThemeChoice::Branches;
+    else if (validThemeId (name)) custom = name.c_str();
     else return;
     const std::string d = field ("density");
     const float density = d.empty() ? 0.55f : std::clamp ((float) std::atof (d.c_str()), 0.0f, 1.0f);
     for (uint32_t i = 0; i < sprout::kMaxSlots; ++i)
         if (taps[i].active && (sprout::Role) taps[i].info.role != sprout::Role::Instrument)
-            sprout::requestLook (bus.slots[i], theme, density);
+            sprout::requestLook (bus.slots[i], theme, density, custom);
 }
 
 void updateTitle (HWND hwnd, int taps)
@@ -691,6 +748,7 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
     sender.SetSenderName (cfg.senderName.c_str());
 
     sprout::BusMapping bus;
+    bool themeListDirty = true;
     std::array<TapState, sprout::kMaxSlots> taps {};
     for (size_t i = 0; i < taps.size(); ++i)
         taps[i].seed = 1.7f * (float) i + 0.37f;
@@ -726,6 +784,15 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
 
         // ---- Read taps -------------------------------------------------------------------
         const bool busOk = bus.open(); // retried every frame until the first tap or app creates it
+        // The theme list in the bus: when it opens, after a theme is saved, and every few seconds
+        // (themes copied into the folder by hand).
+        static double themesListed = -1e9;
+        if (busOk && (themeListDirty || now - themesListed > 5.0))
+        {
+            publishThemeList (*bus.get());
+            themesListed = now;
+            themeListDirty = false;
+        }
         const uint64_t ms = sprout::nowMs();
         int activeCount = 0;
         for (uint32_t i = 0; i < sprout::kMaxSlots; ++i)
@@ -782,7 +849,7 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
             {
                 // A theme was saved or deleted: every viewer re-reads the list.
                 static int themesRev = 0;
-                if (handleThemeMessage (msg))
+                if (handleThemeMessage (msg) && (themeListDirty = true))
                     web.broadcast ("{\"type\":\"themes\",\"rev\":" + std::to_string (++themesRev) + "}");
             }
             else if (msg.rfind ("{\"type\":\"detect\"", 0) == 0)
