@@ -385,7 +385,7 @@ function start() {
       glow: g.base + g.levelGain * d.energy + g.onsetGain * d.flash + g.pitchShine * d.pitch * d.energy + g.softGlow * d.softness * d.energy,
       shine: clamp(0.2 * d.flash + 0.25 * d.pitch * d.energy),
       width: Math.max(0.25, 1 + r.effortWidth * (d.effort - 0.5) * 1.6),
-      bloom: clamp((d.energy * (0.4 + d.effort) + d.pitch * d.energy - 0.35) * 1.6),
+      bloom: d.bloom,
     };
   }
 
@@ -484,7 +484,8 @@ function start() {
       midi: f?.pitch ?? 0, pitchHeld: d.pitch > 0 ? 48 + d.pitch * 41 : 0,
       effortRaw: f?.effort ?? 0.5, effort: d.effort, breath: d.breath, softness: d.softness,
       vibRaw: f?.vibrato ?? 0, vib: d.vibrato, vibRate: (f?.vibratoRate ?? 0) / 10,
-      flash: d.flash, voice: d.voice ? 1 : 0, phraseOn: d.phraseOver(params) ? 0 : 0.9,
+      flash: d.flash, voice: d.voice ? 1 : 0,
+      held: Math.min(1, d.held / Math.max(0.1, 2 * params.look.blossomHold)), bloom: d.bloom, phraseOn: d.phraseOver(params) ? 0 : 0.9,
       open: halo ? halo.open : g?.reveal ?? 0, wither: g?.wither ?? 0, alpha: halo ? 1 : g?.alpha ?? 0,
     }, { phrase: d.newPhrase, onset: !!f?.onset, dip: d.pitchDip });
   }
@@ -1013,7 +1014,8 @@ function start() {
       t,
       feed: status.feed,
       liveStatus: live.status,
-      halos: halos.map((h) => ({ id: h.id, open: +h.open.toFixed(2), R: +h.R.toFixed(2), nodes: h.vine.sk.n })),
+      halos: halos.map((h) => ({ id: h.id, open: +h.open.toFixed(2), R: +h.R.toFixed(2), nodes: h.vine.sk.n,
+        held: +h.drive.held.toFixed(2), bloom: +h.drive.bloom.toFixed(2) })),
       endingHalos: endingHalos.length,
       plants: slots.map((s) => ({ id: s.id, theme: s.theme, gens: s.gens.gens.map((g) => ({ seed: g.seed, reveal: +g.reveal.toFixed(2), alpha: +g.alpha.toFixed(2), retired: g.retired, idle: +g.idle.toFixed(1), wither: +g.wither.toFixed(2), nodes: g.tree.sk.n })) })),
       dying: dying.length,

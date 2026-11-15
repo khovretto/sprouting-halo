@@ -65,6 +65,7 @@ const RANGES: Record<string, Spec> = {
   'look.theme': { options: { Branches: 'branches', Leaves: 'leaves', Thorns: 'thorns', 'Christmas wreath': 'wreath' } },
   'look.density': { min: 0, max: 1 },
   'look.tintAmount': { min: 0, max: 1 },
+  'look.blossomHold': { min: 0, max: 5 },
   'look.decoSize': { min: 0.2, max: 4 },
   'look.decoGlow': { min: 0, max: 1.5 },
   'look.naturalTint': { min: 0, max: 1 },
@@ -163,6 +164,7 @@ const RANGES: Record<string, Spec> = {
   'fake.phraseMax': { min: 0.5, max: 15 },
   'fake.gapMin': { min: 0, max: 5 },
   'fake.gapMax': { min: 0, max: 8 },
+  'fake.noteMax': { min: 0.3, max: 6 },
   'fake.highNotes': { min: 0, max: 1 },
 };
 

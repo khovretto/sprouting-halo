@@ -38,7 +38,7 @@ const REACTIVE = new Set([
   'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed',
   'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine', 'glow.softGlow', 'glow.front',
   'halo.idleSpeed', 'halo.singSpeed', 'halo.sproutRate', 'halo.sproutGrow', 'halo.spawnSeconds',
-  'plants.softDroop', 'plants.moodShaping', 'look.blossoms', 'look.thornEffort',
+  'plants.softDroop', 'plants.moodShaping', 'look.blossoms', 'look.blossomHold', 'look.thornEffort',
 ]);
 const REACTIVE_SECTIONS = new Set(['response', 'motion', 'commit', 'transitions']);
 /** Preview keys a testing preset may set (never synced; other local keys stay as they are). */
@@ -217,7 +217,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     { id: 'default', name: 'Normal song', description: 'Fake singer: phrases of 2 to 6 s, short pauses, one live track recording, two takes.', values: {} },
     {
       id: 'ballad', name: 'Ballad', description: 'Long phrases and notes (lots of vibrato), longer pauses.',
-      values: { fake: { phraseMin: 4, phraseMax: 9, gapMin: 1, gapMax: 2.5, highNotes: 0.1 } },
+      values: { fake: { phraseMin: 4, phraseMax: 9, gapMin: 1, gapMax: 2.5, highNotes: 0.1, noteMax: 3.5 } },
     },
     {
       id: 'fast', name: 'Fast pop', description: 'Short phrases, short pauses, more high notes.',

@@ -117,7 +117,7 @@ export class FakeSource {
   private startNote(p: Params) {
     const r = this.r;
     this.noteStart = this.t;
-    this.noteEnd = this.t + lerp(0.22, 1.1, r());
+    this.noteEnd = this.t + lerp(0.22, Math.max(0.3, p.fake.noteMax), r());
     this.intensity = clamp(0.5 + 0.5 * noise1(this.t * 0.35, 9) + (r() - 0.5) * 0.3);
     if (r() < p.fake.highNotes * 0.3) {
       this.melody = 84 + Math.floor(r() * 6); // up to F6

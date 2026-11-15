@@ -107,6 +107,8 @@ export const defaults = {
     naturalTint: 0.35,
     /** Blossoms open on full / high singing (leaves theme). */
     blossoms: 0.7,
+    /** Blossoms open only on a note held longer than this (seconds), and close after it ends. */
+    blossomHold: 1.5,
     /** Thorns grow with vocal effort (thorns theme). */
     thornEffort: 1,
   },
@@ -326,6 +328,8 @@ export const defaults = {
     gapMin: 0.4,
     gapMax: 1.6,
     highNotes: 0.25,
+    /** Longest note the fake singer holds (seconds); long ones open blossoms. */
+    noteMax: 1.1,
     /** Pretend the DAW is recording (the halo opens with the first phrase and stays open). */
     recording: true,
     /** Live tracks for the fake singer (more than 1 = concentric halos). */

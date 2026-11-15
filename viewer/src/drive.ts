@@ -24,6 +24,11 @@ export class Drive {
   pitch = 0;
   vibrato = 0;
   vibratoRate = 5.5;
+  /** Seconds the current note has been held (same pitch within a semitone, no pause). */
+  held = 0;
+  /** 0..1 blossoms open: rises once a note is held longer than look.blossomHold, closes after it. */
+  bloom = 0;
+  private noteRef = 0;
   /** A note started this frame. */
   onset = false;
   /** Singing right now. */
@@ -80,6 +85,22 @@ export class Drive {
     this.energy = damp(this.energy, level, level > this.energy ? 30 : 6, dt);
     this.slow = damp(this.slow, level, 1.0, dt);
     this.onset = !!f?.onset;
+    // Held note: keeps counting while singing within a semitone of where the note settled
+    // (vibrato swings less); a pitch jump, a new note start or a pause starts over.
+    const midi = f?.pitch ?? 0;
+    if (!this.voice) {
+      this.held = 0;
+      this.noteRef = 0;
+    } else if (midi > 0) {
+      if (this.noteRef <= 0 || Math.abs(midi - this.noteRef) > 1 || (f?.onset && this.held > 0.25)) {
+        this.held = 0;
+        this.noteRef = midi;
+      } else this.noteRef += (midi - this.noteRef) * (1 - Math.exp(-dt / 0.3)); // follow slow drift
+      this.held += dt;
+    } else this.held += dt; // a moment without pitch inside a note
+    const hold = Math.max(0, p.look.blossomHold);
+    const open = this.held >= hold ? 1 : 0;
+    this.bloom += (open - this.bloom) * (1 - Math.exp(-dt / (open > this.bloom ? 0.25 : 0.7)));
     this.flash = f?.onset ? 1 : this.flash * Math.exp(-dt / 0.25);
     this.effort = damp(this.effort, f?.effort ?? 0.5, 6, dt);
     this.breath = damp(this.breath, f?.breath ?? 0, 6, dt);
