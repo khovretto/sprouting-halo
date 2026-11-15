@@ -35,6 +35,7 @@ export const FOLDER_HINTS: Record<string, string> = {
   commit: 'What happens when a take finishes recording (the halo winds up and is planted as the new tree) and when a take is deleted.',
   many: 'Behaviour with many takes: how neighbouring plants interleave, how the canopy shrinks, and the optional carousel spin.',
   fit: 'Fit the overlay to your avatar: framing, halo position and size, where the trees grow from, and the keep-out region behind your head and body.',
+  detect: 'How Sprout.exe recognises things in your voice. These live in Sprout.exe (saved next to it), so every viewer and OBS use the same values; a viewer that connects shows them. Needs Sprout.exe running: the fake singer always sings with clear vibrato.',
   connection: 'Where the voice data comes from (Sprout.exe or the fake singer) and whether panel changes are shared with other open viewers such as OBS.',
   test: 'Preview tools for this browser only: the voice scope, the placeholder avatar or your own PNG, pausing, the fake singer.',
 };
@@ -106,6 +107,12 @@ export const FOLDERS: FolderSpec[] = [
     catchSections: ['avatar'],
   },
   {
+    id: 'detect', title: 'Setup: voice detection', setup: true,
+    keys: ['detect.vibratoMinNote', 'detect.vibratoMinSemitones', 'detect.vibratoFullSemitones', 'detect.vibratoMinHz',
+      'detect.vibratoMaxHz'],
+    catchSections: ['detect'],
+  },
+  {
     id: 'connection', title: 'Setup: connection & sync', setup: true,
     keys: ['source.mode', 'source.syncSettings', 'source.useTrackColours', 'source.holdSeconds'],
     advanced: ['source.port'],
@@ -160,6 +167,9 @@ export const LABELS: Record<string, string> = {
   'motion.shiverDeg': 'shiver (deg)', 'motion.shiverSensitivity': 'tremble sensitivity',
   'halo.restX': 'idle halo sideways', 'halo.squish': 'idle halo squish (3D)', 'halo.tilt': 'idle halo tilt (deg)', 'avatar.useImage': 'use my avatar PNG',
   'avatar.imageX': 'picture x', 'avatar.imageY': 'picture y', 'avatar.imageHeight': 'picture height', 'motion.speed': 'wind tempo', 'motion.twigs': 'twigs move on their own',
+  'detect.vibratoMinNote': 'vibrato: note at least (s)', 'detect.vibratoMinSemitones': 'vibrato: smallest swing (st)',
+  'detect.vibratoFullSemitones': 'vibrato: full at swing (st)', 'detect.vibratoMinHz': 'vibrato: slowest (Hz)',
+  'detect.vibratoMaxHz': 'vibrato: fastest (Hz)',
   'commit.enabled': 'plant the halo', 'commit.duration': 'pace', 'commit.impact': 'impact',
   'commit.burst': 'leaves thrown', 'commit.shockRing': 'shock ring', 'commit.plunge': 'plunge depth',
   'commit.spinTurns': 'spin (turns)', 'commit.stampReveal': 'tree grown at impact',
@@ -169,6 +179,7 @@ export const LABELS: Record<string, string> = {
 
 /** Keys only this viewer uses (stripped from sync in main.ts). */
 export const LOCAL_KEYS = new Set([
+  'detect.vibratoMinNote', 'detect.vibratoMinSemitones', 'detect.vibratoFullSemitones', 'detect.vibratoMinHz', 'detect.vibratoMaxHz',
   'source.mode', 'source.port', 'source.syncSettings', 'scene.paused', 'scene.timeScale', 'scene.layers',
   'scene.backdrop', 'scene.showAvatar', 'scene.showGuides', 'avatar.opacity', 'avatar.useImage', 'avatar.imageX',
   'avatar.imageY', 'avatar.imageHeight', 'scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds',
@@ -328,7 +339,7 @@ Object.assign(TIPS, {
   'motion.flutterDeg': 'Leaf flutter about the stalk (degrees).\nReads: flutter = this × (wind-when-silent + (1 − that) × energy × 1.3 + 0.5 × breath), capped at 1.5×. energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s); breath: noise between the harmonics plus how unclear the pitch is (sound with no pitch counts as fully breathy).',
   'motion.shiver': 'Twigs and leaves shimmer at the rate of your vibrato.\nReads: vibrato depth: from the last ~0.6 s of one held note; needs a 3.5–9 Hz wobble of at least ±0.08 semitone; ±0.08 = 0 up to ±0.58 semitone = 1 (smoothed ~0.15 s); the shimmer follows the measured vibrato rate.',
   'motion.shiverDeg': 'How far twigs and leaves shimmer at full vibrato (degrees).\nReads: shimmer = this × min(1.5, vibrato depth × tremble sensitivity). vibrato depth: from the last ~0.6 s of one held note; needs a 3.5–9 Hz wobble of at least ±0.08 semitone; ±0.08 = 0 up to ±0.58 semitone = 1 (smoothed ~0.15 s).',
-  'motion.shiverSensitivity': 'How strongly the measured vibrato depth moves things. It does not change when vibrato is detected (that needs ~0.45 s of one note, 3.5–9 Hz, at least ±0.08 semitone, fixed in Sprout.exe); it multiplies the depth: at 2, a ±0.33 semitone vibrato already gives full shimmer; the result is capped at 1.5× “shiver”.\nReads: vibrato depth: from the last ~0.6 s of one held note; needs a 3.5–9 Hz wobble of at least ±0.08 semitone; ±0.08 = 0 up to ±0.58 semitone = 1 (smoothed ~0.15 s).',
+  'motion.shiverSensitivity': 'How strongly the measured vibrato depth moves things. It does not change when vibrato is detected (that is Setup: voice detection, by default ~0.45 s of one note, 3.5–9 Hz, at least ±0.08 semitone); it multiplies the depth: at 2, a ±0.33 semitone vibrato already gives full shimmer; the result is capped at 1.5× “shiver”.\nReads: vibrato depth: from the last ~0.6 s of one held note; needs a 3.5–9 Hz wobble of at least ±0.08 semitone; ±0.08 = 0 up to ±0.58 semitone = 1 (smoothed ~0.15 s).',
   'halo.idleSpeed': 'How fast the vine creeps round the ring while you are quiet (degrees per second).\nReads: always on, plus the sing speed (see below).',
   'halo.singSpeed': 'Extra speed round the ring when singing (degrees per second).\nReads: speed = quiet speed + this × energy × 1.2 (capped at full). energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s).',
   'halo.sproutRate': 'Side shoots per second at full voice; every note start adds one.\nReads: shoots per second = this × energy × 1.3 (capped), plus one per note start. energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s); note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
@@ -341,4 +352,13 @@ Object.assign(TIPS, {
   'plants.moodShaping': 'Each new tree takes its character from the phrase that grows it.\nReads: read once when the tree starts: effort makes it 5 % smaller to 8 % bigger and more spread, pitch lifts the tips, softness droops them, vibrato makes it wilder. effort: energy in the overtones (2nd harmonic up to 5 kHz) against the fundamental, plus loudness, both compared with your own running average, so 0.5 = how you usually sing and mic gain does not matter (smoothed ~0.2 s); pitch: the sung note (detected over 43 ms); C3 = 0 up to F6 = 1, the last note is held through pauses (smoothed ~0.1 s); softness = 0.7 × (1 − effort) + 0.3 × breath; vibrato depth: from the last ~0.6 s of one held note; needs a 3.5–9 Hz wobble of at least ±0.08 semitone; ±0.08 = 0 up to ±0.58 semitone = 1 (smoothed ~0.15 s).',
   'commit.syncToOnset': 'When a take is planted, the rolled-up halo waits for your next note start so the hit lands on the music.\nReads: any track\'s note start while it is louder than 0.1. note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
   'commit.syncWindow': 'Longest the planting waits for that note start (seconds); then it lands anyway.\nReads: note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
+});
+
+/** Voice detection (Sprout.exe): what each threshold does to the vibrato reading. */
+Object.assign(TIPS, {
+  'detect.vibratoMinNote': 'How long one note has to be held before its vibrato can be measured (seconds). Shorter: vibrato shows sooner, but short wobbly notes may count. A big pitch jump starts the count again.\nReads: the pitch track of the live and take taps in Sprout.exe.',
+  'detect.vibratoMinSemitones': 'The smallest swing that counts as vibrato (semitones up and down from the note). Lower: subtle vibrato is picked up; too low and an unsteady held note counts. Vibrato depth is 0 here.\nReads: the swing of the pitch around the note over the measuring window.',
+  'detect.vibratoFullSemitones': 'The swing that reads as full vibrato depth (1). Lower: lighter vibrato already gives full shimmer (like raising tremble sensitivity, but in Sprout.exe for everything that uses vibrato).\nReads: the same swing; depth rises evenly from the smallest swing to this.',
+  'detect.vibratoMinHz': 'Slowest wobble that counts as vibrato (per second). Slower wobbles are treated as the note sliding.\nReads: the wobble rate, from how often the pitch crosses its average.',
+  'detect.vibratoMaxHz': 'Fastest wobble that counts as vibrato (per second). Faster wobbles are treated as noise or a trill.\nReads: the wobble rate.',
 });

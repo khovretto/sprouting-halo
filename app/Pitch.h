@@ -18,6 +18,18 @@
 
 namespace sprout
 {
+// Vibrato detection thresholds, shared by every tracker. Set from the viewer's "voice detection"
+// settings (main.cpp); the defaults are the benchmarked values.
+struct VibratoSettings
+{
+    float minNote = 0.45f;       // seconds of one continuous note before vibrato can be read
+    float minSemitones = 0.08f;  // smallest swing (sine amplitude, semitones) that counts
+    float fullSemitones = 0.58f; // swing that reads as full depth (1)
+    float minHz = 3.5f;          // accepted vibrato rates
+    float maxHz = 9.0f;
+};
+inline VibratoSettings vibratoSettings;
+
 // ---------------------------------------------------------------------------------------------
 // In-place iterative radix-2 FFT (size must be a power of two).
 class Fft
@@ -429,7 +441,9 @@ private:
     // then rate from zero crossings and amplitude from RMS. Needs continuous voicing.
     void updateVibrato()
     {
-        constexpr double span = 0.6; // ~3 cycles at 5 Hz
+        const VibratoSettings& vs = vibratoSettings;
+        const double minNote = std::clamp ((double) vs.minNote, 0.15, 2.0);
+        const double span = std::max (0.4, minNote / 0.75); // analysis window (0.6 s = ~3 cycles at 5 Hz)
         // Analyse within one note: a jump bigger than vibrato can move in this step starts over.
         if (voiced && ! history.empty())
         {
@@ -446,7 +460,7 @@ private:
 
         float targetDepth = 0.0f, rate = 0.0f;
         const size_t n = history.size();
-        if (n >= 12 && clock - history.front().t > span * 0.75)
+        if (n >= 12 && clock - history.front().t > minNote)
         {
             double st = 0, sm = 0, stt = 0, stm = 0;
             for (const auto& h : history)
@@ -470,8 +484,10 @@ private:
             const double dur = history.back().t - history.front().t;
             const double amp = std::sqrt (2.0 * ss / n); // sine amplitude, semitones
             rate = (float) (crossings / (2.0 * dur));
-            if (rate >= 3.5f && rate <= 9.0f && amp >= 0.08)
-                targetDepth = (float) std::clamp ((amp - 0.08) / 0.5, 0.0, 1.0);
+            const double lo = std::max (0.0, (double) vs.minSemitones);
+            const double full = std::max (lo + 0.02, (double) vs.fullSemitones);
+            if (rate >= vs.minHz && rate <= vs.maxHz && amp >= lo)
+                targetDepth = (float) std::clamp ((amp - lo) / (full - lo), 0.0, 1.0);
             else
                 rate = 0.0f;
         }

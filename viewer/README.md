@@ -134,6 +134,10 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   Thin lines are what the tap sends, bold lines what the viewer makes of it. Header buttons
   switch between the live halo and each take, change the history length, freeze and close;
   hover them for what they do. Click the graphs to freeze, hover to read values at any moment.
+- **Voice detection** (Setup: voice detection): how Sprout.exe recognises vibrato (how long a
+  note must be held, the smallest and the full swing, the accepted rates). These are kept by
+  Sprout.exe in `sprout-detect.json` next to it, so every viewer and OBS use the same values;
+  a viewer that connects shows them. The fake singer is not affected.
 - **Tooltips:** hover any row or folder title in the panel. Settings driven by the voice say
   exactly how they read it ("Reads: …"). In the voice scope, hover a value on the right to see
   what it is and which settings use it; click one to open it in the panel.

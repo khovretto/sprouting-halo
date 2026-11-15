@@ -291,6 +291,18 @@ export const defaults = {
     /** Bright glow rolls off softly instead of clipping to a flat colour (0 = off). */
     knee: 0.8,
   },
+  /** Voice detection in Sprout.exe (kept there, so every viewer and OBS use the same). */
+  detect: {
+    /** Seconds of one continuous note before vibrato can be read. */
+    vibratoMinNote: 0.45,
+    /** Smallest vibrato swing that counts (semitones up and down from the note). */
+    vibratoMinSemitones: 0.08,
+    /** Swing that reads as full vibrato depth (semitones). */
+    vibratoFullSemitones: 0.58,
+    /** Accepted vibrato rates (wobbles per second). */
+    vibratoMinHz: 3.5,
+    vibratoMaxHz: 9,
+  },
   fake: {
     seed: 7,
     phraseMin: 2,

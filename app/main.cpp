@@ -395,6 +395,69 @@ std::string featureJson (const std::array<TapState, sprout::kMaxSlots>& taps, do
 
 sprout::FeatureServer web;
 
+// A number field from a flat JSON message ({"key":1.5,...}); false if missing.
+bool jsonNumber (const std::string& msg, const char* key, float& out)
+{
+    const std::string k = std::string ("\"") + key + "\":";
+    const size_t p = msg.find (k);
+    if (p == std::string::npos)
+        return false;
+    out = (float) std::atof (msg.c_str() + p + k.size());
+    return true;
+}
+
+// Voice detection settings (vibrato thresholds): set from the viewer, kept in a file next to Sprout.exe.
+std::wstring detectFile()
+{
+    wchar_t exe[MAX_PATH] {};
+    GetModuleFileNameW (nullptr, exe, MAX_PATH);
+    std::wstring dir (exe);
+    return dir.substr (0, dir.find_last_of (L"\\/")) + L"\\sprout-detect.json";
+}
+
+std::string detectJson()
+{
+    const auto& v = sprout::vibratoSettings;
+    char buf[256];
+    std::snprintf (buf, sizeof (buf),
+                   "{\"type\":\"detect\",\"vibratoMinNote\":%.3f,\"vibratoMinSemitones\":%.3f,\"vibratoFullSemitones\":%.3f,"
+                   "\"vibratoMinHz\":%.2f,\"vibratoMaxHz\":%.2f}",
+                   v.minNote, v.minSemitones, v.fullSemitones, v.minHz, v.maxHz);
+    return buf;
+}
+
+void applyDetect (const std::string& msg)
+{
+    auto& v = sprout::vibratoSettings;
+    float x = 0.0f;
+    if (jsonNumber (msg, "vibratoMinNote", x)) v.minNote = std::clamp (x, 0.15f, 2.0f);
+    if (jsonNumber (msg, "vibratoMinSemitones", x)) v.minSemitones = std::clamp (x, 0.0f, 1.0f);
+    if (jsonNumber (msg, "vibratoFullSemitones", x)) v.fullSemitones = std::clamp (x, v.minSemitones + 0.02f, 2.0f);
+    if (jsonNumber (msg, "vibratoMinHz", x)) v.minHz = std::clamp (x, 1.0f, 15.0f);
+    if (jsonNumber (msg, "vibratoMaxHz", x)) v.maxHz = std::clamp (x, v.minHz + 0.5f, 20.0f);
+}
+
+void loadDetect()
+{
+    FILE* f = _wfopen (detectFile().c_str(), L"rb");
+    if (f == nullptr)
+        return;
+    char buf[512] {};
+    const size_t n = std::fread (buf, 1, sizeof (buf) - 1, f);
+    std::fclose (f);
+    applyDetect (std::string (buf, n));
+}
+
+void saveDetect()
+{
+    FILE* f = _wfopen (detectFile().c_str(), L"wb");
+    if (f == nullptr)
+        return;
+    const std::string j = detectJson();
+    std::fwrite (j.data(), 1, j.size(), f);
+    std::fclose (f);
+}
+
 // {"type":"tapLook","theme":"wreath","density":0.8,...} -> a look request in every voice tap's slot.
 void applyTapLook (const std::string& msg, sprout::Bus& bus, const std::array<TapState, sprout::kMaxSlots>& taps)
 {
@@ -491,6 +554,8 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
     gfx.width = (UINT) client.right;
     gfx.height = (UINT) client.bottom;
 
+    loadDetect();
+    web.setWelcome (detectJson());
     if (cfg.webPort > 0 && ! web.start ((uint16_t) cfg.webPort, findWebRoot (cfg.webRoot)))
     {
         char msg[160];
@@ -577,8 +642,18 @@ int WINAPI wWinMain (HINSTANCE inst, HINSTANCE, PWSTR, int)
         // A viewer picked a preset: every voice tap switches to its theme and amount (the tap
         // sets its own parameters, so the DAW saves the change with the project).
         for (const std::string& msg : web.takeAppMessages())
-            if (busOk)
+        {
+            if (msg.rfind ("{\"type\":\"detect\"", 0) == 0)
+            {
+                // Voice detection changed in a viewer: apply, keep, and tell every viewer.
+                applyDetect (msg);
+                saveDetect();
+                web.setWelcome (detectJson());
+                web.broadcast (detectJson());
+            }
+            else if (busOk)
                 applyTapLook (msg, *bus.get(), taps);
+        }
 
         // ---- Build rings --------------------------------------------------------------------
         // Voices first (live voice, then takes), each further one a little further in.

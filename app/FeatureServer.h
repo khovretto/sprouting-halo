@@ -34,8 +34,12 @@ public:
     // Send a text message to every WebSocket client. Slow clients skip frames instead of lagging.
     void broadcast (const std::string& text);
 
-    // Messages for the app itself ("tapLook": a viewer picked a preset), received since the last call.
+    // Messages for the app itself ("tapLook": a viewer picked a preset; "detect": voice detection
+    // settings), received since the last call.
     std::vector<std::string> takeAppMessages();
+
+    // Sent to every viewer as it connects (the app's current voice detection settings).
+    void setWelcome (const std::string& text);
 
     int clientCount() const;
     uint16_t port() const;

@@ -185,6 +185,8 @@ function start() {
     delete scene.showScope;
     delete scene.scopeLayer;
     delete scene.scopeSeconds;
+    // Voice detection lives in Sprout.exe (its own "detect" message), not in the shared settings.
+    delete (shared as Partial<typeof params>).detect;
     const av = shared.avatar as Partial<typeof params.avatar>;
     delete av.opacity;
     delete av.useImage;
@@ -196,10 +198,28 @@ function start() {
   const sendParams = () => {
     if (params.source.syncSettings) live.send({ type: 'params', from: clientId, ts: Date.now(), params: syncable() });
   };
+  // Voice detection settings: sent to Sprout.exe when changed here; Sprout.exe keeps them and tells
+  // every viewer (also on connect), so all panels show what is really used.
+  let detectSent = JSON.stringify(params.detect);
+  const sendDetect = () => {
+    const now = JSON.stringify(params.detect);
+    if (now === detectSent || live.status !== 'connected') return; // not connected: Sprout.exe's values arrive on connect
+    detectSent = now;
+    live.send({ type: 'detect', ...params.detect, from: clientId });
+  };
   const sendAction = (name: string) => live.send({ type: 'action', from: clientId, name });
   // Settings are only ever sent when someone changes them in a panel; connecting never pushes a
   // viewer's stored settings onto the others. A viewer that connects adopts the latest shared ones.
   live.onMessage = (msg: ViewerMessage) => {
+    if (msg.type === 'detect') {
+      // Sprout.exe's current voice detection (on connect, or after any viewer changed it).
+      const d = params.detect as unknown as Record<string, number>;
+      for (const k of Object.keys(d)) if (typeof msg[k] === 'number') d[k] = +(msg[k] as number).toFixed(3);
+      detectSent = JSON.stringify(params.detect);
+      saveParams(params);
+      ui?.refresh();
+      return;
+    }
     if (msg.from === clientId) return;
     if (msg.type === 'params' && params.source.syncSettings) {
       const ts = Number(msg.ts) || 0;
@@ -244,6 +264,7 @@ function start() {
       changed: () => {
         lastLocalChange = Date.now();
         sendParams();
+        sendDetect();
       },
     }, status);
   }
