@@ -8,10 +8,11 @@
 import { ButtonApi, FolderApi, ListBladeApi, Pane, TabPageApi } from 'tweakpane';
 import { defaults, Params } from './params';
 import paramsSource from './params.ts?raw';
-import { FOLDER_HINTS, FOLDERS, LABELS, TIPS } from './panel-layout';
+import { FOLDER_HINTS, FOLDERS, FolderSpec, LABELS, MACROS, macroPos, macroValue, MOVEMENTS, TIPS } from './panel-layout';
 import { installTooltips, tip } from './tooltip';
 import { installSelectMenus } from './select-menu';
 import { GradientEditor } from './gradient-editor';
+import { setPath } from './presets';
 import {
   applyPreset, BUILTINS, diffOf, getPath, isDirty, Kind, KIND_TITLES, kindOf, KINDS, loadStore, PATHS, presetValue, Preset,
   PresetStore, same, saveStore, slug, STORE_KEY, Values,
@@ -341,6 +342,10 @@ const CSS = `
 .sprout-mod .tp-lblv_l { color: #cfe8ff; }
 @keyframes sprout-flash { 0%, 40% { background: rgba(143,208,255,0.35); } 100% { background: transparent; } }
 .sprout-flash { animation: sprout-flash 1.6s ease-out; border-radius: 3px; }
+.sprout-moves { display: flex; gap: 3px; padding: 4px 6px 2px; flex-wrap: wrap; }
+.sprout-moves button { font: 11px system-ui, sans-serif; color: #ddd; background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 3px; padding: 2px 6px; cursor: pointer; }
+.sprout-moves button:hover { background: rgba(143,208,255,0.25); }
 .sprout-desc { color: #9aa0a8; font: 11px/1.35 sans-serif; padding: 2px 8px 6px; white-space: normal; }
 `;
 
@@ -445,10 +450,48 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
   };
 
   // ---- Presets: Visual, Reactivity and Testing, each on its own tab ----
-  const pf = pane.addFolder({ title: 'Presets', expanded: panelState.preset ?? true });
-  remember('preset', pf);
-  folderTip(pf, FOLDER_HINTS.preset);
-  const tab = pf.addTab({ pages: KINDS.map((k) => ({ title: KIND_TITLES[k] })) });
+  // ---- Top tabs: Look (visual preset), Reaction (reactivity preset), Setup (rig and this viewer;
+  // testing preset) - docs/fable-consult-5-colour-themes-panel.md, D.1 ----
+  const TAB_IDS = ['look', 'reaction', 'setup'] as const;
+  type TabId = (typeof TAB_IDS)[number];
+  const TAB_TITLES: Record<TabId, string> = { look: 'Look', reaction: 'Reaction', setup: 'Setup' };
+  const TAB_TIPS: Record<TabId, string> = {
+    look: 'How it looks: colours, theme and leaves, tree shape, halo, glow. The Visual preset at the top sets all of it.',
+    reaction: 'How it answers your voice, grouped by what the voice does. The Reactivity preset at the top sets all of it.',
+    setup: 'Fit to your avatar, voice detection, performance, connection, and preview tools (Testing preset). No look preset touches these.',
+  };
+  const KIND_TAB: Record<Kind, TabId> = { visual: 'look', reactivity: 'reaction', testing: 'setup' };
+  const showAdv = { showAdvanced: !!panelState.showAdvanced };
+  const advRow = pane.addBinding(showAdv, 'showAdvanced', { label: 'show advanced' });
+  tip(advRow.element, 'Show the Advanced folds with the rarely needed settings.');
+  const advFolders: Folder[] = [];
+  advRow.on('change', () => {
+    for (const f of advFolders) f.hidden = !showAdv.showAdvanced;
+    panelState.showAdvanced = showAdv.showAdvanced;
+    try {
+      localStorage.setItem(PANEL_KEY, JSON.stringify(panelState));
+    } catch {
+      /* ignore */
+    }
+  });
+  const mainTab = pane.addTab({ pages: TAB_IDS.map((id) => ({ title: TAB_TITLES[id] })) });
+  const pageOf = (id: TabId) => mainTab.pages[TAB_IDS.indexOf(id)];
+  mainTab.element.querySelectorAll('.tp-tbiv_b').forEach((b, i) => tip(b, TAB_TIPS[TAB_IDS[i]]));
+  try {
+    const last = Number(localStorage.getItem('sprout.viewer.tab.v1') ?? 0);
+    if (mainTab.pages[last]) mainTab.pages[last].selected = true;
+  } catch {
+    /* ignore */
+  }
+  mainTab.on('select', (ev) => {
+    try {
+      localStorage.setItem('sprout.viewer.tab.v1', String(ev.index));
+    } catch {
+      /* ignore */
+    }
+  });
+  /** Each preset kind's rows go at the top of its tab. */
+  const tab = { pages: KINDS.map((k) => pageOf(KIND_TAB[k])) };
   const STASH = '__stash', CUSTOM = '__custom';
   const LIST_TIPS: Record<Kind, string> = {
     visual: 'Pick a look: tree shape, leaves, colour tint and glow. Built-in looks first, then your own (·). It also sets the theme in every Sprout Tap window.',
@@ -650,12 +693,31 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     });
   });
 
+  // ---- Combined sliders (not settings: each moves several real settings) ----
+  type MacroRow = { spec: (typeof MACROS)[number]; obj: Record<string, number>; binding: { label: string | undefined; refresh(): void; element: HTMLElement } };
+  const macroRows: MacroRow[] = [];
+  for (const spec of MACROS) {
+    const obj: Record<string, number> = { [spec.id]: 0.5 };
+    const b = pageOf(spec.tab).addBinding(obj, spec.id, { min: 0, max: 1, label: spec.label });
+    tip(b.element, spec.tip + '\n“~” after the name: the settings it moves were changed one by one; moving it puts them back in line.');
+    b.on('change', (ev) => {
+      if (marking || isQuiet()) return;
+      for (const tg of spec.targets) setPath(p, tg.path, +macroValue(Number(ev.value), tg.at).toFixed(3));
+      quietUntil = performance.now() + 60;
+      pane.refresh();
+      updateMarks();
+      clearTimeout(timer);
+      timer = window.setTimeout(userChange, 80);
+    });
+    macroRows.push({ spec, obj, binding: b as unknown as MacroRow['binding'] });
+  }
+
   // ---- Parameter folders ----
   type Row = { path: string; binding: Binding; button: HTMLButtonElement };
   const rows: Row[] = [];
   const folderRows: { folder: Folder; title: string; rows: Row[] }[] = [];
 
-  const placed = new Set(FOLDERS.flatMap((f) => [...f.keys, ...(f.advanced ?? [])]));
+  const placed = new Set(FOLDERS.flatMap((f) => [...f.keys, ...(f.advanced ?? []), ...(f.sub ?? []).flatMap((x) => x.keys)]));
   const extra = new Map<string, string[]>();
   const unsorted: string[] = [];
   for (const path of PATHS) {
@@ -721,31 +783,64 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     for (const g of groups) g.push(row);
   };
 
-  let separated = false;
-  const specs = [...FOLDERS, ...(unsorted.length ? [{ id: 'unsorted', title: 'Unsorted', keys: unsorted, setup: true }] : [])];
+  const pathTab = new Map<string, TabId>();
+  const specs: FolderSpec[] = [...FOLDERS, ...(unsorted.length ? [{ id: 'unsorted', tab: 'setup' as const, title: 'Unsorted', keys: unsorted }] : [])];
   for (const spec of specs) {
-    if (spec.setup && !separated) {
-      pane.addBlade({ view: 'separator' });
-      separated = true;
-    }
-    const folder = pane.addFolder({ title: spec.title, expanded: panelState[spec.id] ?? !!spec.open });
+    const folder = pageOf(spec.tab).addFolder({ title: spec.title, expanded: panelState[spec.id] ?? !!spec.open });
     remember(spec.id, folder);
-    folderTip(folder, (spec as { hint?: string }).hint ?? FOLDER_HINTS[spec.id]);
+    folderTip(folder, FOLDER_HINTS[spec.id]);
     const fRows: Row[] = [];
     folderRows.push({ folder, title: spec.title, rows: fRows });
     for (const path of [...spec.keys, ...(extra.get(spec.id) ?? [])]) {
       addRow(folder, path, [fRows]);
       pathFolders.set(path, [folder]);
+      pathTab.set(path, spec.tab);
+    }
+    for (const sub of spec.sub ?? []) {
+      const sf = folder.addFolder({ title: sub.title, expanded: panelState[spec.id + '.' + sub.id] ?? false });
+      remember(spec.id + '.' + sub.id, sf);
+      folderTip(sf, FOLDER_HINTS[sub.id]);
+      const sRows: Row[] = [];
+      folderRows.push({ folder: sf, title: sub.title, rows: sRows });
+      if (sub.id.startsWith('col')) {
+        // Quick "movement" buttons: they set the role to a gradient and its movers.
+        const bar = document.createElement('div');
+        bar.className = 'sprout-moves';
+        for (const mv of MOVEMENTS) {
+          const btn = document.createElement('button');
+          btn.textContent = mv.label;
+          tip(btn, mv.tip);
+          btn.addEventListener('click', () => {
+            const role = (p as unknown as Record<string, Record<string, unknown>>)[sub.id];
+            role.source = 'gradient';
+            Object.assign(role, mv.values);
+            quietUntil = performance.now() + 60;
+            pane.refresh();
+            updateMarks();
+            userChange();
+          });
+          bar.appendChild(btn);
+        }
+        sf.element.querySelector('.tp-fldv_c')?.appendChild(bar);
+      }
+      for (const path of sub.keys) {
+        addRow(sf, path, [fRows, sRows]);
+        pathFolders.set(path, [folder, sf]);
+        pathTab.set(path, spec.tab);
+      }
     }
     if (spec.advanced?.length) {
       const adv = folder.addFolder({ title: 'Advanced', expanded: panelState[spec.id + '.adv'] ?? false });
       remember(spec.id + '.adv', adv);
       folderTip(adv, 'Values you rarely need to change.');
+      adv.hidden = !showAdv.showAdvanced;
+      advFolders.push(adv);
       const aRows: Row[] = [];
       folderRows.push({ folder: adv, title: 'Advanced', rows: aRows });
       for (const path of spec.advanced) {
         addRow(adv, path, [fRows, aRows]);
         pathFolders.set(path, [folder, adv]);
+        pathTab.set(path, spec.tab);
       }
     }
     if (spec.id === 'commit') {
@@ -839,7 +934,7 @@ Shift-click: factory default ${fmt(d)}`));
       const dirty = active[k] === null ? false : isDirty(p, pr, k);
       anyDirty ||= dirty;
       if (k !== 'testing') names.push((pr ? pr.name : 'Custom') + (dirty ? ' *' : ''));
-      tab.pages[i].title = KIND_TITLES[k] + (dirty ? ' *' : '');
+      tab.pages[i].title = TAB_TITLES[KIND_TAB[k]] + (dirty ? ' *' : '');
       const text = pr?.description ?? (pr ? '' : 'Values match no preset.');
       sec.descEl.textContent = text;
       sec.descEl.style.display = text ? '' : 'none';
@@ -859,8 +954,17 @@ Shift-click: factory default ${fmt(d)}`));
         sec.suppress = false;
       }
     });
-    pf.title = 'Presets: ' + names.join(' · ');
     void anyDirty;
+    void names;
+    // Combined sliders: position from the first target; "~" when the others are off its line.
+    for (const m of macroRows) {
+      const first = m.spec.targets[0];
+      const pos = macroPos(Number(getPath(p, first.path)), first.at);
+      const off = m.spec.targets.some((tg) => Math.abs(Number(getPath(p, tg.path)) - macroValue(pos, tg.at)) > 1e-3 * Math.max(1, Math.abs(tg.at[2])));
+      m.obj[m.spec.id] = +pos.toFixed(3);
+      m.binding.label = m.spec.label + (off ? ' ~' : '');
+      m.binding.refresh();
+    }
   }
 
   let timer = 0;
@@ -900,7 +1004,12 @@ Shift-click: factory default ${fmt(d)}`));
     if (!row) return;
     container.style.display = '';
     pane.expanded = true;
-    for (const f of pathFolders.get(path) ?? []) f.expanded = true;
+    const tb = pathTab.get(path);
+    if (tb) pageOf(tb).selected = true;
+    for (const f of pathFolders.get(path) ?? []) {
+      f.expanded = true;
+      if (f.title === 'Advanced' && f.hidden) f.hidden = false;
+    }
     row.binding.hidden = false;
     setTimeout(() => {
       row.binding.element.scrollIntoView({ block: 'center', behavior: 'smooth' });

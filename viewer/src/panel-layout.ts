@@ -11,14 +11,16 @@ export type Scope = 'look' | 'rig' | 'local';
 
 export interface FolderSpec {
   id: string;
+  /** Top tab: Look (visual preset), Reaction (reactivity preset), Setup (rig and this viewer). */
+  tab: 'look' | 'reaction' | 'setup';
   title: string;
   open?: boolean;
   keys: string[];
   advanced?: string[];
+  /** Nested folders with their own title. */
+  sub?: { id: string; title: string; keys: string[] }[];
   /** Any key of these sections not listed anywhere lands here (so new params still show up). */
   catchSections?: string[];
-  /** Setup folders come after the separator. */
-  setup?: boolean;
 }
 
 /** Tooltips for folder titles. */
@@ -41,98 +43,174 @@ export const FOLDER_HINTS: Record<string, string> = {
   test: 'Preview tools for this browser only: the voice scope, the placeholder avatar or your own PNG, pausing, the fake singer.',
 };
 
+const ROLE = (r: string) => [`${r}.source`, `${r}.gradient`, `${r}.takeMix`, `${r}.along`, `${r}.speed`,
+  `${r}.voice`, `${r}.voiceAmount`, `${r}.perTake`, `${r}.scatter`];
+
+// docs/fable-consult-5-colour-themes-panel.md, D.3: a tab is a preset kind.
 export const FOLDERS: FolderSpec[] = [
+  // ---------------- Look (visual preset) ----------------
   {
-    id: 'shape', title: 'Tree shape', open: true,
+    id: 'colours', tab: 'look', title: 'Colours', open: true,
+    keys: ['look.tint', 'look.tintAmount'],
+    sub: [
+      { id: 'colBranch', title: 'Branches', keys: ROLE('colBranch') },
+      { id: 'colLeaf', title: 'Leaves', keys: ROLE('colLeaf') },
+      { id: 'colAccent', title: 'Blossoms & berries', keys: ROLE('colAccent') },
+      { id: 'colHalo', title: 'Halo ring & vine', keys: ROLE('colHalo') },
+      {
+        id: 'palette', title: 'My take colours (kept across presets)',
+        keys: ['colours.live', 'colours.take1', 'colours.take2', 'colours.take3', 'colours.take4', 'colours.take5',
+          'colours.take6', 'colours.take7', 'source.useTrackColours'],
+      },
+    ],
+    catchSections: ['colBranch', 'colLeaf', 'colAccent', 'colHalo', 'colours'],
+  },
+  {
+    id: 'theme', tab: 'look', title: 'Theme & leaves',
+    keys: ['look.theme', 'look.themeFrom', 'look.density', 'look.decoSize', 'look.variety', 'look.depthShade'],
+  },
+  {
+    id: 'shape', tab: 'look', title: 'Tree shape',
     keys: ['growth.reach', 'growth.flatten', 'growth.branching', 'growth.spread', 'plants.lift', 'plants.wildness', 'plants.taper'],
-    advanced: ['plants.clearance', 'plants.softDroop', 'plants.moodShaping', 'plants.tipWidth', 'plants.maxWidth'],
+    advanced: ['plants.clearance', 'plants.tipWidth', 'plants.maxWidth'],
   },
   {
-    id: 'life', title: 'Growing & fading',
-    keys: ['growth.secondsToFull', 'growth.newTreeEachPhrase', 'growth.fadeAfter', 'growth.fadeSeconds',
-      'growth.restBrightness', 'growth.witherOnPause', 'growth.witherDepth'],
-    advanced: ['growth.witherSeconds', 'growth.witherOnPitchDip', 'growth.witherDipSemitones',
-      'growth.twigFadeSeconds', 'growth.regrowSpeed'],
+    id: 'halo', tab: 'look', title: 'Live halo',
+    keys: ['halo.origins', 'halo.bothWays', 'halo.tailDeg', 'halo.sproutLength', 'halo.sproutCurl', 'halo.alwaysLeaves', 'halo.wander'],
+    advanced: ['halo.startAngle', 'halo.tailFade', 'halo.ringWidth', 'halo.vineWidth', 'halo.sproutWidth', 'halo.ringSpacing'],
   },
   {
-    id: 'leaves', title: 'Leaves & decorations',
-    keys: ['look.themeFrom', 'look.theme', 'look.density', 'look.decoSize', 'look.naturalTint', 'look.variety', 'look.depthShade',
-      'look.blossoms', 'look.blossomHold', 'look.thornEffort'],
+    id: 'glow', tab: 'look', title: 'Glow',
+    keys: ['glow.strength', 'glow.radius', 'glow.base', 'look.decoGlow', 'glow.tint', 'glow.tintAmount'],
+    advanced: ['glow.wide', 'glow.crowd', 'glow.inkMask', 'glow.knee'],
   },
   {
-    id: 'colours', title: 'Colours',
-    keys: ['look.tint', 'look.tintAmount', 'colours.mode', 'colours.rainbowSpeed', 'colours.live', 'colours.take1', 'colours.take2', 'colours.take3',
-      'colours.take4', 'colours.take5', 'colours.take6', 'colours.take7'],
-  },
-  {
-    id: 'halo', title: 'Live halo',
-    keys: ['halo.origins', 'halo.bothWays', 'halo.idleSpeed', 'halo.singSpeed', 'halo.tailDeg', 'halo.sproutRate',
-      'halo.sproutLength', 'halo.sproutCurl', 'halo.alwaysLeaves', 'halo.wander'],
-    advanced: ['halo.startAngle', 'halo.tailFade', 'halo.sproutGrow', 'halo.spawnSeconds', 'halo.ringWidth',
-      'halo.vineWidth', 'halo.sproutWidth', 'halo.ringSpacing'],
-  },
-  {
-    id: 'voice', title: 'Voice response',
-    keys: ['response.brightness', 'response.effortWidth', 'response.pitchSteer', 'response.variety',
-      'response.phraseGap', 'response.release'],
-  },
-  {
-    id: 'glow', title: 'Glow',
-    keys: ['glow.strength', 'glow.radius', 'glow.base', 'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine',
-      'glow.front', 'look.decoGlow'],
-    advanced: ['glow.wide', 'glow.softGlow', 'glow.crowd', 'glow.inkMask', 'glow.knee'],
-  },
-  {
-    id: 'motion', title: 'Wind & shiver',
-    keys: ['motion.swayDeg', 'motion.kickDeg', 'motion.springiness', 'motion.idle', 'motion.flutterDeg', 'motion.shiver',
-      'motion.shiverDeg', 'motion.shiverSensitivity'],
-    advanced: ['motion.speed', 'motion.twigs'],
-    catchSections: ['motion'],
-  },
-  {
-    id: 'commit', title: 'Take commit & removal',
-    keys: ['commit.enabled', 'commit.duration', 'commit.impact', 'commit.burst', 'commit.shockRing', 'commit.plunge',
-      'commit.spinTurns', 'commit.stampReveal'],
-    advanced: ['commit.syncToOnset', 'commit.syncWindow', 'transitions.liveEndSeconds', 'transitions.pruneSeconds'],
-  },
-  {
-    id: 'many', title: 'Many takes',
+    id: 'many', tab: 'look', title: 'Many takes',
     keys: ['plants.overlap', 'layout.shrinkPerTake', 'layout.spinSpeed', 'layout.spinFrom'],
-    advanced: ['layout.tierFrom', 'layout.innerScale', 'layout.ease'],
+    advanced: ['layout.tierFrom', 'layout.innerScale', 'layout.ease', 'plants.step', 'plants.maxNodes'],
+    catchSections: ['layout', 'plants', 'growth', 'look', 'halo', 'glow'],
+  },
+  // ---------------- Reaction (reactivity preset) ----------------
+  {
+    id: 'phrases', tab: 'reaction', title: 'Singing & phrases: growing', open: true,
+    keys: ['growth.secondsToFull', 'growth.newTreeEachPhrase', 'response.phraseGap', 'growth.fadeAfter', 'growth.fadeSeconds',
+      'growth.restBrightness', 'response.release'],
+    advanced: ['response.variety', 'plants.moodShaping'],
   },
   {
-    id: 'fit', title: 'Setup: fit to avatar', setup: true,
+    id: 'pauses', tab: 'reaction', title: 'Pauses: withering',
+    keys: ['growth.witherOnPause', 'growth.witherDepth'],
+    advanced: ['growth.witherSeconds', 'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.twigFadeSeconds', 'growth.regrowSpeed'],
+  },
+  {
+    id: 'loud', tab: 'reaction', title: 'Loudness: brightness, wind, halo speed',
+    keys: ['response.brightness', 'glow.levelGain', 'motion.swayDeg', 'motion.idle', 'halo.singSpeed', 'halo.sproutRate'],
+    advanced: ['halo.idleSpeed', 'motion.flutterDeg', 'motion.speed'],
+  },
+  {
+    id: 'onsets', tab: 'reaction', title: 'Note starts: flash and push',
+    keys: ['glow.onsetGain', 'motion.kickDeg', 'motion.springiness'],
+    advanced: ['motion.twigs', 'glow.front', 'halo.sproutGrow'],
+  },
+  {
+    id: 'timbre', tab: 'reaction', title: 'Pitch, effort and softness',
+    keys: ['response.pitchSteer', 'glow.pitchShine', 'response.effortWidth', 'look.thornEffort', 'glow.softGlow', 'plants.softDroop'],
+  },
+  {
+    id: 'held', tab: 'reaction', title: 'Held notes & vibrato: blossoms, shiver',
+    keys: ['look.blossoms', 'look.blossomHold', 'motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity'],
+    catchSections: ['motion', 'response'],
+  },
+  {
+    id: 'commit', tab: 'reaction', title: 'Planting a take & removal',
+    keys: ['commit.enabled', 'commit.duration', 'commit.impact', 'commit.burst', 'commit.shockRing'],
+    advanced: ['commit.plunge', 'commit.spinTurns', 'commit.stampReveal', 'commit.syncToOnset', 'commit.syncWindow',
+      'transitions.liveEndSeconds', 'transitions.pruneSeconds', 'halo.spawnSeconds'],
+    catchSections: ['commit', 'transitions'],
+  },
+  // ---------------- Setup (rig and this viewer) ----------------
+  {
+    id: 'fit', tab: 'setup', title: 'Fit to avatar', open: true,
     keys: ['scene.showGuides', 'scene.viewRadius', 'scene.centerX', 'scene.centerY', 'halo.restRadius', 'halo.restY',
-      'halo.openRadius', 'halo.openY', 'halo.restX', 'halo.squish', 'halo.tilt', 'layout.lowOriginY', 'layout.midOriginY', 'layout.downGap', 'avatar.avoid'],
+      'halo.openRadius', 'halo.openY', 'halo.restX', 'halo.squish', 'halo.tilt', 'layout.lowOriginY', 'layout.midOriginY',
+      'layout.downGap', 'avatar.avoid'],
     advanced: ['avatar.headX', 'avatar.headY', 'avatar.headR', 'avatar.bodyTopY', 'avatar.bodyBottomY', 'avatar.bodyR'],
     catchSections: ['avatar'],
   },
   {
-    id: 'detect', title: 'Setup: voice detection', setup: true,
-    keys: ['detect.vibratoMinNote', 'detect.vibratoMinSemitones', 'detect.vibratoFullSemitones', 'detect.vibratoMinHz',
-      'detect.vibratoMaxHz'],
+    id: 'detect', tab: 'setup', title: 'Voice detection',
+    keys: ['detect.vibratoMinNote', 'detect.vibratoMinSemitones', 'detect.vibratoFullSemitones', 'detect.vibratoMinHz', 'detect.vibratoMaxHz'],
     catchSections: ['detect'],
   },
   {
-    id: 'perf', title: 'Setup: performance', setup: true,
+    id: 'perf', tab: 'setup', title: 'Performance',
     keys: ['perf.fps', 'perf.idleFps', 'perf.backgroundFps'],
     advanced: ['perf.maxMegapixels', 'perf.renderScale'],
     catchSections: ['perf'],
   },
   {
-    id: 'connection', title: 'Setup: connection & sync', setup: true,
-    keys: ['source.mode', 'source.syncSettings', 'source.useTrackColours', 'source.holdSeconds'],
+    id: 'connection', tab: 'setup', title: 'Connection & sync',
+    keys: ['source.mode', 'source.syncSettings', 'source.holdSeconds'],
     advanced: ['source.port'],
     catchSections: ['source'],
   },
   {
-    id: 'test', title: 'Test & preview (this viewer only)', setup: true,
-    keys: ['scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds', 'scene.backdrop', 'scene.showAvatar',
-      'avatar.opacity', 'avatar.useImage', 'avatar.imageX', 'avatar.imageY', 'avatar.imageHeight', 'scene.paused', 'scene.timeScale', 'scene.layers', 'fake.liveTracks', 'fake.recording'],
-    advanced: ['fake.seed', 'fake.noteMax', 'fake.phraseMin', 'fake.phraseMax', 'fake.gapMin', 'fake.gapMax', 'fake.highNotes',
-      'plants.step', 'plants.maxNodes'],
+    id: 'test', tab: 'setup', title: 'Test & preview (this viewer only)',
+    keys: ['scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds', 'scene.backdrop', 'scene.showAvatar', 'avatar.opacity',
+      'avatar.useImage', 'avatar.imageX', 'avatar.imageY', 'avatar.imageHeight', 'scene.paused', 'scene.timeScale', 'scene.layers',
+      'fake.liveTracks', 'fake.recording'],
+    advanced: ['fake.seed', 'fake.phraseMin', 'fake.phraseMax', 'fake.gapMin', 'fake.gapMax', 'fake.highNotes', 'fake.noteMax'],
     catchSections: ['scene', 'fake'],
   },
+];
+
+/** Combined sliders (D.2): not settings; each writes several existing keys along a line through
+ *  three anchors (0, 0.5 = default, 1) and reads its position back from the first target. */
+export interface MacroSpec {
+  id: string;
+  label: string;
+  tip: string;
+  tab: 'look' | 'reaction';
+  targets: { path: string; at: [number, number, number] }[];
+}
+export const MACROS: MacroSpec[] = [
+  {
+    id: 'fullness', tab: 'look', label: 'fullness',
+    tip: 'Sparse to overgrown: branch density, leaf amount and permanent halo leaves together. Moves the real settings, which stay editable.',
+    targets: [{ path: 'growth.branching', at: [0.3, 0.6, 0.95] }, { path: 'look.density', at: [0.3, 0.55, 0.85] },
+      { path: 'halo.alwaysLeaves', at: [0.2, 0.4, 0.7] }],
+  },
+  {
+    id: 'liveliness', tab: 'reaction', label: 'liveliness',
+    tip: 'How strongly everything answers the voice: brightness, glow, flash, sway and push together.',
+    targets: [{ path: 'response.brightness', at: [0.5, 0.7, 1] }, { path: 'glow.levelGain', at: [0.5, 0.8, 1.6] },
+      { path: 'glow.onsetGain', at: [0.3, 0.7, 1.8] }, { path: 'motion.swayDeg', at: [4, 8, 12] }, { path: 'motion.kickDeg', at: [3, 6, 12] }],
+  },
+  {
+    id: 'pace', tab: 'reaction', label: 'pace',
+    tip: 'Slow and lingering to fast and snappy: grow time, fades, settle time and halo speeds together.',
+    targets: [{ path: 'growth.secondsToFull', at: [6, 3.5, 1.8] }, { path: 'growth.fadeAfter', at: [6, 3, 1.5] },
+      { path: 'growth.fadeSeconds', at: [5, 2.5, 1.2] }, { path: 'response.release', at: [3, 1.4, 0.7] },
+      { path: 'halo.idleSpeed', at: [5, 8, 20] }, { path: 'halo.singSpeed', at: [40, 70, 160] }],
+  },
+];
+export const macroValue = (m: number, [a, b, c]: number[]) => (m < 0.5 ? a + (b - a) * m * 2 : b + (c - b) * (m - 0.5) * 2);
+/** Macro position from a target's value (inverse of macroValue; anchors may run either way). */
+export function macroPos(v: number, [a, b, c]: number[]) {
+  const seg = (x: number, p: number, q: number) => (Math.abs(q - p) < 1e-9 ? 0 : (x - p) / (q - p));
+  const lo = seg(v, a, b), hi = seg(v, b, c);
+  if (lo >= 0 && lo <= 1) return lo * 0.5;
+  if (hi >= 0 && hi <= 1) return 0.5 + hi * 0.5;
+  return Math.abs(v - a) < Math.abs(v - c) ? 0 : 1;
+}
+
+/** Quick movement buttons per colour role (D.2). */
+export const MOVEMENTS: { label: string; tip: string; values: Record<string, unknown> }[] = [
+  { label: 'Still', tip: 'One colour per part: no movement.', values: { along: 0, speed: 0, scatter: 0, voice: 'none' } },
+  { label: 'Root→tip', tip: 'The gradient runs from root to tip.', values: { along: 1, speed: 0, scatter: 0, voice: 'none' } },
+  { label: 'Flow', tip: 'The colours travel slowly along the branches.', values: { along: 0.3, speed: 0.05, scatter: 0, voice: 'none' } },
+  { label: 'Sparkle', tip: 'Each leaf picks its own colour from the gradient.', values: { along: 0, speed: 0, scatter: 1, voice: 'none' } },
+  { label: 'Sing it', tip: 'Your pitch moves the colour along the gradient.', values: { along: 0.2, speed: 0, scatter: 0, voice: 'pitch', voiceAmount: 1 } },
 ];
 
 export const LABELS: Record<string, string> = {
@@ -372,4 +450,61 @@ Object.assign(TIPS, {
   'detect.vibratoFullSemitones': 'The swing that reads as full vibrato depth (1). Lower: lighter vibrato already gives full shimmer (like raising tremble sensitivity, but in Sprout.exe for everything that uses vibrato).\nReads: the same swing; depth rises evenly from the smallest swing to this.',
   'detect.vibratoMinHz': 'Slowest wobble that counts as vibrato (per second). Slower wobbles are treated as the note sliding.\nReads: the wobble rate, from how often the pitch crosses its average.',
   'detect.vibratoMaxHz': 'Fastest wobble that counts as vibrato (per second). Faster wobbles are treated as noise or a trill.\nReads: the wobble rate.',
+});
+
+/** Labels for the restructured panel (D.4). */
+Object.assign(LABELS, {
+  'look.tint': 'lean everything toward', 'look.tintAmount': 'how far',
+  'look.theme': 'theme', 'look.themeFrom': 'theme comes from',
+  'glow.tint': 'glow colour', 'glow.tintAmount': 'glow colour amount',
+  'look.blossomHold': 'blossoms after holding (s)', 'look.blossoms': 'blossom amount',
+  'look.thornEffort': 'thorns grow with effort', 'glow.levelGain': 'glow', 'response.brightness': 'brightness',
+  'motion.swayDeg': 'wind sway (deg)', 'halo.singSpeed': 'halo speed (deg/s)', 'halo.sproutRate': 'halo shoots per second',
+  'glow.onsetGain': 'flash', 'motion.kickDeg': 'push (deg)', 'glow.front': 'growing-edge glow',
+  'glow.pitchShine': 'high notes shine', 'response.effortWidth': 'effort thickens branches',
+  'glow.softGlow': 'soft voice glows wider', 'plants.softDroop': 'soft voice droops new trees',
+  'response.release': 'settle time after a phrase (s)',
+});
+for (const r of ['colBranch', 'colLeaf', 'colAccent', 'colHalo'])
+  Object.assign(LABELS, {
+    [`${r}.source`]: 'colour from', [`${r}.gradient`]: 'gradient', [`${r}.takeMix`]: 'take colour mixed in',
+    [`${r}.along`]: 'spread root to tip', [`${r}.speed`]: 'flow speed', [`${r}.voice`]: 'voice moves it',
+    [`${r}.voiceAmount`]: 'how far', [`${r}.perTake`]: 'shift per take', [`${r}.scatter`]: 'random per leaf',
+  });
+LABELS['colHalo.along'] = 'spread round the ring';
+
+Object.assign(FOLDER_HINTS, {
+  colours: 'What colours everything. Each part takes its colour from the take, from the theme\'s natural colours, or from a gradient that can move with time, along the branch, or with your voice. Your own take colours are kept across presets.',
+  theme: 'Which decorations grow on the branches and the halo, how many and how big.',
+  loud: 'Everything your loudness drives.',
+  onsets: 'What happens at the start of every note.',
+  timbre: 'What high notes, full singing and soft, breathy singing change.',
+  held: 'What a long held note and vibrato do.',
+  phrases: 'How the trees grow while you sing, and what a phrase is.',
+  pauses: 'What short pauses do to the outer twigs.',
+  colBranch: 'Colour of the take trees\' branches.',
+  colLeaf: 'Colour of leaves, thorns and needles.',
+  colAccent: 'Colour of blossoms and berries.',
+  colHalo: 'Colour of the halo ring and its vine.',
+  palette: 'Your own colours: the live halo and one per take. Presets never change them.',
+});
+
+/** Tooltips for the colour role settings (same in every role). */
+for (const r of ['colBranch', 'colLeaf', 'colAccent', 'colHalo'])
+  Object.assign(TIPS, {
+    [`${r}.source`]: r === 'colHalo'
+      ? 'Same as branches: the halo follows the branch colour settings. Track colour: the live colour. Gradient: its own gradient below.'
+      : 'Track colour: each take\'s own colour. Theme colour: the natural colours of the theme (green leaves, pink blossoms…). Gradient: colours from the gradient below.',
+    [`${r}.gradient`]: 'The colours to pick from. Click the bar to edit: add, drag and remove colour stops, presets, rainbow.',
+    [`${r}.takeMix`]: 'How much of the take\'s own colour is mixed back in, so takes stay recognisable (0 = none).',
+    [`${r}.along`]: r === 'colHalo' ? 'How many times the gradient runs round the ring.' : 'How much of the gradient runs from root (start) to tip (end) of each branch. Negative = the other way.',
+    [`${r}.speed`]: 'How fast the colours travel along the gradient (gradient lengths per second; 0 = still).',
+    [`${r}.voice`]: 'What in your voice moves the colour along the gradient.',
+    [`${r}.voiceAmount`]: 'How far along the gradient the voice moves the colour at its strongest (negative = the other way).\nReads: the chosen value, 0..1: pitch (C3 to F6), loudness, effort, airiness, vibrato depth, or the note-start flash.',
+    [`${r}.perTake`]: 'Each further take starts this far along the gradient, so takes get different colours from one gradient.',
+    [`${r}.scatter`]: 'Each leaf picks a colour this far around its place on the gradient (sparkle).',
+  });
+Object.assign(TIPS, {
+  'glow.tint': 'A colour the glow leans toward; the branches and leaves keep their own colours.',
+  'glow.tintAmount': 'How far the glow leans toward the glow colour.',
 });
