@@ -274,7 +274,8 @@ public:
 
     bool isClaimed() const { return slot != nullptr; }
 
-    // Lets a crash-recovering app take the slot over; we then stop writing.
+    // False once another tap has claimed this slot (after kStaleTimeoutMs without a heartbeat from
+    // us); we then stop writing. One relaxed load: safe to call on the audio thread every block.
     bool stillOwner() const
     {
         return slot != nullptr && slot->owner.load (std::memory_order_relaxed) == ownerToken;

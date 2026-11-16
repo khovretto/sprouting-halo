@@ -223,6 +223,17 @@ void SproutTapProcessor::timerCallback()
 {
     autoArm.store (reaperHost.trackRecordArmed());
 
+    if (lost.load (std::memory_order_acquire))
+    {
+        // Another tap took our slot over after a long stall (no heartbeat for kStaleTimeoutMs).
+        // The audio thread set `lost` as the last thing it did before it stopped writing, so the
+        // writer is ours to reset here: drop the old slot without touching it (release() only
+        // frees a slot that still carries our token) and claim a fresh one with a new token.
+        writer.release();
+        token = makeToken();
+        lost.store (false, std::memory_order_release);
+    }
+
     if (! connected.load (std::memory_order_acquire))
     {
         tryClaimSlot();
@@ -287,9 +298,10 @@ void SproutTapProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
     if (! writer.stillOwner())
     {
-        // Our slot was taken over after a long stall. Stop writing; don't fight for it.
+        // Our slot was taken over after a long stall. Stop writing; don't fight for it. The
+        // message thread sees `lost` and claims a fresh slot; this thread never waits for that.
         connected.store (false, std::memory_order_release);
-        lost.store (true);
+        lost.store (true, std::memory_order_release);
         return;
     }
 

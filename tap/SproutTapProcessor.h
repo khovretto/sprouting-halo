@@ -49,7 +49,7 @@ public:
     int getAutoArmState() const { return autoArm.load(); } // 1 armed, 0 not, -1 unknown
 
     // For the editor.
-    bool isConnected() const { return writer.isClaimed(); }
+    bool isConnected() const { return connected.load (std::memory_order_acquire); }
     juce::String getTrackName() const;
 
     // A user theme from Sprout.exe's themes folder (its id; empty = the Theme choice). Saved with
