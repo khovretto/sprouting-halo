@@ -56,6 +56,11 @@ public:
     // the project as a property of the parameter state. Message thread.
     juce::String getCustomTheme() const;
     void setCustomTheme (const juce::String& id);
+    // Other per-track strings kept in the project (inkColour "#rrggbb", inkGradient). Message thread.
+    juce::String getStateString (const char* name) const;
+    void setStateString (const char* name, const juce::String& value);
+    // Theme, amount and colour back to Auto (the viewer's look decides).
+    void resetToAuto();
     // The user themes Sprout.exe lists in the bus. Returns false when unchanged since `seq`.
     bool getThemeList (juce::StringArray& ids, juce::StringArray& names, uint32_t& seq);
 
@@ -77,18 +82,24 @@ private:
     char cachedName[sprout::kNameLength] {};
     uint32_t cachedColour = 0;
     char cachedCustom[sprout::kThemeIdLength] {};
+    char cachedInkColour[16] {};
+    char cachedInkGradient[sprout::kInkLength] {};
 
     // Track properties arrive on the message thread; the audio thread is the only bus writer.
     mutable juce::SpinLock trackLock;
     juce::String trackName;
     uint32_t trackColour = 0;
-    char customTheme[sprout::kThemeIdLength] {}; // copy of the custom theme for the audio thread (trackLock)
-    void cacheCustomTheme();
+    // Copies of the per-track strings for the audio thread (trackLock).
+    char customTheme[sprout::kThemeIdLength] {};
+    char inkColour[16] {};
+    char inkGradient[sprout::kInkLength] {};
+    void cacheLook();
 
     std::atomic<juce::AudioParameterChoice*> roleParam { nullptr };
     std::atomic<float>* themeParam = nullptr;   // per-track look, read on the audio thread
     std::atomic<float>* densityParam = nullptr;
     std::atomic<float>* colourParam = nullptr;
+    std::atomic<float>* densityAutoParam = nullptr;
 
     ReaperHost reaperHost;
     std::atomic<int> autoArm { -1 }; // polled on the message thread

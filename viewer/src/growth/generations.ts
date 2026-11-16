@@ -33,15 +33,27 @@ export interface Generation<T extends Structure> {
   /** Planted by the commit animation: it does not fade while idle, and the take's first phrase
    *  keeps growing it instead of starting a new tree. */
   stamped?: boolean;
+  /** growth.branchEachPhrase: this tree is one bough of the take's tree. */
+  bough?: boolean;
+  /** A retired bough: 0..1 dried out, then 0..1 fallen. */
+  dry?: number;
+  fall?: number;
 }
 
 const MAX_GENERATIONS = 5;
+/** Which slice of the territory phrase n grows into, for M slices: the middle first, then far jumps
+ *  (neighbours are of different ages). One more slice than boughs kept, so the next is empty. */
+const ORDER: Record<number, number[]> = {
+  3: [1, 0, 2], 4: [1, 3, 0, 2], 5: [2, 0, 4, 1, 3], 6: [2, 5, 0, 3, 1, 4], 7: [3, 0, 5, 2, 6, 1, 4],
+};
+const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
 
 export class Generations<T extends Structure> {
   gens: Generation<T>[] = [];
   private nextSeed: number;
+  private phrase = 0;
 
-  constructor(private make: (seed: number) => T, firstSeed: number) {
+  constructor(private make: (seed: number, slice: [number, number] | null) => T, firstSeed: number) {
     this.nextSeed = firstSeed;
   }
 
@@ -51,24 +63,38 @@ export class Generations<T extends Structure> {
   }
 
   /** Start a new tree now (new seed); older ones are retired but not cut short. */
-  regrow() {
-    for (const g of this.gens) g.retired = true;
+  regrow(p: Params) {
+    const g = p.growth, keep = Math.max(1, Math.round(g.branchesKept));
+    if (!g.branchEachPhrase) for (const x of this.gens) x.retired = true;
+    else {
+      // The oldest living boughs start to wither, so at most `keep` stay with the new one.
+      const alive = this.gens.filter((x) => !x.retired);
+      while (alive.length >= keep) alive.shift()!.retired = true;
+    }
+    const M = clamp(keep + 1, 3, 7);
+    const slice = g.branchEachPhrase ? ([ORDER[M][this.phrase++ % M], M] as [number, number]) : null;
     const seed = this.nextSeed++;
-    this.gens.push({ tree: this.make(seed), seed, reveal: 0, alpha: 1, retired: false, idle: 0, wither: 0 });
-    while (this.gens.length > MAX_GENERATIONS) this.gens.shift();
+    this.gens.push({ tree: this.make(seed, slice), seed, reveal: 0, alpha: 1, retired: false, idle: 0, wither: 0,
+      bough: !!slice, dry: 0, fall: 0 });
+    const cap = Math.max(MAX_GENERATIONS, keep + 3);
+    while (this.gens.length > cap) this.gens.shift();
   }
 
   update(d: Drive, dt: number, p: Params) {
     const g = p.growth;
     if (d.voice) {
-      if (!this.current) this.regrow();
+      if (!this.current) this.regrow(p);
       else if (this.current.stamped) this.current.stamped = false; // the first phrase grows the planted tree
-      else if (d.newPhrase && g.newTreeEachPhrase && this.current.reveal > 0.05) this.regrow();
+      // A new bough only when the current one is at least half grown (a short phrase keeps growing it).
+      else if (d.newPhrase && (g.branchEachPhrase ? this.current.reveal > 0.5 : g.newTreeEachPhrase && this.current.reveal > 0.05)) this.regrow(p);
     }
 
     const cur = this.current;
     if (cur && d.voice) {
-      cur.reveal = Math.min(1, cur.reveal + (dt / Math.max(0.05, g.secondsToFull)) * (0.4 + d.level));
+      // A bough is a fraction of a tree, so it grows faster.
+      const M = clamp(Math.round(g.branchesKept) + 1, 3, 7);
+      const k = cur.bough ? clamp(M / 2, 1.5, 3) : 1;
+      cur.reveal = Math.min(1, cur.reveal + ((k * dt) / Math.max(0.05, g.secondsToFull)) * (0.4 + d.level));
       cur.idle = 0;
     }
     if (cur) {
@@ -81,9 +107,24 @@ export class Generations<T extends Structure> {
 
     const fadeAfter = Math.max(0, g.fadeAfter);
     const fade = Math.max(0.05, g.fadeSeconds);
+    const dropping = this.gens.filter((x) => x.bough && x.retired).length;
     for (const gen of this.gens) {
       const growing = gen === cur && d.voice;
       if (!growing) gen.idle += dt;
+      if (gen.bough && gen.retired) {
+        // A retired bough dries, then falls (faster when phrases come faster than boughs fall).
+        const hurry = dropping > 2 ? 3 : 1;
+        if ((gen.dry ?? 0) < 1) gen.dry = Math.min(1, (gen.dry ?? 0) + (hurry * dt) / Math.max(0.05, g.branchWitherSeconds));
+        else gen.fall = Math.min(1, (gen.fall ?? 0) + (hurry * dt) / Math.max(0.05, g.branchFallSeconds));
+        if ((gen.fall ?? 0) >= 1) gen.alpha = 0; // removed by the filter below
+        continue;
+      }
+      if (gen.bough) {
+        // Living boughs are one tree: bright while the take is in a phrase, never fading.
+        const target = d.voice || !d.phraseOver(p) ? 1 : g.restBrightness;
+        gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
+        continue;
+      }
       const canFade = (g.newTreeEachPhrase || gen.retired) && !gen.stamped;
       if (gen.stamped) gen.alpha = Math.max(gen.alpha, g.restBrightness);
       else if (canFade && gen.idle > fadeAfter) gen.alpha -= dt / fade;

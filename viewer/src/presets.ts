@@ -35,7 +35,8 @@ export const PATHS: string[] = Object.entries(D).flatMap(([s, o]) => Object.keys
 const REACTIVE = new Set([
   'growth.newTreeEachPhrase', 'growth.secondsToFull', 'growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds',
   'growth.witherOnPause', 'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
-  'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed',
+  'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed', 'growth.shed', 'growth.branchEachPhrase',
+  'growth.branchesKept', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
   'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine', 'glow.softGlow', 'glow.front',
   'halo.idleSpeed', 'halo.singSpeed', 'halo.sproutRate', 'halo.sproutGrow', 'halo.spawnSeconds',
   'plants.softDroop', 'plants.moodShaping', 'look.blossoms', 'look.blossomHold', 'look.thornEffort',
@@ -107,115 +108,202 @@ const built = (list: Preset[]) => list.map((p) => ({ ...p, builtin: true }));
 
 export const BUILTINS: Record<Kind, Preset[]> = {
   visual: built([
-    { id: 'default', name: 'Sprout', description: 'The standard look: leafy ivy canopy, even glow.', values: {} },
+    { id: 'default', name: 'Sprout', description: 'The standard look: leafy canopy in your take colours, a white glint travelling round the halo.', values: {} },
     {
-      id: 'ivy', name: 'Lush ivy', description: 'Dense, overgrown canopy and a long leafy halo vine. Glow held back so the detail shows.',
+      id: 'ivy', name: 'Lush ivy', description: 'Dense and overgrown. Woody dark stems that turn into your take colour, leaves from deep to light green.',
       values: {
-        colLeaf: { takeMix: 0.4 },
+        colBranch: { source: 'gradient', gradient: 'ok;0:2e2116,0.45:t,1:t', along: 1, speed: 0, perTake: 0, takeMix: 0 },
+        colLeaf: { source: 'gradient', gradient: 'ok;0:14532a,0.5:3fae4e,1:9bdc3a', takeMix: 0.4, along: 0.8, scatter: 0.5 },
+        colAccent: { takeMix: 0.2 },
+        colHalo: { source: 'take' },
         growth: { branching: 0.95, reach: 1.1, spread: 1.3, flatten: 0.45 },
-        look: { theme: 'leaves', density: 0.85, decoSize: 1.5, variety: 0.8, depthShade: 0.8, decoGlow: 0.12 },
+        look: { theme: 'leaves', density: 0.85, decoSize: 1.5, variety: 0.8, depthShade: 0.8, decoGlow: 0.12, buds: 0.3 },
         plants: { wildness: 0.7, overlap: 0.8, clearance: 0.03, taper: 0.55, lift: 0.05, maxNodes: 3600 },
         halo: { origins: 2, tailDeg: 540, tailFade: 0.3, sproutLength: 16, alwaysLeaves: 0.7, wander: 0.14 },
-        glow: { strength: 1.2, wide: 0.5, crowd: 1.1, inkMask: 0.85 },
+        glow: { strength: 1.2, wide: 0.5, crowd: 1.1, inkMask: 0.85, tint: '#d8ffb0', tintAmount: 0.25 },
       },
     },
     {
-      id: 'winter', name: 'Winter branches', description: 'Bare, fine twigs with a wide, cold, pale-blue haze.',
+      id: 'winter', name: 'Winter branches', description: 'Bare twigs from deep blue roots to white tips, a cold haze. Airy singing frosts them further.',
       values: {
+        colBranch: { source: 'gradient', gradient: 'ok;0:0b2a6b,0.4:2f7fe0,0.75:8fe3ff,1:f2fdff', along: 1, speed: 0, perTake: 0, takeMix: 0.35, voice: 'breath', voiceAmount: 0.3 },
+        colHalo: { source: 'branches' },
         colLeaf: { takeMix: 0.9 },
-        growth: { branching: 0.25, spread: 0.7, flatten: 0.35 },
-        look: { theme: 'branches', density: 0.15, decoSize: 1.0, variety: 0.35, depthShade: 0.4, tint: '#bfe3ff', tintAmount: 0.35 },
+        growth: { branching: 0.3, spread: 0.7, flatten: 0.35 },
+        look: { theme: 'branches', density: 0.3, decoSize: 1.0, variety: 0.35, depthShade: 0.4, buds: 0, dryColour: '#9aa3ad' },
         plants: { taper: 0.8, wildness: 0.6, lift: 0.35, clearance: 0.07, overlap: 0.25 },
-        halo: { alwaysLeaves: 0.1, sproutLength: 8, sproutCurl: 0.4, tailDeg: 220 },
-        glow: { strength: 1.9, radius: 2.6, wide: 1.2, base: 0.2, crowd: 0.4, knee: 1.2 },
+        halo: { alwaysLeaves: 0.2, sproutLength: 8, sproutCurl: 0.4, tailDeg: 220 },
+        glow: { strength: 1.9, radius: 2.6, wide: 1.2, base: 0.2, crowd: 0.4, knee: 1.2, tint: '#bfe3ff', tintAmount: 0.6 },
+        palette: { from: 'list', list: 'step;0:e8f4ff,0.2:9fd0ff,0.4:6aa8f0,0.6:b8a8ff,0.8:8fe3ff', pick: 'order' },
       },
     },
     {
-      id: 'festive', name: 'Festive wreath', description: 'A full wreath for the halo, natural reds and greens.',
+      id: 'festive', name: 'Festive wreath', description: 'A full wreath: natural greens, baubles in red, gold and white, a candy-striped ring, warm glow.',
       values: {
-        colLeaf: { takeMix: 0.1 },
-        colAccent: { takeMix: 0.05 },
+        colLeaf: { source: 'theme', takeMix: 0.1 },
+        colAccent: { source: 'gradient', gradient: 'step;0:e61424,0.5:ffd24a,0.8:ffffff', takeMix: 0, along: 0, scatter: 1 },
+        colHalo: { source: 'gradient', gradient: 'step~;0:c8102e,0.167:f4f4f4,0.333:c8102e,0.5:f4f4f4,0.667:c8102e,0.833:f4f4f4', along: 2, speed: 0.04, perTake: 0, takeMix: 0 },
         growth: { branching: 0.7, flatten: 0.4 },
-        look: { theme: 'wreath', density: 0.8, decoSize: 2.2, decoGlow: 0.35, variety: 0.7 },
+        look: { theme: 'wreath', density: 0.8, decoSize: 2.2, decoGlow: 0.35, variety: 0.7, dryColour: '#5b4630' },
         plants: { lift: 0.3 },
         halo: { origins: 2, tailDeg: 720, tailFade: 0.2, alwaysLeaves: 0.9, sproutLength: 7, sproutCurl: 0.5, wander: 0.04, ringWidth: 0.014, vineWidth: 0.01 },
-        glow: { strength: 2.0, base: 0.45, crowd: 0.9 },
+        glow: { strength: 2.0, base: 0.45, crowd: 0.9, tint: '#ffcf7a', tintAmount: 0.35 },
+        palette: { from: 'list', list: 'step;0:c8102e,0.25:1a7333,0.5:ffd24a,0.75:f4f4f4', pick: 'order' },
       },
     },
     {
-      id: 'bramble', name: 'Red bramble', description: 'A dense, drooping thicket of thorns in deep red, with little glow.',
+      id: 'bramble', name: 'Red bramble', description: 'A drooping thicket: stems from black-red to crimson that flare when you push, pale bone thorns, red glow.',
       values: {
-        colLeaf: { takeMix: 0.95 },
+        colBranch: { source: 'gradient', gradient: 'ok;0:2a0508,0.5:8a0f22,1:e0304a', along: 1, speed: 0, perTake: 0, takeMix: 0.1, voice: 'effort', voiceAmount: 0.35 },
+        colLeaf: { source: 'theme', takeMix: 0.2 },
+        colHalo: { source: 'branches' },
         growth: { branching: 0.95, spread: 1.5, flatten: 0.6 },
-        look: { theme: 'thorns', density: 0.95, decoSize: 1.5, variety: 0.8, depthShade: 0.85, decoGlow: 0.05, tint: '#c0142c', tintAmount: 0.88 },
+        look: { theme: 'thorns', density: 0.95, decoSize: 1.5, variety: 0.8, depthShade: 0.85, decoGlow: 0.05, tint: '#c0142c', tintAmount: 0.25, dryColour: '#3a2226' },
         plants: { lift: -0.2, taper: 0.85, wildness: 0.75, clearance: 0.03, overlap: 0.7, maxNodes: 3400 },
         halo: { sproutCurl: 0.3, sproutLength: 14, wander: 0.12, alwaysLeaves: 0.6 },
-        glow: { strength: 0.75, radius: 1.3, wide: 0.35, base: 0.12, crowd: 1.1, inkMask: 0.85 },
+        glow: { strength: 0.75, radius: 1.3, wide: 0.35, base: 0.12, crowd: 1.1, inkMask: 0.85, tint: '#ff2a3c', tintAmount: 0.5 },
+        palette: { from: 'list', list: 'step;0:c0142c,0.33:8a0f22,0.66:e0304a,1:6b1030', pick: 'order' },
       },
     },
     {
-      id: 'minimal', name: 'Minimal', description: 'Small and quiet with low glow. Stays out of the way; lightest on the GPU.',
+      id: 'minimal', name: 'Minimal', description: 'Small, quiet, one flat colour per take: no gradients, no buds, low glow. Lightest on the GPU.',
       values: {
-        colLeaf: { takeMix: 0.8 },
+        colLeaf: { source: 'take' }, colAccent: { source: 'take' }, colHalo: { source: 'take' },
         growth: { branching: 0.3, reach: 0.8 },
-        look: { density: 0.3, decoSize: 1.2, decoGlow: 0.1 },
+        look: { density: 0.3, decoSize: 1.2, decoGlow: 0.1, buds: 0 },
         plants: { wildness: 0.25, maxNodes: 1500 },
         halo: { sproutLength: 7, alwaysLeaves: 0.2, tailDeg: 180, wander: 0.04 },
         glow: { strength: 0.8, radius: 1.2, wide: 0.3, base: 0.15 },
       },
     },
     {
-      id: 'neon', name: 'Neon stage', description: 'Bright, wide-arching trees and a strong glow for big moments.',
+      id: 'neon', name: 'Neon stage', description: 'Pink, cyan and lime light running along wide-arching trees; your pitch pushes the colours. Strong glow.',
       values: {
-        colLeaf: { takeMix: 0.9 },
+        colBranch: { source: 'gradient', gradient: 'rgb~;0:ff2bd6,0.33:2bd9ff,0.66:7dff2b', along: 0.3, speed: 0.12, perTake: 0.33, takeMix: 0, voice: 'pitch', voiceAmount: 0.5 },
+        colLeaf: { source: 'gradient', gradient: 'rgb~;0:ff2bd6,0.33:2bd9ff,0.66:7dff2b', along: 0, speed: 0.12, scatter: 1, takeMix: 0 },
+        colAccent: { source: 'gradient', gradient: 'ok;0:ffffff', takeMix: 0, scatter: 0 },
+        colHalo: { source: 'branches' },
         growth: { branching: 0.7, spread: 1.4 },
-        halo: { origins: 3, tailDeg: 200 },
+        look: { density: 0.64 },
+        halo: { origins: 3, tailDeg: 200, alwaysLeaves: 0.49 },
         glow: { strength: 2.4, base: 0.2, knee: 1.2 },
+      },
+    },
+    {
+      id: 'rainbow', name: 'Rainbow', description: 'Every take runs through the rainbow, each a step further along; pastel leaves; the halo jumps colour on note starts.',
+      values: {
+        colBranch: { source: 'gradient', takeMix: 0 },
+        colLeaf: { source: 'gradient', gradient: 'rgb~;0:ffa6a6,0.167:ffffa6,0.333:a6ffa6,0.5:a6ffff,0.667:a6a6ff,0.833:ffa6ff', along: 0.3, speed: 0.05, perTake: 0.13, scatter: 0.6, takeMix: 0 },
+        colAccent: { source: 'gradient', gradient: 'ok;0:ffffff', takeMix: 0, scatter: 0 },
+        colHalo: { source: 'gradient', gradient: 'rgb~;0:ff4d4d,0.167:ffff4d,0.333:4dff4d,0.5:4dffff,0.667:4d4dff,0.833:ff4dff', along: 1, speed: 0.05, perTake: 0.15, takeMix: 0, voice: 'flash', voiceAmount: 0.15 },
+        glow: { strength: 1.8 },
+      },
+    },
+    {
+      id: 'sakura', name: 'Cherry blossom', description: 'Dark bark with rosy tips, a canopy of pink petals, big buds that open on long notes, soft pink glow.',
+      values: {
+        colBranch: { source: 'gradient', gradient: 'ok;0:3b2620,0.6:6b4038,1:c98a8a', along: 1, speed: 0, perTake: 0, takeMix: 0.15 },
+        colLeaf: { source: 'gradient', gradient: 'ok;0:ffd1e6,0.5:ff9ccb,1:ffffff', along: 0, scatter: 0.8, takeMix: 0.1 },
+        colAccent: { source: 'gradient', gradient: 'ok;0:ff7ac8,0.6:ffd1e6,1:ffffff', along: 0, scatter: 1, takeMix: 0 },
+        colHalo: { source: 'gradient', gradient: 'ok;0:ff9ccb,1:ffffff', along: 1, speed: 0.05, perTake: 0, takeMix: 0.2 },
+        growth: { branching: 0.775, spread: 1.2 },
+        look: { theme: 'leaves', density: 0.7, decoSize: 1.6, variety: 0.7, buds: 0.35, dryColour: '#c9a0a8' },
+        plants: { lift: -0.1, wildness: 0.55 },
+        halo: { alwaysLeaves: 0.55, sproutCurl: 1.2 },
+        glow: { strength: 1.5, tint: '#ffc4de', tintAmount: 0.45 },
+        palette: { from: 'list', list: 'step;0:ff9ccb,0.25:ffc4de,0.5:f47fb0,0.75:ffe3ef', pick: 'order' },
+      },
+    },
+    {
+      id: 'autumn', name: 'Autumn', description: 'Brown wood and leaves scattered from rust to gold that brighten as you sing louder; amber glow.',
+      values: {
+        colBranch: { source: 'gradient', gradient: 'ok;0:2e1c10,1:6b4a2b', along: 1, speed: 0, perTake: 0, takeMix: 0.2 },
+        colLeaf: { source: 'gradient', gradient: 'ok;0:7a1f0e,0.4:d9541e,0.7:f2a51e,1:f7dc6f', along: 0.3, scatter: 0.9, takeMix: 0.1, voice: 'loudness', voiceAmount: 0.2 },
+        colAccent: { source: 'gradient', gradient: 'ok;0:f7dc6f,1:fff6cf', scatter: 1, takeMix: 0 },
+        colHalo: { source: 'gradient', gradient: 'ok;0:d9541e,0.5:f2a51e,1:f7dc6f', along: 1, speed: 0.04, perTake: 0, takeMix: 0.2 },
+        growth: { branching: 0.67 },
+        look: { theme: 'leaves', density: 0.61, variety: 0.8, dryColour: '#6b4a2b' },
+        plants: { lift: 0.05 },
+        halo: { alwaysLeaves: 0.46 },
+        glow: { tint: '#ffb060', tintAmount: 0.4 },
+        palette: { from: 'list', list: 'step;0:d9541e,0.25:f2a51e,0.5:7a1f0e,0.75:f7dc6f', pick: 'random' },
       },
     },
   ]),
   reactivity: built([
-    { id: 'default', name: 'Responsive', description: 'The standard response: grows in about 3.5 s of singing, sways and pushes with your notes.', values: {} },
+    { id: 'default', name: 'Responsive', description: 'The standard response: grows in about 3.5 s of singing, leaves fall in pauses, blossoms on notes held 1.5 s.', values: {} },
     {
-      id: 'calm', name: 'Calm (ballad)', description: 'Slow growth, long fades, gentle motion and soft glow. For ballads and talk segments.',
+      id: 'calm', name: 'Calm (ballad)', description: 'Slow and lingering. Each phrase grows one new branch; old ones dry, droop and fall. Gentle motion.',
       values: {
-        growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8 },
-        response: { release: 3, brightness: 0.45, variety: 0.3 },
+        growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8,
+          branchEachPhrase: true, branchesKept: 4, branchWitherSeconds: 4, branchDroopDeg: 25, branchFallSeconds: 2 },
+        response: { release: 3, brightness: 0.6, variety: 0.3 },
+        look: { blossoms: 0.9, blossomHold: 2 },
         halo: { idleSpeed: 5, singSpeed: 40, sproutRate: 2, sproutGrow: 1.0 },
-        glow: { levelGain: 0.5, onsetGain: 0.3, softGlow: 0.8 },
-        motion: { swayDeg: 6, kickDeg: 3, springiness: 0.3, flutterDeg: 10, speed: 0.7 },
-        commit: { duration: 1.5, impact: 0.5, shockRing: false, spinTurns: 0.5, plunge: 0.2, syncToOnset: false },
+        glow: { levelGain: 0.65, onsetGain: 0.5, softGlow: 0.8 },
+        motion: { swayDeg: 6, kickDeg: 4.5, springiness: 0.3, flutterDeg: 10, speed: 0.7 },
+        commit: { duration: 1.5, impact: 0.5, shockRing: false, spinTurns: 0.5, plunge: 0.2, syncToOnset: false, limbs: 2 },
       },
     },
     {
-      id: 'stage', name: 'Punchy (stage)', description: 'Fast and punchy: trees shoot up and clear quickly, strong flashes, big pushes.',
+      id: 'stage', name: 'Punchy (stage)', description: 'Fast and hard: trees shoot up and clear quickly, pitch drops throw leaves, short holds bloom, big planting.',
       values: {
         growth: { secondsToFull: 1.8, fadeAfter: 1.5, fadeSeconds: 1.2, restBrightness: 0.4, witherOnPitchDip: true, witherDepth: 0.7, witherSeconds: 0.4, regrowSpeed: 2.5 },
         response: { phraseGap: 0.6, release: 0.7, brightness: 1, effortWidth: 1.5, pitchSteer: 0.8, variety: 0.8 },
-        look: { blossoms: 1 },
+        look: { blossoms: 1, blossomHold: 0.8, thornEffort: 2 },
         halo: { idleSpeed: 20, singSpeed: 160, sproutRate: 8, sproutGrow: 0.3, spawnSeconds: 0.5 },
         glow: { levelGain: 1.6, onsetGain: 1.8, pitchShine: 1.0, front: 1.8 },
         motion: { swayDeg: 12, kickDeg: 12, springiness: 0.7, speed: 1.4, shiverDeg: 5 },
         transitions: { liveEndSeconds: 0.4, pruneSeconds: 0.9 },
-        commit: { duration: 0.65, impact: 1.8, burst: 70, spinTurns: 1.5, plunge: 0.4, syncToOnset: true, syncWindow: 0.15 },
+        commit: { duration: 0.65, impact: 1.8, burst: 70, spinTurns: 1.5, plunge: 0.4, syncToOnset: true, syncWindow: 0.15, limbs: 4 },
       },
     },
     {
-      id: 'subtle', name: 'Subtle', description: 'Small reactions: little brightness change, light motion, a quiet planting.',
+      id: 'subtle', name: 'Subtle', description: 'Small reactions: little brightness change, light motion, few blossoms, the halo plants as a single quiet frond.',
       values: {
         growth: { restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2 },
         response: { brightness: 0.5, effortWidth: 0.5 },
+        look: { blossoms: 0.4, blossomHold: 2.5 },
         halo: { sproutRate: 1.5 },
         glow: { levelGain: 0.5, onsetGain: 0.3, pitchShine: 0.2, front: 0.4 },
         motion: { swayDeg: 4, kickDeg: 3, flutterDeg: 8, shiverDeg: 1.5 },
-        commit: { duration: 0.7, impact: 0.4, burst: 10, shockRing: false, spinTurns: 0.5, syncToOnset: false },
+        commit: { duration: 0.7, impact: 0.4, burst: 10, shockRing: false, spinTurns: 0.5, syncToOnset: false, limbs: 1 },
       },
     },
     {
-      id: 'vibrato', name: 'Vibrato-sensitive', description: 'Light vibrato already makes twigs and leaves shimmer; soft singing glows wider.',
+      id: 'vibrato', name: 'Vibrato-sensitive', description: 'Light vibrato already makes twigs and leaves shimmer; soft singing glows wider; blossoms after a 1 s hold.',
       values: {
+        look: { blossomHold: 1 },
         motion: { shiverDeg: 6, shiverSensitivity: 2, flutterDeg: 18 },
         glow: { softGlow: 0.8 },
+      },
+    },
+    {
+      id: 'branches', name: 'Branch by branch', description: 'One tree per take: every phrase grows a new branch on it while the oldest withers, droops and falls off.',
+      values: {
+        growth: { branchEachPhrase: true, branchesKept: 3, branchWitherSeconds: 2.5, branchDroopDeg: 35, branchFallSeconds: 1.4, secondsToFull: 3, restBrightness: 0.7 },
+      },
+    },
+    {
+      id: 'bloom', name: 'Blossom ballad', description: 'One tree keeps growing through the song. Notes held for a second open the blossoms; their petals fall when the note ends.',
+      values: {
+        growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5 },
+        look: { blossoms: 1, blossomHold: 1 },
+        glow: { softGlow: 0.8 },
+        motion: { shiverDeg: 5, shiverSensitivity: 1.5 },
+      },
+    },
+    {
+      id: 'fall', name: 'Falling leaves', description: 'Pauses and pitch drops strip the outer twigs deep into the tree and the leaves rain down; it regrows fast when you sing.',
+      values: {
+        growth: { newTreeEachPhrase: false, witherOnPitchDip: true, witherDipSemitones: 2, witherDepth: 0.8, witherSeconds: 0.6, twigFadeSeconds: 1.2, regrowSpeed: 2 },
+      },
+    },
+    {
+      id: 'steady', name: 'Steady (no withering)', description: 'Nothing retracts or falls: one tree grows and stays, blossoms open whenever you sing. For comparing.',
+      values: {
+        growth: { newTreeEachPhrase: false, witherOnPause: false, shed: false, restBrightness: 0.8 },
+        look: { blossomHold: 0 },
       },
     },
   ]),
@@ -227,7 +315,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     },
     {
       id: 'fast', name: 'Fast pop', description: 'Short phrases, short pauses, more high notes.',
-      values: { fake: { phraseMin: 1, phraseMax: 3, gapMin: 0.2, gapMax: 0.6, highNotes: 0.35 } },
+      values: { fake: { phraseMin: 1, phraseMax: 3, gapMin: 0.2, gapMax: 0.6, highNotes: 0.35, fullStopEvery: 0 } },
     },
     { id: 'six', name: 'Six takes', description: 'A full scene: one live halo and six take trees.', values: { scene: { layers: 7 } } },
     { id: 'idle', name: 'Not recording', description: 'The live track is not recording: the small resting halo on the head.', values: { fake: { recording: false } } },
@@ -236,8 +324,34 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       id: 'study', name: 'Slow-motion study', description: 'Quarter speed with the voice scope open, to study how the voice is read.',
       values: { scene: { timeScale: 0.25, showScope: true } },
     },
+    {
+      id: 'held', name: 'Held notes (blossoms)', description: 'Fake singer holds notes up to 4.5 s: blossoms open, and their petals fall when the note ends.',
+      values: { fake: { phraseMin: 5, phraseMax: 9, noteMax: 4.5, gapMin: 0.6, gapMax: 1.2, highNotes: 0.15, longNotes: 0.6 } },
+    },
+    {
+      id: 'pauses', name: 'Short phrases, long pauses', description: 'Every pause ends the phrase: shows a new tree or a new branch per phrase, withering and falling leaves.',
+      values: { fake: { phraseMin: 1.5, phraseMax: 3, gapMin: 1.5, gapMax: 3, fullStopEvery: 1, fullStopSeconds: 3 } },
+    },
+    {
+      id: 'jumps', name: 'Pitch jumps', description: 'Many jumps to very high notes and back down: shows pitch-dip withering and pitch-driven colour.',
+      values: { fake: { highNotes: 0.8, noteMax: 0.8, fullStopEvery: 0 } },
+    },
+    {
+      id: 'planting', name: 'Planting loop', description: 'The live take is planted as a tree every 7 s and the oldest of four is removed: shows the planting and the removal.',
+      values: { fake: { autoCommit: 7 }, scene: { layers: 2 } },
+    },
   ]),
 };
+
+if (import.meta.env.DEV) {
+  for (const kind of Object.keys(BUILTINS) as Kind[]) {
+    const unused = KIND_PATHS[kind].filter((path) => !BUILTINS[kind].some((pr) => {
+      const v = getPath(pr.values, path);
+      return v !== undefined && !same(v, getPath(D, path));
+    }));
+    if (unused.length) console.info(`[presets] ${kind} keys no built-in preset changes yet:`, unused.join(', '));
+  }
+}
 
 // ---- Storage ---------------------------------------------------------------------------------------
 

@@ -38,6 +38,20 @@ export const defaults = {
   growth: {
     /** Every phrase grows a brand-new tree (new seed); the previous one fades away. Off = one tree keeps growing. */
     newTreeEachPhrase: true,
+    /** Each phrase grows one new branch on the take's tree; older ones dry, droop and fall
+     *  (consult 6, 3). Replaces newTreeEachPhrase while on. */
+    branchEachPhrase: false,
+    /** Branches a take keeps before the oldest dries and falls. */
+    branchesKept: 3,
+    /** Seconds an old branch takes to dry out. */
+    branchWitherSeconds: 2.5,
+    /** How far an old branch droops while it dries (degrees). */
+    branchDroopDeg: 30,
+    /** Seconds an old branch takes to fall and fade. */
+    branchFallSeconds: 1.4,
+    /** Leaves and blossoms let go and fall instead of shrinking back into a withering twig or a
+     *  closing bloom. */
+    shed: true,
     /** Seconds of full voice to grow a whole tree (higher = slower). */
     secondsToFull: 3.5,
     /** 0 = a few limbs; 1 = dense, ivy-like: tips closer together, more and deeper side shoots. */
@@ -111,9 +125,27 @@ export const defaults = {
     blossomHold: 1.5,
     /** Thorns grow with vocal effort (thorns theme). */
     thornEffort: 1,
+    /** Size of a closed blossom (a bud), relative to the open flower. 0 = no buds. */
+    buds: 0.25,
+    /** Colour that falling leaves and old, drying branches turn toward. */
+    dryColour: '#8a6f45',
+  },
+  /** Take colours of this look (consult 6, 7): your own (Setup), or this look's list. */
+  palette: {
+    /** mine: your own take colours. list: this look's colours below. */
+    from: 'mine' as 'mine' | 'list',
+    /** The look's colours: the stops of this gradient, in order. */
+    list: 'step;0:b5e61d,0.143:3d4fd6,0.286:00dd88,0.429:ff7ac8,0.571:ffb347,0.714:a77bff,0.857:4fd1ff',
+    /** order: the first free colour. random: a free colour chosen by the take's id. spread: any
+     *  gradient, sampled at well-spaced positions. */
+    pick: 'order' as 'order' | 'random' | 'spread',
+    /** Another number gives another random choice. */
+    seed: 1,
   },
   /** Your palette: the live halo colour and one colour per take (unless a track uses its DAW colour). */
   colours: {
+    /** Always use these take colours, even with a look that brings its own. */
+    lock: false,
     live: '#2fb84f',
     take1: '#b5e61d',
     take2: '#3d4fd6',
@@ -168,14 +200,15 @@ export const defaults = {
   },
   /** Colour of the halo ring and its vine (branches = the same settings as the trees' branches). */
   colHalo: {
-    source: 'take' as 'branches' | 'take' | 'gradient',
-    gradient: RAINBOW,
+    source: 'gradient' as 'branches' | 'take' | 'gradient',
+    /** The take colour with a white glint travelling round the ring. */
+    gradient: 'ok;0:t,0.7:t,1:ffffff',
     takeMix: 0,
     along: 1,
-    speed: 0.05,
+    speed: 0.08,
     voice: 'none' as 'none' | 'pitch' | 'loudness' | 'effort' | 'breath' | 'vibrato' | 'flash',
     voiceAmount: 0.5,
-    perTake: 0.15,
+    perTake: 0,
     scatter: 0,
   },
   halo: {
@@ -221,7 +254,7 @@ export const defaults = {
     restX: 0,
     /** Flatten the resting halo vertically, like a ring seen from slightly above (0 = flat-on
      *  circle). The recording halo opens round. */
-    squish: 0,
+    squish: 0.35,
     /** Tilt of the squished resting halo (degrees, follows a tilted head). */
     tilt: 0,
   },
@@ -265,6 +298,8 @@ export const defaults = {
   /** A live take that finishes recording winds into a staff and is planted as its tree. */
   commit: {
     enabled: true,
+    /** The halo breaks into this many pieces; each unrolls along one main limb of the new tree. */
+    limbs: 3,
     /** Overall pace (1 = about 1.4 s to the impact). */
     duration: 1,
     /** Flash, shock ring and quiver at the impact. */
@@ -358,7 +393,9 @@ export const defaults = {
     /** Frames per second while nobody sings and nothing is growing or being planted (only wind
      *  and slow fades). Same as max fps = always the full rate. */
     idleFps: 30,
-    /** Preview only: frames per second while another window has focus (DAW, a video). */
+    /** Preview only: frames per second while another window has focus (DAW, a video). Never
+     *  applies inside OBS (detected by its browser source), which always draws at max fps while
+     *  the source is shown and stops when it is not. */
     backgroundFps: 30,
     /** Largest picture drawn, in megapixels (2.1 = 1920 x 1080, 8.3 = 4K). A larger window or
      *  source is drawn at this size and scaled up. */
@@ -387,6 +424,14 @@ export const defaults = {
     highNotes: 0.25,
     /** Longest note the fake singer holds (seconds); long ones open blossoms. */
     noteMax: 1.1,
+    /** Share of notes held long (1.8 to 3.5 s), long enough to open blossoms. */
+    longNotes: 0.12,
+    /** Every n-th phrase ends with a full stop: a long pause (fullStopSeconds), so phrase-end
+     *  effects (withering, falling tips, a new branch) show. 0 = never. */
+    fullStopEvery: 3,
+    fullStopSeconds: 3.5,
+    /** Plant the live take every n seconds (0 = never), to watch the planting hands-free. */
+    autoCommit: 0,
     /** Pretend the DAW is recording (the halo opens with the first phrase and stays open). */
     recording: true,
     /** Live tracks for the fake singer (more than 1 = concentric halos). */

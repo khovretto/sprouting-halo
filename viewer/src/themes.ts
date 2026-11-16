@@ -19,8 +19,10 @@ export interface ThemePart {
   amount: number;
   /** Which colour role paints it. */
   role: 'leaf' | 'accent';
-  /** '#rrggbb', used when the role's source is "theme". */
+  /** '#rrggbb' or a gradient string (gradient.ts), used when the role's source is "theme". */
   natural: string;
+  /** How a natural gradient is spread over the parts (MOVES). */
+  move?: string;
   /** tint: a white / grey texture coloured by the role. own: keeps its own colours. */
   colour?: 'tint' | 'own';
   glow?: number;
@@ -39,7 +41,23 @@ export interface ThemeDef {
   parts: ThemePart[];
   /** name -> PNG data URL (at most 256 × 256). */
   textures?: Record<string, string>;
+  /** The branches' natural colour ('#rrggbb' or a gradient), when their colour role says "Theme colour". */
+  branch?: { natural: string };
 }
+
+/** Movements of a theme's natural gradient (the same five as the colour roles'). */
+export const MOVES: Record<string, { along: number; speed: number; scatter: number; pitch: number }> = {
+  Still: { along: 0, speed: 0, scatter: 0, pitch: 0 },
+  'Root→tip': { along: 1, speed: 0, scatter: 0, pitch: 0 },
+  Flow: { along: 0.3, speed: 0.05, scatter: 0, pitch: 0 },
+  Sparkle: { along: 0, speed: 0, scatter: 1, pitch: 0 },
+  'Sing it': { along: 0.2, speed: 0, scatter: 0, pitch: 1 },
+};
+
+/** Natural branch colours of the built-in themes (consult 6, 6.2). */
+const BUILTIN_BRANCH: Record<string, string> = { leaves: '#7a5a3a', thorns: '#5a3b46', wreath: '#5b4630', branches: '#cfd8e6' };
+/** The natural branch colour of a theme ('' = none: the take colour). */
+export const branchNatural = (id: string) => BUILTIN_BRANCH[id] ?? themeDef(id)?.branch?.natural ?? '';
 
 export const BUILTIN_IDS = ['leaves', 'thorns', 'wreath', 'branches'];
 export const BUILTIN_THEMES: ThemeDef[] = [
@@ -89,9 +107,11 @@ const changed = () => {
   for (const fn of listeners) fn();
 };
 
+/** The theme being edited changed. Only the textures follow: the preview reads the draft every
+ *  frame, and the theme lists must not rebuild while a slider of the editor is being dragged. */
 export function setDraft(def: ThemeDef | null) {
   draft = def ? JSON.parse(JSON.stringify(def)) : null;
-  changed();
+  void refreshTextures();
 }
 
 /** Load every user theme from Sprout.exe (base = http://host:port). */
@@ -129,7 +149,19 @@ let texRev = 0;
 export const textureRevision = () => texRev;
 export const textureLayers = () => [...texLayers.values()];
 
-async function toCanvas(url: string): Promise<{ c: HTMLCanvasElement; aspect: number } | null> {
+const canvasCache = new Map<string, Promise<{ c: HTMLCanvasElement; aspect: number } | null>>();
+/** A texture's canvas (decoded once per picture, however often the draft changes). */
+function toCanvas(url: string) {
+  let c = canvasCache.get(url);
+  if (!c) {
+    c = decodeToCanvas(url);
+    canvasCache.set(url, c);
+    if (canvasCache.size > 48) canvasCache.delete(canvasCache.keys().next().value!);
+  }
+  return c;
+}
+
+async function decodeToCanvas(url: string): Promise<{ c: HTMLCanvasElement; aspect: number } | null> {
   const img = new Image();
   img.src = url;
   try {
@@ -147,7 +179,9 @@ async function toCanvas(url: string): Promise<{ c: HTMLCanvasElement; aspect: nu
   return { c, aspect: img.naturalWidth / Math.max(1, img.naturalHeight) };
 }
 
+let texJob = 0;
 async function refreshTextures() {
+  const job = ++texJob;
   const want: { key: string; url: string; part: ThemePart }[] = [];
   const defs = [...(draft ? [draft] : []), ...custom.values()];
   for (const d of defs)
@@ -165,6 +199,7 @@ async function refreshTextures() {
       flutter: w.part.flutter ?? 1, own: w.part.colour === 'own',
     });
   }
+  if (job !== texJob) return; // a newer refresh started meanwhile: it wins
   texLayers.clear();
   for (const [k, v] of next) texLayers.set(k, v);
   texRev++;

@@ -41,12 +41,25 @@ const voiceOf = (d: Drive | undefined, v: string) =>
     : v === 'breath' ? d.breath : v === 'vibrato' ? d.vibrato : v === 'flash' ? d.flash : 0;
 
 /** Fill `ink` for one layer. `take` is the untinted take colour; `k` the take index. */
-export function setInk(ink: Ink, p: Params, role: RoleId, take: RGB, k: number, t: number, d?: Drive): Ink {
+export function setInk(ink: Ink, p: Params, role: RoleId, take: RGB, k: number, t: number, d?: Drive, override?: string): Ink {
   let r = p[role] as RoleParams;
   if (role === 'colHalo' && (r.source as string) === 'branches') r = p.colBranch;
   ink.take = take;
   ink.tint = hexToRgb(p.look.tint);
   ink.tintK = clamp(p.look.tintAmount);
+  if (override && (role === 'colBranch' || role === 'colHalo')) {
+    // The track's own gradient (Sprout Tap "My gradient"), moved by the look's movers.
+    const b = bakeGradient(override, take);
+    ink.lut = b.lut;
+    ink.loop = b.loop;
+    ink.natural = false;
+    ink.takeMix = 0;
+    ink.u0 = r.speed * t + r.voiceAmount * voiceOf(d, r.voice);
+    ink.along = r.along || 1;
+    ink.scatter = 0;
+    inkAt(ink, 0.5, 0.5, ink.mid);
+    return ink;
+  }
   ink.natural = r.source === 'theme';
   ink.takeMix = r.source === 'take' ? 1 : clamp(r.takeMix);
   ink.lut = null;

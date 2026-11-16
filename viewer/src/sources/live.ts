@@ -23,6 +23,8 @@ interface TapMessage {
   customTheme?: string;
   density?: number;
   trackColour?: boolean;
+  colourMode?: 'track' | 'auto' | 'ink';
+  ink?: string;
   recording?: boolean;
 }
 
@@ -142,8 +144,11 @@ export class LiveSource {
         name: s.tap.name,
         colour: s.tap.colour || undefined,
         theme: s.tap.customTheme || (s.tap.theme && s.tap.theme !== 'default' ? s.tap.theme : undefined),
-        density: s.tap.customTheme || (s.tap.theme && s.tap.theme !== 'default') ? s.tap.density : undefined,
+        // A negative amount is Auto (the viewer's), whatever the theme.
+        density: typeof s.tap.density === 'number' && s.tap.density >= 0 ? s.tap.density : undefined,
         trackColour: s.tap.trackColour,
+        colourMode: s.tap.colourMode ?? (s.tap.trackColour ? 'track' : 'auto'),
+        ink: s.tap.colourMode === 'ink' ? s.tap.ink : undefined,
         recording: s.tap.recording,
       };
     };

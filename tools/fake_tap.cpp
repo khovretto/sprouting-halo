@@ -1,7 +1,7 @@
 // fake_tap: stands in for Sprout Tap plugins so the app can be tested without a DAW.
 // Writes synthetic singing (phrases with vibrato, up to F6) into shared-memory slots in real time.
 //
-//   fake_tap [--takes N] [--instrument] [--seconds S] [--custom THEME_ID]
+//   fake_tap [--takes N] [--instrument] [--seconds S] [--custom THEME_ID] [--ink #rrggbb|GRADIENT]
 //
 // Take 1 is the "live voice"; further takes sing a third / fifth above as playback layers.
 
@@ -79,12 +79,14 @@ int main (int argc, char** argv)
     bool instrument = false;
     double seconds = 0.0; // 0 = forever
     std::string custom;   // a user theme for take 1
+    std::string ink;      // take 1's own colour or gradient (--ink)
     for (int i = 1; i < argc; ++i)
     {
         if (! std::strcmp (argv[i], "--takes") && i + 1 < argc)        takes = std::atoi (argv[++i]);
         else if (! std::strcmp (argv[i], "--instrument"))             instrument = true;
         else if (! std::strcmp (argv[i], "--seconds") && i + 1 < argc) seconds = std::atof (argv[++i]);
         else if (! std::strcmp (argv[i], "--custom") && i + 1 < argc)  custom = argv[++i];
+        else if (! std::strcmp (argv[i], "--ink") && i + 1 < argc)     ink = argv[++i];
     }
     takes = std::max (1, std::min (takes, 6));
 
@@ -156,6 +158,16 @@ int main (int argc, char** argv)
             char reqCustom[sprout::kThemeIdLength] {};
             if (writers[w].pollLookRequest (reqTheme, reqDensity, reqCustom))
             {
+                if (reqTheme == sprout::kLookResetAll)
+                {
+                    std::printf ("fake_tap: take %zu: everything back to Auto%c", w + 1, 10);
+                    std::fflush (stdout);
+                    reqTheme = 4;
+                    reqDensity = -1.0f;
+                    reqCustom[0] = 0;
+                    if (w == 0)
+                        ink.clear();
+                }
                 lookTheme[w] = reqTheme;
                 lookDensity[w] = reqDensity;
                 lookCustom[w] = reqCustom;
@@ -166,6 +178,11 @@ int main (int argc, char** argv)
             info.density = lookDensity[w];
             std::snprintf (info.customTheme, sizeof (info.customTheme), "%s", lookCustom[w].c_str());
             info.colourMode = 1;
+            if (w == 0 && ! ink.empty())
+            {
+                info.colourMode = ink[0] == '#' ? 2u : 3u;
+                std::snprintf (info.ink, sizeof (info.ink), "%s", ink.c_str());
+            }
             info.reserved[0] = 1; // recording
             writers[w].writeAudio (chunk.data(), kChunk);
             writers[w].publishInfo (info);

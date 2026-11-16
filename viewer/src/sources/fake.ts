@@ -24,6 +24,8 @@ export class FakeSource {
   private liveCount = 0;
   private takeIds: string[] = [];
   private takeCount = 0;
+  private phrases = 0;
+  private stopNow = false;
 
   constructor(seed: number) {
     this.reset(seed);
@@ -36,6 +38,8 @@ export class FakeSource {
     this.segEnd = 0.6;
     this.noteStart = this.noteEnd = 0;
     this.melody = 64;
+    this.phrases = 0;
+    this.stopNow = false;
     this.levels = [];
     this.liveIds = [];
     this.takeIds = [];
@@ -53,6 +57,18 @@ export class FakeSource {
     this.syncLives(p);
     this.takeIds.push(this.liveIds.shift()!);
     this.syncLives(p);
+    p.scene.layers = this.takeIds.length + 1;
+  }
+
+  /** End the current phrase now with a full stop (a long pause). */
+  endPhrase() {
+    this.stopNow = true;
+  }
+
+  /** Delete the oldest playback take (the planting loop keeps at most `keep`). */
+  dropOldest(p: Params, keep: number) {
+    this.syncTakes(p);
+    while (this.takeIds.length > keep) this.takeIds.shift();
     p.scene.layers = this.takeIds.length + 1;
   }
 
@@ -75,9 +91,17 @@ export class FakeSource {
     this.syncLives(p);
     this.t += dt;
     let newNote = false;
+    if (this.stopNow && this.phraseOn) this.segEnd = this.t;
     if (this.t >= this.segEnd) {
       this.phraseOn = !this.phraseOn;
-      this.segEnd = this.t + (this.phraseOn ? lerp(fp.phraseMin, fp.phraseMax, this.r()) : lerp(fp.gapMin, fp.gapMax, this.r()));
+      let len = this.phraseOn ? lerp(fp.phraseMin, fp.phraseMax, this.r()) : lerp(fp.gapMin, fp.gapMax, this.r());
+      if (!this.phraseOn) {
+        // A full stop: every n-th phrase (or the End phrase button) pauses long.
+        const every = Math.round(fp.fullStopEvery);
+        if (this.stopNow || (every > 0 && ++this.phrases % every === 0)) len = Math.max(len, fp.fullStopSeconds);
+        this.stopNow = false;
+      }
+      this.segEnd = this.t + len;
       if (this.phraseOn) {
         this.phraseStart = this.t;
         newNote = this.startNote(p);
@@ -117,7 +141,7 @@ export class FakeSource {
   private startNote(p: Params) {
     const r = this.r;
     this.noteStart = this.t;
-    this.noteEnd = this.t + lerp(0.22, Math.max(0.3, p.fake.noteMax), r());
+    this.noteEnd = this.t + (r() < p.fake.longNotes ? lerp(1.8, 3.5, r()) : lerp(0.22, Math.max(0.3, p.fake.noteMax), r()));
     this.intensity = clamp(0.5 + 0.5 * noise1(this.t * 0.35, 9) + (r() - 0.5) * 0.3);
     if (r() < p.fake.highNotes * 0.3) {
       this.melody = 84 + Math.floor(r() * 6); // up to F6

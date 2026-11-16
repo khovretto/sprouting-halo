@@ -390,9 +390,20 @@ std::string featureJson (const std::array<TapState, sprout::kMaxSlots>& taps, do
             appendJsonString (j, st.info.customTheme);
             j += ',';
         }
+        // Colour: track, auto (the viewer picks), or the track's own colour / gradient ("ink").
+        const uint32_t cm = st.info.colourMode;
+        if ((cm == 2 || cm == 3) && st.info.ink[0] != 0)
+        {
+            j += "\"colourMode\":\"ink\",\"ink\":";
+            appendJsonString (j, st.info.ink);
+            j += ',';
+        }
+        else
+            j += cm == 0 ? "\"colourMode\":\"track\"," : "\"colourMode\":\"auto\",";
         std::snprintf (num, sizeof (num), "\"theme\":\"%s\",\"density\":%.3f,\"trackColour\":%s,\"recording\":%s}",
-                       themes[std::min<uint32_t> (st.info.theme, 4)], std::clamp (st.info.density, 0.0f, 1.0f),
-                       st.info.colourMode == 0 ? "true" : "false", st.info.reserved[0] ? "true" : "false");
+                       themes[std::min<uint32_t> (st.info.theme, 4)],
+                       st.info.density < 0.0f ? -1.0f : std::min (st.info.density, 1.0f),
+                       cm == 0 ? "true" : "false", st.info.reserved[0] ? "true" : "false");
         j += num;
     }
     j += "]}";
@@ -650,6 +661,14 @@ void applyTapLook (const std::string& msg, sprout::Bus& bus, const std::array<Ta
         return msg.substr (a, b - a);
     };
     const std::string name = field ("theme");
+    // {"type":"tapLook","theme":"default","density":-1,"colour":"auto"}: every tap back to Auto.
+    if (name == "default")
+    {
+        for (uint32_t i = 0; i < sprout::kMaxSlots; ++i)
+            if (taps[i].active)
+                sprout::requestLook (bus.slots[i], (sprout::ThemeChoice) sprout::kLookResetAll, -1.0f);
+        return;
+    }
     sprout::ThemeChoice theme = sprout::ThemeChoice::Leaves;
     const char* custom = nullptr; // a user theme
     if (name == "leaves") theme = sprout::ThemeChoice::Leaves;

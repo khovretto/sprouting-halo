@@ -2,14 +2,14 @@
 // Preview mode (default) shows a tweak panel and a placeholder avatar; ?obs hides both and
 // leaves only the transparent visual. Settings sync between every open viewer via Sprout.exe.
 
-import { buildUI, deepMerge, loadParams, saveParams, UI, UIStatus } from './ui';
+import { buildUI, deepMerge, loadParams, saveParams, setSaveOverrides, UI, UIStatus } from './ui';
 import { defaults, Params } from './params';
 import { getPath, PATHS, setPath } from './presets';
 import type { FeatureFrame, LayerFeatures, Theme } from './features';
 import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
 import { Scope } from './scope';
-import { loadThemes, onThemesChanged, themeDef } from './themes';
+import { branchNatural, loadThemes, onThemesChanged, themeDef } from './themes';
 import { buildThemeEditor } from './theme-editor';
 import { Ink, inkAt, newInk, ringS, setInk } from './colour';
 import { LABELS } from './panel-layout';
@@ -17,6 +17,8 @@ import { clearAvatarImage, loadAvatarImage, pickAvatarImage } from './avatar-ima
 import { LayerMotion, Wind } from './motion';
 import { CommitAnimation, CommitHooks, CommitTarget, HaloSnapshot, StrandLook } from './growth/commit';
 import { FakeSource } from './sources/fake';
+import { bakeGradient, parseGradient } from './gradient';
+import { addHotkeys, installHotkeys, toggleSheet } from './hotkeys';
 import { LiveSource, ViewerMessage } from './sources/live';
 import { HaloVine } from './growth/halo';
 import { Plant } from './growth/plant';
@@ -26,7 +28,7 @@ import { Generations } from './growth/generations';
 import { Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
 import { decorateRing, decorateTree, DecoStyle } from './deco';
-import { layoutTakes, outlineOf, Placement, plantArc } from './layout';
+import { layoutTakes, outlineOf, Placement, plantArc, toWorld } from './layout';
 import { angleLerp, clamp, deg, hash1, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
 
 interface Slot {
@@ -36,6 +38,8 @@ interface Slot {
   drive: Drive;
   alpha: number;
   colour: string;
+  /** The track's own gradient (Sprout Tap "My gradient"), for its branches. */
+  ink?: string;
   theme: Theme;
   density: number;
   /** Being planted by a commit animation (not drawn as a tree until the impact). */
@@ -64,7 +68,7 @@ interface LiveHalo {
   cx: number;
   cy: number;
   R: number;
-  look: { theme: Theme; density: number; colour: string };
+  look: { theme: Theme; density: number; colour: string; ink?: string };
   f?: LayerFeatures;
   motion: LayerMotion;
 }
@@ -93,6 +97,10 @@ function start() {
   const params = loadParams();
   const query = new URLSearchParams(location.search);
   const obs = query.has('obs');
+  /** Running inside an OBS browser source (OBS adds window.obsstudio), with or without ?obs. It
+   *  never has keyboard focus, so it must not count as "in the background"; its panel starts hidden
+   *  (H or Interact shows it). */
+  const inObs = obs || 'obsstudio' in window;
   /** ?offline: never connect to Sprout.exe (fake singer only, no settings sync). For testing. */
   const offline = query.has('offline');
   const glCanvas = document.getElementById('gl') as HTMLCanvasElement;
@@ -122,7 +130,7 @@ function start() {
   const scope = new Scope(scopeCanvas);
   const scopeSet = (fn: () => void) => {
     fn();
-    if (!themesPage) saveParams(params);
+    saveParams(params);
     ui?.refresh();
   };
   scope.onSelect = (k) => scopeSet(() => (params.scene.scopeLayer = k));
@@ -165,12 +173,26 @@ function start() {
     return {
       id, vine: new HaloVine(haloSeed, params), drive: new Drive(), open: 0, spawnT0: t,
       cx: params.halo.restX, cy: params.halo.restY, R: params.halo.restRadius,
-      look: { theme: params.look.theme, density: params.look.density, colour: params.colours.live },
+      look: { theme: themesPage ? editorTheme : params.look.theme, density: params.look.density, colour: params.colours.live },
       motion: new LayerMotion(haloSeed),
     };
   }
 
+  /** Switch between the fake singer and the mode used before it (auto by default). */
+  let modeBeforeFake: Params['source']['mode'] = params.source.mode === 'fake' ? 'auto' : params.source.mode;
+  function toggleFake() {
+    if (params.source.mode === 'fake') params.source.mode = modeBeforeFake;
+    else {
+      modeBeforeFake = params.source.mode;
+      params.source.mode = 'fake';
+    }
+    saveParams(params);
+    ui?.refresh();
+  }
+
+  let lastAutoCommit = 0;
   function restart() {
+    lastAutoCommit = 0;
     t = 0;
     spin = 0;
     plantSeed = 1;
@@ -234,7 +256,7 @@ function start() {
       any = true;
     }
     if (any) {
-      if (!themesPage) saveParams(params);
+      saveParams(params);
       ui?.refresh();
     }
   };
@@ -262,7 +284,7 @@ function start() {
       const d = params.detect as unknown as Record<string, number>;
       for (const k of Object.keys(d)) if (typeof msg[k] === 'number') d[k] = +(msg[k] as number).toFixed(3);
       detectSent = JSON.stringify(params.detect);
-      if (!themesPage) saveParams(params);
+      saveParams(params);
       ui?.refresh();
       return;
     }
@@ -284,68 +306,100 @@ function start() {
     if (name === 'restart') restart();
     else if (name === 'commit') fake.commit(params);
     else if (name === 'delete') fake.deleteLast(params);
+    else if (name === 'phraseEnd') fake.endPhrase();
     if (broadcast) sendAction(name);
   }
 
   if (obs) {
     panel.remove();
     ovCanvas.remove();
-  } else if (themesPage) {
-    // /themes: the theme editor replaces the panel; the preview always shows the fake singer.
-    params.source.mode = 'fake';
-    params.scene.layers = 3;
-    params.fake.recording = true;
-    const editor = buildThemeEditor(panel, {
-      send: (msg) => {
-        if (live.status !== 'connected') return false;
-        live.send(msg as ViewerMessage);
-        return true;
-      },
-      connected: () => live.status === 'connected',
-      useInViewer: (id) => {
-        params.look.theme = id;
-        params.look.themeFrom = 'preset';
-        sendParams();
-      },
-      preview: (id) => (editorTheme = id),
-    });
-    onThemesChanged(() => editor.refresh());
   } else {
-    ui = buildUI(panel, params, {
-      restart: () => runAction('restart', true),
-      commitLive: () => runAction('commit', true),
-      presetApplied: (theme, density) => live.send({ type: 'tapLook', theme, density, from: clientId }),
-      loadAvatar: async () => {
-        const img = await pickAvatarImage();
-        if (img) {
-          overlay.image = img;
-          params.avatar.useImage = true;
-          params.scene.showAvatar = true;
-          if (params.avatar.opacity < 0.5) params.avatar.opacity = 1;
-          if (!themesPage) saveParams(params);
-          ui?.refresh();
-        }
-      },
-      clearAvatar: () => {
-        overlay.image = null;
-        void clearAvatarImage();
-      },
-      deleteTake: () => runAction('delete', true),
-      changed: () => {
-        lastLocalChange = Date.now();
-        sendParams();
-        sendDetect();
-      },
-    }, status);
+    if (inObs) panel.style.display = 'none';
+    buildPanel();
   }
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'h' || e.key === 'H') panel.style.display = panel.style.display === 'none' ? '' : 'none';
-    if ((e.key === 'g' || e.key === 'G') && !obs) {
-      params.scene.showScope = !params.scene.showScope;
-      if (!themesPage) saveParams(params);
-      ui?.refresh();
+  function buildPanel() {
+    if (themesPage) {
+      // /themes: the theme editor on the left, the normal panel on the right (presets can be worked
+      // on here too). The preview sings with the fake singer; these test values are not saved.
+      setSaveOverrides({ 'source.mode': params.source.mode, 'scene.layers': params.scene.layers, 'fake.recording': params.fake.recording });
+      params.source.mode = 'fake';
+      params.scene.layers = 3;
+      params.fake.recording = true;
+      const editorBox = document.createElement('div');
+      editorBox.id = 'theme-panel';
+      document.body.appendChild(editorBox);
+      const editor = buildThemeEditor(editorBox, {
+        send: (msg) => {
+          if (live.status !== 'connected') return false;
+          live.send(msg as ViewerMessage);
+          return true;
+        },
+        connected: () => live.status === 'connected',
+        useInViewer: (id) => {
+          params.look.theme = id;
+          params.look.themeFrom = 'preset';
+          saveParams(params);
+          sendParams();
+          ui?.refresh();
+        },
+        preview: (id) => (editorTheme = id),
+      });
+      onThemesChanged(() => editor.refresh());
     }
-  });
+    {
+      ui = buildUI(panel, params, {
+        restart: () => runAction('restart', true),
+        commitLive: () => runAction('commit', true),
+        tapsToAuto: () => live.send({ type: 'tapLook', theme: 'default', density: -1, colour: 'auto', from: clientId }),
+        loadAvatar: async () => {
+          const img = await pickAvatarImage();
+          if (img) {
+            overlay.image = img;
+            params.avatar.useImage = true;
+            params.scene.showAvatar = true;
+            if (params.avatar.opacity < 0.5) params.avatar.opacity = 1;
+            saveParams(params);
+            ui?.refresh();
+          }
+        },
+        clearAvatar: () => {
+          overlay.image = null;
+          void clearAvatarImage();
+        },
+        deleteTake: () => runAction('delete', true),
+        toggleFake: () => toggleFake(),
+        endPhrase: () => runAction('phraseEnd', true),
+        changed: () => {
+          lastLocalChange = Date.now();
+          sendParams();
+          sendDetect();
+        },
+      }, status);
+    }
+  }
+  // ---- Keyboard shortcuts ("/" shows them all) ------------------------------------------------------
+  const setLocal = (fn: () => void) => {
+    fn();
+    saveParams(params);
+    ui?.refresh();
+  };
+  addHotkeys([
+    { key: 'H', label: 'Hide / show the settings panels', run: () => {
+      const hide = panel.style.display !== 'none';
+      for (const el of [panel, document.getElementById('theme-panel')]) if (el) el.style.display = hide ? 'none' : '';
+    } },
+  ]);
+  if (!obs) addHotkeys([
+    { key: 'G', label: 'Voice scope', run: () => setLocal(() => (params.scene.showScope = !params.scene.showScope)) },
+    { key: 'F', label: 'Fake singer ⇄ live taps', run: () => toggleFake() },
+    { key: 'R', label: 'Restart growth', run: () => runAction('restart', true) },
+    { key: 'T', label: 'Halo → tree (commit the live take)', run: () => runAction('commit', true) },
+    { key: 'D', label: 'Delete the last take', run: () => runAction('delete', true) },
+    { key: 'E', label: 'End the phrase (fake singer full stop)', run: () => runAction('phraseEnd', true) },
+    { key: 'P', label: 'Pause / play', run: () => setLocal(() => (params.scene.paused = !params.scene.paused)) },
+  ]);
+  addHotkeys([{ key: '/', label: 'This list', run: () => toggleSheet() }]);
+  installHotkeys();
 
   // ---- Helpers ---------------------------------------------------------------------------------
   const blocked = (wx: number, wy: number) => {
@@ -357,17 +411,79 @@ function start() {
   };
 
   /** Colour for take k: the track colour when the tap asks for it, otherwise the viewer palette. */
-  const takeColour = (k: number, f?: LayerFeatures) => {
-    const useTrack = f?.trackColour ?? params.source.useTrackColours;
-    if (useTrack && f?.colour) return f.colour;
-    const c = params.colours as unknown as Record<string, string>;
-    return c[`take${(k % 7) + 1}`] ?? '#ffffff';
+  // ---- Take colours (consult 6, 7): one per take id, kept while it is on screen ------------------
+  const assigned = new Map<string, number>();
+  let ordinal = 0, paletteKey = '';
+  const strHash = (str: string) => {
+    let h = 0;
+    for (let q = 0; q < str.length; q++) h = (h * 31 + str.charCodeAt(q)) | 0;
+    return Math.abs(h);
   };
+  const usesMine = () => params.palette.from === 'mine' || params.colours.lock;
+  const mineList = () => {
+    const c = params.colours as unknown as Record<string, string>;
+    return [1, 2, 3, 4, 5, 6, 7].map((n) => c[`take${n}`] ?? '#ffffff');
+  };
+  const rgbHex = (r: number, g: number, b: number) =>
+    '#' + [r, g, b].map((v) => Math.round(clamp(v) * 255).toString(16).padStart(2, '0')).join('');
+  /** The palette colour of take (or halo) `id`: the first free one, a random free one, or spread. */
+  function paletteColour(id: string): string {
+    const P = params.palette, mine = usesMine();
+    const key = [mine, P.pick, P.seed, P.list].join('|');
+    if (key !== paletteKey) {
+      paletteKey = key;
+      assigned.clear();
+      ordinal = 0;
+    }
+    const spread = !mine && P.pick === 'spread';
+    const list = mine ? mineList() : parseGradient(P.list).stops.map((st) => (st.col === 't' ? params.colours.live : '#' + st.col));
+    let n = assigned.get(id);
+    if (n === undefined) {
+      if (spread) n = ordinal++;
+      else {
+        const used = new Set(assigned.values());
+        const free = list.map((_, q) => q).filter((q) => !used.has(q));
+        const pool = free.length ? free : list.map((_, q) => q);
+        n = P.pick === 'random' && !mine ? pool[Math.floor(hash1(strHash(id) * 0.731 + P.seed * 17.3) * pool.length)] : pool[0];
+      }
+      assigned.set(id, n);
+    }
+    if (spread) {
+      const lut = bakeGradient(P.list, [1, 1, 1]).lut, x = Math.round(((n * 0.618034) % 1) * 255) * 3;
+      return rgbHex(lut[x], lut[x + 1], lut[x + 2]);
+    }
+    return list[n % list.length];
+  }
+  /** Forget ids no longer on screen (their colour is free again). */
+  function prunePalette() {
+    for (const id of assigned.keys())
+      if (!slots.some((x) => x.id === id) && !halos.some((h) => h.id === id) && !dying.some((d) => d.slot.id === id) &&
+          !commits.some((c) => c.slotId === id)) assigned.delete(id);
+  }
+  /** The middle colour of a gradient string, as #rrggbb. */
+  const midHex = (g: string) => {
+    const lut = bakeGradient(g, hexToRgb(params.colours.live)).lut, x = 128 * 3;
+    return rgbHex(lut[x], lut[x + 1], lut[x + 2]);
+  };
+  /** Colour for take `id`: the tap's own colour or gradient, the track colour when asked for (or
+   *  on Auto with "use DAW track colours"), otherwise the palette (consult 6, 6.5). */
+  const takeColour = (id: string, f?: LayerFeatures) => {
+    if (f?.ink?.startsWith('#')) return f.ink;
+    if (f?.ink) return midHex(f.ink);
+    const track = f?.colourMode === 'track' || ((f?.colourMode ?? 'auto') === 'auto' && params.source.useTrackColours);
+    if (track && f?.colour) return f.colour;
+    return paletteColour(id);
+  };
+  /** The tap's own gradient, if any. */
+  const inkOf = (f?: LayerFeatures) => (f?.ink && !f.ink.startsWith('#') ? f.ink : undefined);
   // A track's theme: its own (Sprout Tap window), unless the preset's theme applies to all tracks.
   const themeOf = (f?: LayerFeatures) => {
     // A user theme this viewer doesn't have (not loaded yet, or deleted) falls back to the preset's.
-    const own = params.look.themeFrom === 'tracks' && f?.theme && themeDef(f.theme);
-    return { theme: own ? f.theme! : params.look.theme, density: own ? f.density ?? params.look.density : params.look.density };
+    if (themesPage) return { theme: editorTheme, density: params.look.density }; // the theme being edited, on every layer
+    // Each value falls back on its own: a tap on Auto (or a theme this viewer lacks) takes the look's.
+    const tracks = params.look.themeFrom === 'tracks';
+    const own = tracks && f?.theme && themeDef(f.theme) ? f.theme : undefined;
+    return { theme: own ?? params.look.theme, density: tracks && f?.density !== undefined ? f.density : params.look.density };
   };
 
   const liveUrl = () =>
@@ -426,14 +542,29 @@ function start() {
 
 
   let shown = new Uint8Array(0);
+  /** A theme's natural branch colour (its middle, for a gradient); undefined = the take colour. */
+  const branchCache = new Map<string, RGB>();
+  const branchRgb = (theme: string): RGB | undefined => {
+    const nat = branchNatural(theme);
+    if (!nat) return undefined;
+    let c = branchCache.get(nat);
+    if (!c) {
+      if (nat.includes(';')) {
+        const lut = bakeGradient(nat, [1, 1, 1]).lut;
+        c = [lut[384], lut[385], lut[386]];
+      } else c = hexToRgb(nat);
+      branchCache.set(nat, c);
+    }
+    return c;
+  };
   /** Push a skeleton's visible segments. */
   // Colour inks: one per layer and role (branch or halo, leaf, accent), refilled every frame.
   const inkPool: Ink[][] = Array.from({ length: MAX_LAYERS + 8 }, () => [newInk(), newInk(), newInk()]);
   const C = [0, 0, 0];
   /** Inks for a layer: stroke (branches, or the halo), leaf and accent. */
-  function inksFor(layer: number, take: RGB, k: number, d: Drive | undefined, halo: boolean) {
+  function inksFor(layer: number, take: RGB, k: number, d: Drive | undefined, halo: boolean, ink?: string) {
     const pool = inkPool[Math.max(0, Math.min(inkPool.length - 1, layer))];
-    setInk(pool[0], params, halo ? 'colHalo' : 'colBranch', take, k, t, d);
+    setInk(pool[0], params, halo ? 'colHalo' : 'colBranch', take, k, t, d, ink);
     setInk(pool[1], params, 'colLeaf', take, k, t, d);
     setInk(pool[2], params, 'colAccent', take, k, t, d);
     return { stroke: pool[0], leaf: pool[1], accent: pool[2] };
@@ -441,7 +572,7 @@ function start() {
 
   function pushTree(out: Instances, sk: Skeleton, vis: Float32Array, layer: number, ink: Ink,
                     look: Look, alpha: number, unit: number, frontGlow = params.glow.front, nodeAlpha?: ArrayLike<number>,
-                    tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>, sScale = 1, ring = false) {
+                    tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>, sScale = 1, ring = false, natural?: RGB) {
     const u = Math.max(1e-3, unit);
     if (alpha <= 0.005) return;
     const bright = brighten(look), fade = fadeOf(look);
@@ -460,7 +591,7 @@ function start() {
       const na = nodeAlpha ? nodeAlpha[i] : 1;
       if (na <= 0.005) continue;
       const ax = sk.x[pa], ay = sk.y[pa];
-      const c = inkAt(ink, ring ? ringS(sk.x[i], sk.y[i], ink.loop) : sk.flex[i] * sScale, 0.5, C);
+      const c = inkAt(ink, ring ? ringS(sk.x[i], sk.y[i], ink.loop) : sk.flex[i] * sScale, 0.5, C, natural);
       const tn = tone ? tone[i] : 1;
       const k = bright * tn;
       out.stroke(
@@ -504,7 +635,7 @@ function start() {
                    fall: number, downX: number, downY: number, theme: Theme, density: number, sScale = 1): DecoStyle {
     return {
       theme, density, layer, leaf: inks.leaf, accent: inks.accent, sScale, alpha: alpha * fadeOf(look), glow: look.glow * params.look.decoGlow, unit, seed, effort: d.effort,
-      bloom: look.bloom * params.look.blossoms, fall, downX, downY, intensity: brighten(look),
+      bloom: look.bloom * params.look.blossoms, fall, downX, downY, intensity: brighten(look), time: t, pitch: d.pitch,
     };
   }
 
@@ -553,7 +684,11 @@ function start() {
   function targetOf(s: Slot, layer: number): CommitTarget | undefined {
     const g = s.gens.current ?? s.gens.gens[s.gens.gens.length - 1];
     if (!g) return undefined;
-    return { place: s.place, spinAngle: spin * s.place.tierDir, plant: g.tree, layer, colour: tinted(hexToRgb(s.colour)) };
+    const v = lastView;
+    const view = v
+      ? { cx: v.cx, cy: v.cy, hw: v.W / 2 / v.s, hh: v.H / 2 / v.s }
+      : { cx: params.scene.centerX, cy: params.scene.centerY, hw: params.scene.viewRadius, hh: params.scene.viewRadius };
+    return { place: s.place, spinAngle: spin * s.place.tierDir, plant: g.tree, layer, colour: tinted(hexToRgb(s.colour)), view };
   }
 
   /** A strand look as a regular Look (multipliers on a moderately loud voice). */
@@ -620,13 +755,14 @@ function start() {
   // ---- Simulation ------------------------------------------------------------------------------
   function simulate(dt: number, realDt: number): FeatureFrame {
     t += dt;
-    if (themesPage) {
-      // The editor's theme on every layer of the preview (not saved, not synced).
-      params.look.theme = editorTheme;
-      params.look.themeFrom = 'preset';
-    }
     wind.update(dt, params);
     const ff = pickFrame(dt);
+    // Fake singer: plant the live take every n seconds (watch the planting hands-free).
+    if (params.fake.autoCommit > 0 && status.feed.startsWith('fake') && t - lastAutoCommit > params.fake.autoCommit) {
+      lastAutoCommit = t;
+      fake.commit(params);
+      fake.dropOldest(params, 4);
+    }
     const lives = ff.layers.filter((l) => l.role === 'live' && l.id !== 'live-none');
     const takes = ff.layers.filter((l) => l.role === 'take').slice(0, 16);
     const n = takes.length;
@@ -668,7 +804,11 @@ function start() {
       h.vine.update(dt, h.drive, !!f?.onset, params);
       // Track colour if the tap asks for it; otherwise the live colour, hue-shifted for each extra
       // live track so nested halos stay distinguishable.
-      h.look = { ...themeOf(f), colour: f?.trackColour && f.colour ? f.colour : hueShift(params.colours.live, k * 55) };
+      // The look's palette colours the halo too (so it already has its tree's colour); with your own
+      // colours it is the live colour, hue-shifted for each extra live track.
+      const haloColour = usesMine() ? hueShift(params.colours.live, k * 55) : paletteColour(h.id);
+      const own = f && (f.ink || ((f.colourMode === 'track' || (f.colourMode !== 'ink' && params.source.useTrackColours)) && f.colour));
+      h.look = { ...themeOf(f), colour: own ? takeColour(h.id, f) : haloColour, ink: inkOf(f) };
       // Small unless this track is being recorded; while recording it opens with the first phrase
       // and stays open until the recording stops.
       const recording = !!f && (f.recording ?? true);
@@ -696,12 +836,13 @@ function start() {
       const seed0 = params.fake.seed * 1000 + plantSeed++ * 97;
       const slot: Slot = {
         id, gens: undefined as unknown as Generations<Plant>,
-        place: { ...targets[k] }, drive: new Drive(), motion: new LayerMotion(seed0), alpha: 0, colour: takeColour(k, takes[k]), ...themeOf(takes[k]),
+        place: { ...targets[k] }, drive: new Drive(), motion: new LayerMotion(seed0), alpha: 0, colour: takeColour(id, takes[k]), ...themeOf(takes[k]),
       };
       // Each tree: plumage from its own seed, gesture (spine) from the take's seed, character from
       // the phrase that grows it.
-      slot.gens = new Generations<Plant>((seed) => {
+      slot.gens = new Generations<Plant>((seed, slice) => {
         const plant = new Plant(seed, seed0);
+        plant.slice = slice;
         const d = slot.drive;
         plant.mood = { effort: d.effort, pitch: d.pitch, soft: d.softness, vibrato: d.vibrato };
         return plant;
@@ -709,7 +850,7 @@ function start() {
       const c = commits.find((x) => x.slotId === id);
       if (c) {
         slot.commit = c;
-        slot.gens.regrow();
+        slot.gens.regrow(params);
         slot.gens.gens[0].tree.mood = c.snap.mood;
       }
       return slot;
@@ -732,12 +873,14 @@ function start() {
       const pending = !!s.commit && s.commit.stampedAt < 0;
       if (!pending) s.gens.update(s.drive, dt, params);
       for (const g of s.gens.gens) {
-        g.tree.boost = s.stampT !== undefined ? 1 + 5 * Math.exp(-(t - s.stampT) / 0.2) : 1;
+        g.tree.boost = s.stampT !== undefined ? 1 + 3 * Math.exp(-(t - s.stampT) / 0.35) : 1;
         g.tree.ensureBuilt(tg, params, blocked, n);
-        g.tree.computeReveal(g.reveal, s.drive.pitch, params, g.retired ? 0 : g.wither, dt);
+        // A replaced tree keeps its withered twigs while it fades (they no longer grow back).
+        g.tree.computeReveal(g.reveal, s.drive.pitch, params, g.wither, dt);
       }
       s.alpha = pending ? 0 : Math.min(1, s.alpha + realDt * 2);
-      s.colour = takeColour(k, f);
+      s.colour = takeColour(s.id, f);
+      s.ink = inkOf(f);
       Object.assign(s, themeOf(f));
     });
     if (n >= params.layout.spinFrom) spin += params.layout.spinSpeed * deg * dt;
@@ -756,7 +899,7 @@ function start() {
         if (g) {
           g.stamped = true;
           g.reveal = Math.max(g.reveal, params.commit.stampReveal);
-          g.tree.revealSpine();
+          c.revealLimbs(g.tree);
         }
       }
     }
@@ -767,6 +910,7 @@ function start() {
     });
 
     dying = dying.filter((d) => t - d.t0 < params.transitions.pruneSeconds);
+    prunePalette();
     if (params.scene.showScope && !obs && dt > 0) sampleScope(takes);
     return ff;
   }
@@ -806,20 +950,54 @@ function start() {
     const drawPlant = (s: Slot, alpha: number, look: Look, fall: number) => {
       const pl = s.place;
       const angle = pl.angle + spin * pl.tierDir;
-      const inks = inksFor(layer, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false);
+      const inks = inksFor(layer, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false, s.ink);
       // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
       const base = inks.stroke.mid;
       const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
       look = { ...look, glow: look.glow * clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4) };
-      const [dx, dy] = localDown(angle, pl.scale);
+      const slotL = layer;
+      const take = hexToRgb(s.colour), kTake = Math.max(0, slots.indexOf(s));
       for (const g of s.gens.gens) {
-        const a = alpha * g.alpha;
+        let a = alpha * g.alpha, L = slotL, gInks = inks, ang = angle;
+        const dry = g.dry ?? 0, gfall = g.fall ?? 0;
+        if (g.bough && dry > 0 && layer < MAX_LAYERS - 5) {
+          // An old bough (branch per phrase) in its own layer: it dries, droops about the point
+          // where it leaves the avatar, then drops and fades (consult 6, 3.4).
+          L = ++layer;
+          const spinA = spin * pl.tierDir;
+          const path = g.tree.limbPaths[0];
+          let ox = pl.ox, oy = pl.oy;
+          if (path) {
+            const q0 = g.tree.limbAt(0, path.clear), q1 = g.tree.limbAt(0, path.length);
+            const [px, py] = toWorld(q0.x, q0.y, pl, spinA);
+            const [tx, ty] = toWorld(q1.x, q1.y, pl, spinA);
+            const toDown = Math.atan2(Math.sin(-Math.PI / 2 - Math.atan2(ty - py, tx - px)), Math.cos(-Math.PI / 2 - Math.atan2(ty - py, tx - px)));
+            const e = dry * dry; // slow start
+            const delta = Math.sign(toDown) * Math.min(Math.abs(toDown), params.growth.branchDroopDeg * deg) * (0.85 * e + 0.15 * gfall);
+            const c = Math.cos(delta), s2 = Math.sin(delta);
+            const fs = gfall * params.growth.branchFallSeconds; // seconds falling
+            ox = px + c * (pl.ox - px) - s2 * (pl.oy - py) + 0.06 * Math.sign(tx - px) * gfall;
+            oy = py + s2 * (pl.ox - px) + c * (pl.oy - py) - 0.5 * 1.8 * fs * fs; // gravity 1.8 units / s²
+            ang = angle + delta;
+          }
+          layerU.set(L, ox, oy, ang, pl.scale, s.motion);
+          a *= 1 - smooth(gfall);
+          gInks = inksFor(L, take, kTake, s.drive, false, s.ink);
+          const dryRgb = hexToRgb(params.look.dryColour);
+          for (const ink of [gInks.stroke, gInks.leaf, gInks.accent]) {
+            ink.tint = [lerp(ink.tint[0], dryRgb[0], dry), lerp(ink.tint[1], dryRgb[1], dry), lerp(ink.tint[2], dryRgb[2], dry)];
+            ink.tintK = lerp(ink.tintK, 0.75, dry);
+          }
+        }
+        const [dx, dy] = localDown(ang, pl.scale);
         const sScale = 1 / Math.max(1e-3, g.tree.maxFlex);
-        pushTree(back, g.tree.sk, g.tree.vis, layer, inks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend, sScale);
+        pushTree(back, g.tree.sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend, sScale,
+          false, branchRgb(s.theme));
         decorateTree(g.tree.sk, g.tree.vis, params,
-          styleOf(layer, inks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), backDeco,
+          styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), backDeco,
           { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend,
-            leafState: g.tree.leafState, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone });
+            leafState: g.tree.leafState, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone,
+            shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry });
       }
     };
 
@@ -866,14 +1044,15 @@ function start() {
       // Squish and tilt are for the small resting halo only; the recording halo opens round.
       const idle = 1 - smooth(clamp(h.open));
       layerU.set(layer, h.cx, h.cy, Math.PI / 2 + hp.tilt * deg * idle, R, h.motion, 1 - clamp(hp.squish, 0, 0.95) * idle);
-      const inks = inksFor(layer, hexToRgb(h.look.colour), Math.max(0, halos.indexOf(h)), h.drive, true);
+      const inks = inksFor(layer, hexToRgb(h.look.colour), Math.max(0, halos.indexOf(h)), h.drive, true, h.look.ink);
       const look = lookOf(h.drive);
       pushRing(front, layer, inks.stroke, look, fade, R, h.drive.energy);
       // More origins = more vine, so fewer leaves on each part of it.
       const origins = Math.max(1, Math.round(hp.origins));
       const style = styleOf(layer, inks, look, fade, R, h.vine.seed, h.drive, 0, 0, -1 / R, h.look.theme, h.look.density / origins);
       style.sizeMul = Math.pow(clamp(R / Math.max(0.05, hp.openRadius), 0.25, 1), 0.7);
-      pushTree(front, h.vine.sk, h.vine.vis, layer, inks.stroke, look, fade, R, params.glow.front, h.vine.alpha, undefined, h.vine.order, h.vine.bend, 1, true);
+      pushTree(front, h.vine.sk, h.vine.vis, layer, inks.stroke, look, fade, R, params.glow.front, h.vine.alpha, undefined, h.vine.order, h.vine.bend, 1, true,
+        branchRgb(h.look.theme));
       decorateTree(h.vine.sk, h.vine.vis, params, style, frontDeco, { ids: h.vine.ids, alpha: h.vine.alpha, order: h.vine.order, bend: h.vine.bend, leafGrow: h.vine.leaf });
       decorateRing(params, { ...style, density: h.look.density }, (a) => h.vine.coverage(a, params), frontDeco, hp.alwaysLeaves);
       layer++;
@@ -949,7 +1128,7 @@ function start() {
   const perfAdd = (k: 'sim' | 'build' | 'gpu', ms: number) => (perf[k] += (ms - perf[k]) * 0.02);
 
   // OBS tells the page when the source is not shown anywhere.
-  if (obs) window.addEventListener('obsSourceVisibleChanged', (e) => {
+  if (inObs) window.addEventListener('obsSourceVisibleChanged', (e) => {
     obsVisible = (e as CustomEvent<{ visible?: boolean }>).detail?.visible !== false;
   });
   // The GPU process was reset (driver update, out of video memory, another program crashed it):
@@ -972,7 +1151,7 @@ function start() {
     const pf = params.perf;
     let fps = pf.fps;
     if (now > activeUntil) fps = Math.min(fps, pf.idleFps);
-    if (!obs && !document.hasFocus()) fps = Math.min(fps, pf.backgroundFps);
+    if (!inObs && !document.hasFocus()) fps = Math.min(fps, pf.backgroundFps);
     if (controls) fps = Math.min(fps, params.scene.showScope ? 30 : 10); // simulation for the scope only
     return clamp(fps, 1, 240);
   }
@@ -1027,6 +1206,8 @@ function start() {
     advance,
     action: (name: string) => runAction(name, true),
     slots: () => slots,
+    commits: () => commits,
+    view: () => lastView,
     /** Shape checks for each take's newest tree (docs/fable-consult.md, A7). */
     metrics: () => slots.map((s, k) => {
       const g = s.gens.current ?? s.gens.gens[s.gens.gens.length - 1];

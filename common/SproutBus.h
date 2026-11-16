@@ -1,6 +1,6 @@
 // SproutBus.h - shared-memory protocol between Sprout Tap plugins and the Sprout app.
 //
-// One named file mapping ("Local\SproutBus_v4") holds a fixed array of slots.
+// One named file mapping ("Local\SproutBus_v5") holds a fixed array of slots.
 // Each tap plugin instance claims one slot and is its ONLY writer:
 //   - metadata + per-block features are published under a seqlock,
 //   - dry mono audio goes into a per-slot ring buffer,
@@ -25,11 +25,12 @@
 namespace sprout
 {
 constexpr uint32_t kMagic         = 0x54525053; // 'SPRT'
-constexpr uint32_t kVersion       = 4; // 2: per-track look; 3: app -> tap look requests; 4: user themes
+constexpr uint32_t kVersion       = 5; // 2: per-track look; 3: app -> tap look requests; 4: user themes; 5: per-track ink, Auto
 constexpr uint32_t kMaxSlots      = 16;
 constexpr uint32_t kAudioRingSize = 1u << 15; // 32768 samples, ~0.68 s at 48 kHz
 constexpr uint32_t kNameLength    = 64;
-constexpr wchar_t  kMappingName[] = L"Local\\SproutBus_v4";
+constexpr wchar_t  kMappingName[] = L"Local\\SproutBus_v5";
+constexpr uint32_t kInkLength     = 192; // "#rrggbb" or a gradient string (viewer/src/gradient.ts)
 constexpr uint32_t kThemeIdLength = 48; // user theme ids are at most 40 characters
 constexpr uint32_t kThemeNameLength = 48;
 constexpr uint32_t kMaxThemeList  = 64;
@@ -63,13 +64,27 @@ struct SlotInfo
     float    blockPeak   = 0.0f;
 
     // Per-track look, set in the tap plugin's window (v2).
-    uint32_t theme       = 0;     // ThemeChoice
-    float    density     = 0.55f; // decorations per branch, 0..1
-    uint32_t colourMode  = 0;     // 0 track colour (palette if the track has none), 1 viewer palette
+    uint32_t theme       = 4;     // ThemeChoice; ViewerDefault = Auto (the viewer's look)
+    float    density     = -1.0f; // decorations per branch, 0..1; < 0 = Auto (the viewer's amount)
+    uint32_t colourMode  = 1;     // ColourMode
     uint32_t reserved[8] {};      // room for more without a protocol change; [0] = DAW is recording
     // A user theme id (v4); when not empty it wins over `theme`.
     char     customTheme[kThemeIdLength] {};
+    // The track's own colour ("#rrggbb", colourMode 2) or gradient (colourMode 3) (v5).
+    char     ink[kInkLength] {};
 };
+
+// SlotInfo::colourMode.
+enum class ColourMode : uint32_t
+{
+    Track = 0,    // the DAW track colour (the viewer's palette if the track has none)
+    Auto = 1,     // the viewer picks (its palette, or track colours if it is set to use them)
+    OwnColour = 2,
+    OwnGradient = 3,
+};
+
+// lookTheme value of a look request that sets theme, amount and colour back to Auto.
+constexpr uint32_t kLookResetAll = 0x100;
 
 // Order of the tap's Theme choice; the app sends the names to the viewer.
 enum class ThemeChoice : uint32_t
@@ -355,6 +370,7 @@ inline bool readInfo (const Slot& s, SlotInfo& out)
         {
             out.name[kNameLength - 1] = 0;
             out.customTheme[kThemeIdLength - 1] = 0;
+            out.ink[kInkLength - 1] = 0;
             return true;
         }
     }

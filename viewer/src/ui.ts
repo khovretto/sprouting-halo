@@ -5,6 +5,7 @@
 // comments in params.ts. Presets (presets.ts): built-in looks, saved looks, a revert button on
 // every changed row (to the active preset; Shift-click: the factory default).
 
+import { toggleSheet } from './hotkeys';
 import { ButtonApi, FolderApi, ListBladeApi, Pane, TabPageApi } from 'tweakpane';
 import { defaults, Params } from './params';
 import paramsSource from './params.ts?raw';
@@ -64,7 +65,7 @@ const RANGES: Record<string, Spec> = {
   'response.pitchSteer': { min: 0, max: 1 },
   'response.effortWidth': { min: 0, max: 2 },
   'response.brightness': { min: 0, max: 1 },
-  'look.themeFrom': { options: { 'Each track (Sprout Tap window)': 'tracks', 'This preset (all tracks)': 'preset' } },
+  'look.themeFrom': { options: { 'Used (Sprout Tap overrides)': 'tracks', 'Ignored (this look for every track)': 'preset' } },
   'look.theme': { options: { Branches: 'branches', Leaves: 'leaves', Thorns: 'thorns', 'Christmas wreath': 'wreath' } },
   'look.density': { min: 0, max: 1 },
   'look.tintAmount': { min: 0, max: 1 },
@@ -139,6 +140,7 @@ const RANGES: Record<string, Spec> = {
   'avatar.imageHeight': { min: 0.5, max: 8 },
   'colBranch.source': { options: { 'Track colour': 'take', 'Theme colour': 'theme', Gradient: 'gradient' } },
   'colBranch.gradient': { gradient: true },
+  'palette.list': { gradient: true },
   'colBranch.takeMix': { min: 0, max: 1 },
   'colBranch.along': { min: -2, max: 2 },
   'colBranch.speed': { min: -1, max: 1 },
@@ -202,6 +204,19 @@ const RANGES: Record<string, Spec> = {
   'fake.gapMin': { min: 0, max: 5 },
   'fake.gapMax': { min: 0, max: 8 },
   'fake.noteMax': { min: 0.3, max: 6 },
+  'fake.longNotes': { min: 0, max: 1 },
+  'fake.autoCommit': { min: 0, max: 30, step: 1 },
+  'growth.branchesKept': { min: 1, max: 6, step: 1 },
+  'growth.branchWitherSeconds': { min: 0.3, max: 8 },
+  'growth.branchDroopDeg': { min: 0, max: 70 },
+  'growth.branchFallSeconds': { min: 0.3, max: 4 },
+  'commit.limbs': { min: 1, max: 4, step: 1 },
+  'look.buds': { min: 0, max: 0.6 },
+  'palette.from': { options: { 'My take colours (Setup)': 'mine', "This look's colours": 'list' } },
+  'palette.pick': { options: { 'In order': 'order', 'Random (per take)': 'random', 'Spread along the gradient': 'spread' } },
+  'palette.seed': { min: 1, max: 99, step: 1 },
+  'fake.fullStopEvery': { min: 0, max: 10, step: 1 },
+  'fake.fullStopSeconds': { min: 1.5, max: 10 },
   'fake.highNotes': { min: 0, max: 1 },
 };
 
@@ -260,7 +275,18 @@ function changedOnly(p: Record<string, unknown>, d: Record<string, unknown>): Re
   return out;
 }
 
+/** Values saved instead of the live ones (the /themes page's test values must not stick). */
+let saveOverrides: Record<string, unknown> = {};
+export function setSaveOverrides(o: Record<string, unknown>) {
+  saveOverrides = o;
+}
+
 export function saveParams(p: Params) {
+  if (Object.keys(saveOverrides).length) {
+    const copy = structuredClone(p);
+    for (const [k, v] of Object.entries(saveOverrides)) setPath(copy, k, v);
+    p = copy;
+  }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(changedOnly(
       p as unknown as Record<string, unknown>, defaults as unknown as Record<string, unknown>)));
@@ -273,9 +299,13 @@ export interface UIActions {
   restart(): void;
   commitLive(): void;
   deleteTake(): void;
+  /** Fake singer <-> the mode before it. */
+  toggleFake(): void;
+  /** Fake singer: end the phrase now with a long pause. */
+  endPhrase(): void;
   loadAvatar(): void;
-  /** A preset was picked: its theme and amount go to every Sprout Tap. */
-  presetApplied(theme: string, density: number): void;
+  /** Set every Sprout Tap's theme, amount and colour back to Auto (they follow the look). */
+  tapsToAuto(): void;
   clearAvatar(): void;
   /** Called after the user changed something in the panel (not for remote updates). */
   changed(): void;
@@ -393,7 +423,35 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     'Live tracks (a halo each) and recorded takes (a tree each).');
   tip(pane.addBinding(status, 'pitch', { readonly: true, label: 'live pitch' }).element,
     'The note the first live track is singing, in cents off the note, and the vibrato rate when there is vibrato.');
-  tip(pane.addBinding(status, 'voice', { readonly: true, label: 'live voice' }).element,
+  let fakeSync = () => {};
+  const voiceRow = pane.addBinding(status, 'voice', { readonly: true, label: 'live voice' });
+  // Test toolbar: the preview tools used most, with their keys ("/" lists every key).
+  {
+    const bar = document.createElement('div');
+    bar.className = 'sprout-toolbar';
+    const add = (text: string, key: string, tipText: string, run: () => void) => {
+      const b = document.createElement('button');
+      b.textContent = text;
+      b.addEventListener('click', () => {
+        run();
+        pane.refresh();
+      });
+      tip(b, `${tipText}
+Key: ${key}`);
+      bar.appendChild(b);
+      return b;
+    };
+    const fakeBtn = add('', 'F', 'Switch between the fake singer and live taps from Sprout.exe (the mode you had before), to test without a DAW and come back.', () => actions.toggleFake());
+    const syncFake = () => (fakeBtn.textContent = p.source.mode === 'fake' ? '◉ Fake singer' : '○ Fake singer');
+    syncFake();
+    fakeSync = syncFake;
+    add('↻ Restart', 'R', 'Restart growth: the fake singer and every tree start from the beginning.', () => actions.restart());
+    add('Halo → tree', 'T', 'Play the planting animation: the live take finishes recording and its halo becomes a tree (fake singer).', () => actions.commitLive());
+    add('End phrase', 'E', 'Fake singer: end the phrase now with a full stop (a long pause), to see the phrase-end effects.', () => actions.endPhrase());
+    add('Keys /', '/', 'Show every keyboard shortcut.', () => toggleSheet());
+    voiceRow.element.after(bar);
+  }
+  tip(voiceRow.element,
     'Effort: soft (0) to full voice (1), from the overtones, so 0.5 = how you usually sing and mic distance does not matter. Breath: how airy the singing is (only while a note is sung; inhales do not count). Soft: what the visuals use, high for soft, airy singing. G opens the voice scope to see them over time');
 
   // Changes applied from another viewer must never be sent back: that echo, arriving late, is
@@ -552,7 +610,6 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       if (stashFrom) store[k].stash = stashFrom;
       applyPreset(p, byId(k, id), k);
       active[k] = id;
-      if (k === 'visual') actions.presetApplied(p.look.theme, p.look.density);
     }
     afterPresetChange(k, true);
   }
@@ -854,6 +911,8 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
       const et = folder.addButton({ title: 'Edit themes…' });
       btnTip(et, 'Make your own themes with your own pictures (opens the theme editor of Sprout.exe in a new tab).');
       et.on('click', () => window.open(`http://localhost:${p.source.port}/themes`, '_blank'));
+      const ta = confirmButton(folder, 'Set every tap to Auto', 'Click again: every tap follows this look', () => actions.tapsToAuto());
+      btnTip(ta, 'Every Sprout Tap window: Theme, Leaves and Colour back to Auto, so every track follows the look picked here. A tap set to its own theme or colour keeps it until then (asks for a second click).');
     }
     if (spec.id === 'commit') {
       const tc = folder.addButton({ title: 'Test: commit the live take' });
@@ -930,6 +989,14 @@ Shift-click: factory default ${fmt(d)}`));
       hide(`${r}.takeMix`, role.source === 'take' || role.source === 'branches');
     }
     hide('glow.tint', false);
+    // Look palette: its list and pick only when the look brings its own colours.
+    const pal = p.palette.from === 'list';
+    hide('palette.list', !pal);
+    hide('palette.pick', !pal);
+    hide('palette.seed', !pal || p.palette.pick !== 'random');
+    // Branch per phrase replaces "new tree each phrase"; its own settings only while on.
+    hide('growth.newTreeEachPhrase', p.growth.branchEachPhrase);
+    for (const k of ['branchesKept', 'branchWitherSeconds', 'branchDroopDeg', 'branchFallSeconds']) hide(`growth.${k}`, !p.growth.branchEachPhrase);
     for (const e of editors) e.ed.el.style.display = e.binding.hidden ? 'none' : '';
     hide('growth.witherDipSemitones', !p.growth.witherOnPitchDip);
     hide('scene.scopeLayer', !p.scene.showScope);
@@ -981,6 +1048,7 @@ Shift-click: factory default ${fmt(d)}`));
 
   let timer = 0;
   pane.on('change', () => {
+    fakeSync();
     if (isQuiet() || marking) return;
     updateMarks();
     clearTimeout(timer);
@@ -1004,6 +1072,7 @@ Shift-click: factory default ${fmt(d)}`));
     quietUntil = performance.now() + 400;
     clearTimeout(timer);
     pane.refresh();
+    fakeSync();
     for (const k of KINDS) {
       const before = active[k];
       active[k] = derive(k, before);

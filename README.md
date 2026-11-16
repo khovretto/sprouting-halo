@@ -63,14 +63,19 @@ Outputs:
    - **Take playback** on recorded layers,
    - **Instrument** on a separate instrument track, if you have one.
 
-   The same window sets this track's look in the viewer: **Theme** (leaves, thorns, Christmas
-   wreath, branches only, or viewer default), **Custom** (a theme made on the
-   `localhost:7777/themes` page; the list comes from Sprout.exe, so it is there while Sprout.exe
-   runs, and when set it is used instead of Theme), **Amount** of leaves/thorns, and **Colour** (the
-   Reaper track colour, or the viewer palette). The custom theme is saved with the project; a
-   preset with a custom theme sets it on every voice track.
+   The same window holds this track's overrides. Each starts on **Auto**, which means the viewer's
+   look decides; change one only when this track should differ:
+   - **Theme**: Auto, a built-in theme, or one of your own themes made on the
+     `localhost:7777/themes` page (listed while Sprout.exe runs),
+   - **Leaves**: Auto, or this track's own amount (moving the slider turns Auto off),
+   - **Colour**: Auto (the viewer's palette, or the look's), Track colour (the DAW's), My colour
+     (a picker), or My gradient (built-in gradients, or Paste one copied in the viewer).
 
-   This plugin speaks bus protocol v4: update Sprout.exe and every Sprout Tap instance together.
+   **All Auto** puts the three back to Auto; the viewer's "Set every tap to Auto" button (Look ->
+   Theme & leaves) does it for every track at once. Picking a preset in the viewer no longer
+   changes the taps. Everything is saved with the DAW project.
+
+   This plugin speaks bus protocol v5: update Sprout.exe and every Sprout Tap instance together.
 
    The plugin window shows "Connected" when it has a slot. Track name and color are picked up
    from Reaper automatically.

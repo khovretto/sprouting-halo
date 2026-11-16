@@ -20,6 +20,7 @@
 // are applied on the GPU. Re-layout never rebuilds a tree; a change of territory (take count) or of
 // a shape setting does.
 
+import { ShedPool } from '../shed';
 import type { Params } from '../params';
 import { outlineOf, Placement, rOutAt, toLocal, toWorld } from '../layout';
 import { clamp, deg, hash1, lerp, noise1, rng, Rng } from '../math';
@@ -89,6 +90,8 @@ export class Plant {
   maxFlex = 1;
   /** Set by the creator before the first build (the phrase that grows this tree). */
   mood: Mood = NEUTRAL_MOOD;
+  /** growth.branchEachPhrase: build only one bough, in slice [j, of M] of the territory. */
+  slice: [number, number] | null = null;
   /** Share of the reveal taken by the hidden part (trunk, primaries behind the avatar). */
   private trunkFrac = 0;
   /** Per-node growth 0..1 along its segment (computeReveal). */
@@ -104,6 +107,12 @@ export class Plant {
   bend = new Float32Array(0);
   /** Per-node leaf presence 0..1 (eased by decorateTree, so leaves fade in and out). */
   leafState = new Float32Array(0);
+  /** Per-node blossom open amount shown (deco.ts), -1 after its petals fell. */
+  bloomState = new Float32Array(0);
+  /** A twig withered back in the last computeReveal. */
+  retracting = false;
+  /** Leaves and petals that let go (growth.shed). */
+  shed = new ShedPool();
   /** Per-node: the lowest leaf density at which this node carries a leaf (2 = never). */
   leafRank = new Float32Array(0);
   private childVis = new Float32Array(0);
@@ -123,6 +132,9 @@ export class Plant {
   private thr = new Float32Array(0);
   private signature = '';
   private r: Rng;
+  /** One path per primary limb, in primary order: root -> hub -> that primary (the planting
+   *  animation's fronds, consult 6, 2.3). `clear`: arc length where it leaves the avatar. */
+  limbPaths: { idx: Int32Array; cum: Float32Array; length: number; clear: number }[] = [];
   /** The spine (Part B commit): root -> hub -> the territory's middle primary limb. */
   private spine = new Int32Array(0);
   private spineCum = new Float32Array(0);
@@ -150,7 +162,7 @@ export class Plant {
       pl.kind, Math.round(pl.sectorLo * 1000), Math.round(pl.sectorHi * 1000), pl.lengthMul ?? 1,
       g.branching, g.reach, g.flatten, g.spread, pp.lift, pp.wildness, pp.taper, pp.clearance, pp.softDroop,
       pp.moodShaping, pp.step, pp.tipWidth, pp.maxWidth, pp.maxNodes, L.decoSize, L.variety, L.depthShade,
-      p.layout.midOriginY, p.layout.spinSpeed !== 0,
+      p.layout.midOriginY, p.layout.spinSpeed !== 0, this.slice ? this.slice.join('/') : '',
       a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
     if (sig === this.signature) return false;
@@ -196,6 +208,7 @@ export class Plant {
     const reach = wither * Math.max(0.01, g.witherDepth);
     const retract = (Math.max(0.05, g.witherDepth) / Math.max(0.05, g.twigFadeSeconds)) * dt; // units this frame
     const n = sk.n;
+    this.retracting = false;
     if (this.childVis.length < n) this.childVis = new Float32Array(n * 2);
     const cv = this.childVis;
     cv.fill(0, 0, n);
@@ -204,6 +217,7 @@ export class Plant {
       if (this.witherH[i] < reach && dt > 0 && cv[i] <= 0 && this.vis[i] > 0) {
         const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
         this.vis[i] = Math.max(0, this.vis[i] - retract / seg);
+        this.retracting = true;
       }
       if (pa >= 0 && this.vis[i] > cv[pa]) cv[pa] = this.vis[i];
     }
@@ -253,6 +267,38 @@ export class Plant {
     return { x: sk.x[a] + tx * (d - cum[k]), y: sk.y[a] + ty * (d - cum[k]), tx, ty, w };
   }
 
+  /** Point, unit tangent and width at arc length d along limb path k, clamped to the path (no
+   *  straight extension past its ends). */
+  limbAt(k: number, d: number) {
+    const P = this.limbPaths[k], sk = this.sk;
+    if (!P || P.idx.length < 2) return { x: 0, y: d, tx: 0, ty: 1, w: sk.w[0] ?? 0.01 };
+    const cum = P.cum, m = P.idx.length;
+    d = clamp(d, 0, P.length);
+    let lo = 0, hi = m - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] <= d) lo = mid;
+      else hi = mid;
+    }
+    const a = P.idx[lo], b = P.idx[lo + 1];
+    const len = Math.max(1e-6, cum[lo + 1] - cum[lo]);
+    const tx = (sk.x[b] - sk.x[a]) / len, ty = (sk.y[b] - sk.y[a]) / len;
+    const u = clamp((d - cum[lo]) / len);
+    return { x: sk.x[a] + tx * (d - cum[lo]), y: sk.y[a] + ty * (d - cum[lo]), tx, ty, w: sk.w[a] + (sk.w[b] - sk.w[a]) * u };
+  }
+
+  /** Show limb path k at once up to arc length upTo (a frond landed on it). */
+  revealLimb(k: number, upTo: number) {
+    const P = this.limbPaths[k];
+    if (!P) return;
+    for (let j = 0; j < P.idx.length && P.cum[j] <= upTo; j++) {
+      const i = P.idx[j];
+      this.vis[i] = this.target[i] = 1;
+      this.life[i] = 1;
+    }
+    this.markDone();
+  }
+
   /** Show the whole spine at once (the strand that landed on it is now it). */
   revealSpine() {
     for (const i of this.spine) {
@@ -287,6 +333,8 @@ export class Plant {
     this.life = new Float32Array(n).fill(1);
     this.leafLife = new Float32Array(n).fill(1);
     this.leafState = new Float32Array(n);
+    this.bloomState = new Float32Array(n);
+    this.shed.clear();
     return height;
   }
 
@@ -468,7 +516,7 @@ export class Plant {
       }
     }
     const gTip = lerp(0.6, 0.28, branching);
-    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), 3, 20);
+    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), this.slice ? Math.max(3, this.slice[1]) : 3, 20);
     const kE = clamp(1.05 - 0.4 * g.spread * lerp(0.85, 1.2, mood.effort), 0.3, 1);
     const hero = Math.floor(nTip * (0.25 + 0.5 * rs()));
     const droop = 8 * deg * mood.soft * pp.softDroop;
@@ -511,11 +559,18 @@ export class Plant {
         subdivide(node, side, depth + 1, sk.w[node] * 0.8, limb);
       }
     };
-    const nPrim = tips.length ? clamp(Math.round((sIn * kE) / 0.2), Math.min(2, tips.length), Math.min(tips.length, 7)) : 0;
-    for (let k = 0; k < nPrim; k++) {
-      const from = Math.round((k * tips.length) / nPrim), to = Math.round(((k + 1) * tips.length) / nPrim);
-      subdivide(hub, tips.slice(from, to), 0, wPrim, null, k);
-    }
+    // One bough (branch per phrase): only the tips of this tree's slice, as a single primary.
+    const nPrim = !tips.length ? 0 : this.slice ? 1 : clamp(Math.round((sIn * kE) / 0.2), Math.min(2, tips.length), Math.min(tips.length, 7));
+    if (this.slice && tips.length) {
+      const [j, M] = this.slice;
+      const from = Math.min(tips.length - 1, Math.floor((j * tips.length) / M));
+      const to = Math.max(from + 1, Math.floor(((j + 1) * tips.length) / M));
+      subdivide(hub, tips.slice(from, to), 0, wPrim, null, 0);
+    } else
+      for (let k = 0; k < nPrim; k++) {
+        const from = Math.round((k * tips.length) / nPrim), to = Math.round(((k + 1) * tips.length) / nPrim);
+        subdivide(hub, tips.slice(from, to), 0, wPrim, null, k);
+      }
 
     // 4. Ivy shoots, placed into free space. All limbs exist before any shoot does, and spawn
     //    sites are visited in a shuffled order so no limb takes all the room first.
@@ -621,6 +676,22 @@ export class Plant {
       const path: number[] = [];
       for (let i = hub; i >= 0; i = sk.parent[i]) path.unshift(i);
       if (best) for (let i = best.first; i <= best.last; i++) path.push(i);
+      // Every primary's path (the fronds), in primary order.
+      const trunk: number[] = [];
+      for (let i = hub; i >= 0; i = sk.parent[i]) trunk.unshift(i);
+      this.limbPaths = limbs.filter((lb) => lb.prim >= 0 && lb.last >= lb.first).sort((a, b) => a.prim - b.prim).map((lb) => {
+        const pth = [...trunk];
+        for (let i = lb.first; i <= lb.last; i++) pth.push(i);
+        const cum = new Float32Array(pth.length);
+        for (let k = 1; k < pth.length; k++) cum[k] = cum[k - 1] + Math.hypot(sk.x[pth[k]] - sk.x[pth[k - 1]], sk.y[pth[k]] - sk.y[pth[k - 1]]);
+        let clear = cum[pth.length - 1] * 0.4;
+        for (let k = 0; k < pth.length; k++)
+          if (!hidden(sk.x[pth[k]], sk.y[pth[k]])) {
+            clear = cum[k];
+            break;
+          }
+        return { idx: Int32Array.from(pth), cum, length: cum[pth.length - 1], clear };
+      });
       this.spine = Int32Array.from(path);
       this.spineCum = new Float32Array(path.length);
       for (let k = 1; k < path.length; k++)

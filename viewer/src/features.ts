@@ -32,6 +32,10 @@ export interface LayerFeatures {
   density?: number;
   /** Use the DAW track colour (when the track has one) instead of the viewer palette. */
   trackColour?: boolean;
+  /** Colour from the tap: track (DAW track colour), auto (the viewer picks), ink (own colour or gradient). */
+  colourMode?: 'track' | 'auto' | 'ink';
+  /** The track's own colour ("#rrggbb") or gradient string, with colourMode 'ink'. */
+  ink?: string;
   /** The DAW is recording (live take only). Undefined = unknown (treated as recording). */
   recording?: boolean;
 }

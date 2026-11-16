@@ -9,7 +9,10 @@ import type { Instances } from './render/renderer';
 import type { Skeleton } from './growth/skeleton';
 import { clamp, hash1, lerp, RGB } from './math';
 import { Ink, inkAt } from './colour';
-import { customDef, shapeId, ThemeDef, ThemePart } from './themes';
+import { customDef, MOVES, shapeId, ThemeDef, ThemePart } from './themes';
+import { bakeGradient } from './gradient';
+import type { ShedPool } from './shed';
+import { hexToRgb } from './math';
 
 const enum Shape {
   Leaf = 0,
@@ -54,9 +57,15 @@ export interface DecoStyle {
   downX: number;
   downY: number;
   intensity: number;
+  /** Sim time and the voice's pitch 0..1 (a theme's moving natural gradient). */
+  time?: number;
+  pitch?: number;
 }
 
 let tipScratch = new Uint8Array(0);
+/** Take plants: 1 = blossom site (a twig end with a flower, no leaf), 2 = the node before one. */
+let bloomSite = new Uint8Array(0);
+const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 /** Leaves on take trees unfurl smoothly as their twig grows (no springy overshoot). */
 const unfurl = (t: number) => 1 - Math.pow(1 - t, 2.5);
 
@@ -66,8 +75,31 @@ const easeOutBack = (t: number) => {
 };
 
 const TAU2 = Math.PI * 2;
+let dryKey = '', dryRgb: RGB = [0.54, 0.44, 0.27];
+/** look.dryColour as RGB (cached). */
+function dryOf(p: Params): RGB {
+  if (p.look.dryColour !== dryKey) {
+    dryKey = p.look.dryColour;
+    dryRgb = hexToRgb(dryKey);
+  }
+  return dryRgb;
+}
 const natCache = new Map<string, RGB>();
-/** A part's natural colour as RGB (cached). */
+const natScratch: RGB = [1, 1, 1];
+/** A part's natural colour as RGB: one colour (cached), or a point of its gradient moved by part.move. */
+function natAt(part: ThemePart, st: DecoStyle, s: number, h: number): RGB {
+  if (!part.natural.includes(';')) return natOf(part);
+  const mv = MOVES[part.move ?? 'Sparkle'] ?? MOVES.Sparkle;
+  const b = bakeGradient(part.natural, [1, 1, 1]);
+  let u = mv.speed * (st.time ?? 0) + mv.along * s + mv.scatter * (h - 0.5) + mv.pitch * (st.pitch ?? 0);
+  u = b.loop ? u - Math.floor(u) : clamp(u + (mv.scatter > 0 ? 0.5 : 0));
+  const x = Math.min(255, Math.max(0, Math.round(u * 255))) * 3;
+  natScratch[0] = b.lut[x];
+  natScratch[1] = b.lut[x + 1];
+  natScratch[2] = b.lut[x + 2];
+  return natScratch;
+}
+/** A part's single natural colour as RGB (cached). */
 function natOf(part: ThemePart): RGB {
   let c = natCache.get(part.natural);
   if (!c) {
@@ -97,6 +129,9 @@ class Placer {
   nodeAlpha = 1;
   /** Motion frame of the current node: order and the shoot's pivot x, y, flex, heading (null = rigid at the point). */
   frame: [number, number, number, number, number] | null = null;
+  /** Set for one put(): that decoration lets go and falls (drawn by the pool from now on). */
+  drop: ShedPool | null = null;
+  now = 0;
 
   constructor(private out: Instances, private st: DecoStyle) {}
 
@@ -110,6 +145,11 @@ class Placer {
       y += st.downY * d;
       angle += st.fall * (h - 0.5) * 8;
       a *= 1 - st.fall;
+    }
+    if (this.drop) {
+      if (size > 0 && a > 0.01) this.drop.add(this.now, x, y, angle, size, shape, col, flex, h, glowMul, this.frame, this.nodeAlpha);
+      this.drop = null;
+      return;
     }
     if (a <= 0.01 || size <= 0) return;
     const f = this.frame;
@@ -143,6 +183,15 @@ export interface TreeExtras {
   /** Motion: per-node branch order and bend frames (4 floats per node). */
   order?: ArrayLike<number>;
   bend?: ArrayLike<number>;
+  /** growth.shed: the plant's pool of falling decorations, and the sim time. */
+  shed?: ShedPool;
+  now?: number;
+  /** Take plants: per-node blossom open amount shown (> 0), or -1 after its petals fell. */
+  bloomState?: Float32Array;
+  /** A twig of this tree is withering back this frame. */
+  retracting?: boolean;
+  /** An old bough drying out (0..1): its leaves let go one by one, blossoms stay closed. */
+  dry?: number;
 }
 
 export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: DecoStyle, out: Instances, extras: TreeExtras = {}) {
@@ -152,11 +201,45 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   if (custom && !custom.parts.length) return;
   const place = new Placer(out, st);
   const underPlace = extras.under ? new Placer(extras.under, { ...st, glow: 0 }) : null;
+  place.now = extras.now ?? 0;
+  if (underPlace) underPlace.now = place.now;
   const unit = Math.max(1e-3, st.unit);
   const size = (L.decoSize * (st.sizeMul ?? 1)) / unit;
   const dens = st.density;
   const variety = clamp(L.variety);
   const rank = extras.rank;
+  const shedOn = p.growth.shed && !!extras.shed && st.fall <= 0;
+  // Blossom sites: twig ends chosen by hash; they carry no leaf, nor does the node before them,
+  // so a flower never sits on a leaf (consult 6, 5.2).
+  if (bloomSite.length < sk.n) bloomSite = new Uint8Array(sk.n * 2);
+  bloomSite.fill(0, 0, sk.n);
+  const tipPart = custom?.parts.find((x) => x.place === 'tips');
+  const siteChance = custom ? (tipPart ? 0.35 * L.blossoms * Math.max(0, tipPart.amount) : 0) : st.theme === 'leaves' ? 0.35 * L.blossoms : 0;
+  if (siteChance > 0)
+    for (let i = 1; i < sk.n; i++) {
+      if (sk.children[i] !== 0) continue;
+      const id = extras.ids ? extras.ids[i] : i;
+      if (hash1(id * 9.77 + st.seed * 4.4) >= siteChance) continue;
+      bloomSite[i] = 1;
+      if (!bloomSite[sk.parent[i]]) bloomSite[sk.parent[i]] = 2;
+    }
+  const up = Math.atan2(-st.downY, -st.downX); // the sky, in the layer's frame
+  const bs = extras.bloomState;
+  /** Open amount of the blossom at node i (0..1); drops its petals when shedding. */
+  const blossomOpen = (i: number, want: number, h3: number, drop: () => void) => {
+    if (!bs) return want;
+    let b = bs[i];
+    if (b < 0) {
+      if (st.bloom < 0.02) b = 0; // petals fell: wait for the bloom to close before a new flower
+    } else if (want >= b) b = want; // opening follows the bloom
+    else if (!shedOn || b <= 0.3) b = want; // old behaviour, and half-open ones just close
+    else if (want < b * (0.35 + 0.6 * h3)) {
+      drop(); // each lets go at its own moment of the close
+      b = -1;
+    } // between: held at the size it reached
+    bs[i] = b;
+    return b < 0 ? 0 : b;
+  };
   // Take plants: which nodes are visible tips right now (no child drawn): growing and withered
   // ends always carry a leaf, so a tree never shows bare stubs.
   if (rank) {
@@ -180,9 +263,37 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   /** Ease node i's leaf presence toward `want`; returns its size factor (0 = gone). */
   const presence = (i: number, want: boolean) => {
     if (!ls) return want ? 1 : 0;
+    if (shedOn && !want && ls[i] > 0.5) {
+      // Let go at full size: the pool draws it falling from now on.
+      ls[i] = 0;
+      place.drop = extras.shed!;
+      if (underPlace) underPlace.drop = extras.shed!;
+      return 1;
+    }
     ls[i] += ((want ? 1 : 0) - ls[i]) * ease;
     const v = ls[i];
     return v < 0.003 ? 0 : v * v * (3 - 2 * v);
+  };
+  /** A blossom on its own twig end, turned toward the sky; a bud while closed. */
+  const blossom = (i: number, x: number, y: number, dir: number, flex: number, h2: number, h3: number, pop: number) => {
+    const ang = dir + clamp(wrapPi(up - dir), -0.9, 0.9) * 0.6 + (h2 - 0.5) * 0.5;
+    const base = size * 0.075 * pop * (0.8 + 0.4 * h2);
+    const c = col(st.accent, PETAL, flex * st.sScale, h3, 1, st.intensity * 1.1);
+    const pc: [number, number, number] = [c[0], c[1], c[2]];
+    const open = blossomOpen(i, (extras.dry ?? 0) > 0 ? 0 : st.bloom, h3, () => {
+      place.drop = extras.shed!;
+      place.put(x, y, ang, base * Math.max(0.02, bs ? bs[i] : 1), Shape.Blossom, pc, flex, h3, 1.4);
+    });
+    const shown = Math.max(open, L.buds);
+    if (shown <= 0.003) return;
+    if (open < L.buds) {
+      // A closed bud is greener: half way to the leaf colour here.
+      const lc = col(st.leaf, LEAF, flex * st.sScale, h3, 1, st.intensity);
+      pc[0] = lerp(pc[0], lc[0], 0.5);
+      pc[1] = lerp(pc[1], lc[1], 0.5);
+      pc[2] = lerp(pc[2], lc[2], 0.5);
+    }
+    place.put(x, y, ang, base * shown, Shape.Blossom, pc, flex, h3, lerp(0.6, 1.4, open));
   };
   const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns') && !custom;
   for (let i = 1; i < sk.n; i++) {
@@ -222,22 +333,21 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       // A user theme: its parts, placed by the same rules as the built-in themes.
       const bId = extras.branchId, bDone = extras.branchDone;
       const allowed = !rank || (f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1));
-      const visTip = !!rank && allowed && (tipScratch[i] === 1 || tipScratch[i] === 2);
+      const visTip = !!rank && allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
       let spacedDone = false;
       for (const part of custom.parts) {
         const sid = shapeId(custom.id, part.shape);
         if (sid < 0) continue;
         const ink = part.role === 'accent' ? st.accent : st.leaf;
-        const nat = natOf(part);
         const own = part.colour === 'own';
         const gl = part.glow ?? 1;
         const eff = part.sizeFrom === 'effort' ? 0.6 + L.thornEffort * st.effort : 1;
         const amt = Math.max(0, part.amount);
         const colourFor = (s: number, h: number, natScale: number, gain: number) =>
-          own ? ((tintA[0] = tintA[1] = tintA[2] = gain), tintA) : col(ink, nat, s, h, natScale, gain);
+          own ? ((tintA[0] = tintA[1] = tintA[2] = gain), tintA) : col(ink, natAt(part, st, s, h), s, h, natScale, gain);
         switch (part.place) {
           case 'spaced': {
-            const has = rank ? allowed && (rank[i] <= Math.min(1, dens * amt) || (visTip && dens > 0.1)) : h0 < dens * 0.45 * amt || (terminal && dens > 0.15);
+            const has = !bloomSite[i] && (rank ? allowed && (rank[i] <= Math.min(1, dens * amt) || (visTip && dens > 0.1)) : h0 < dens * 0.45 * amt || (terminal && dens > 0.15));
             const pres = rank && !spacedDone ? presence(i, has) : has ? 1 : 0;
             spacedDone = true;
             if (pres <= 0) break;
@@ -247,11 +357,19 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
             break;
           }
           case 'tips': {
-            if (!(allowed && (terminal || visTip) && h3 < 0.35 * L.blossoms * amt)) break;
-            const open = part.opens === 'bloom' ? st.bloom : 1;
-            if (open <= 0.02) break;
-            const s = size * 0.075 * part.size * eff * open * pop * (0.8 + 0.4 * h2);
-            place.put(x, y, dir, s, sid, colourFor(flex * st.sScale, h3, 1, st.intensity * 1.1), flex, h3, gl);
+            if (bloomSite[i] !== 1 || !allowed) break;
+            const ang = dir + clamp(wrapPi(up - dir), -0.9, 0.9) * 0.6 + (h2 - 0.5) * 0.5;
+            const base = size * 0.075 * part.size * eff * pop * (0.8 + 0.4 * h2);
+            const c = colourFor(flex * st.sScale, h3, 1, st.intensity * 1.1);
+            const blooms = part.opens === 'bloom';
+            const open = blooms
+              ? blossomOpen(i, st.bloom, h3, () => {
+                place.drop = extras.shed!;
+                place.put(x, y, ang, base * Math.max(0.02, bs ? bs[i] : 1), sid, c, flex, h3, gl);
+              })
+              : 1;
+            const s = base * (blooms ? Math.max(open, L.buds) : 1);
+            if (s > 0) place.put(x, y, ang, s, sid, c, flex, h3, gl * (blooms ? lerp(0.6, 1, open) : 1));
             break;
           }
           case 'every': {
@@ -295,8 +413,8 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       // what is left (and buds where its shoots were).
       const bId = extras.branchId, bDone = extras.branchDone;
       const allowed = f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1);
-      const visTip = allowed && (tipScratch[i] === 1 || tipScratch[i] === 2);
-      const has = allowed && (rank[i] <= dens || (visTip && dens > 0.1));
+      const visTip = allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
+      const has = allowed && !bloomSite[i] && (rank[i] <= dens || (visTip && dens > 0.1)) && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
       const pxv = x, pyv = y;
       if (st.theme === 'leaves') {
         const pres = presence(i, has);
@@ -315,10 +433,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
             underPlace!.put(x, y, ang, sz * 1.15, Shape.Leaf, tintB, flex, h0);
           } else place.put(x, y, ang, sz, Shape.Leaf, c, flex, h0);
         }
-        if (allowed && (terminal || visTip) && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
-          const s = size * 0.075 * st.bloom * pop * (0.8 + 0.4 * h2);
-          place.put(pxv, pyv, dir, s, Shape.Blossom, col(st.accent, PETAL, flex * st.sScale, h3, 1, st.intensity * 1.1), flex, h3, 1.4);
-        }
+        if (bloomSite[i] === 1 && allowed) blossom(i, pxv, pyv, dir, flex, h2, h3, pop);
         continue;
       }
       if (st.theme === 'thorns') {
@@ -336,14 +451,11 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
 
     switch (st.theme) {
       case 'leaves': {
-        if (h0 < dens * 0.45 || (terminal && dens > 0.15)) {
+        if (!bloomSite[i] && (h0 < dens * 0.45 || (terminal && dens > 0.15))) {
           const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * (0.75 + 0.4 * h2);
           place.put(x, y, ang, size * 0.055 * (0.7 + 0.6 * h2) * pop, Shape.Leaf, col(st.leaf, LEAF, flex * st.sScale, h2, 1, st.intensity), flex, h0);
         }
-        if (terminal && h3 < 0.35 * L.blossoms && st.bloom > 0.02) {
-          const s = size * 0.075 * st.bloom * pop * (0.8 + 0.4 * h2);
-          place.put(x, y, dir, s, Shape.Blossom, col(st.accent, PETAL, flex * st.sScale, h3, 1, st.intensity * 1.1), flex, h3, 1.4);
-        }
+        if (bloomSite[i] === 1) blossom(i, x, y, dir, flex, h2, h3, pop);
         break;
       }
       case 'thorns': {
@@ -377,6 +489,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       }
     }
   }
+  extras.shed?.draw(out, st, extras.now ?? 0, dryOf(p));
 }
 
 /**
@@ -417,7 +530,7 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
       if (sid >= 0 && h0 < dens * 0.8 * ringPart.amount) {
         const own = ringPart.colour === 'own';
         const c = own ? ((tintA[0] = tintA[1] = tintA[2] = st.intensity), tintA)
-          : col(ringPart.role === 'accent' ? st.accent : st.leaf, natOf(ringPart), a / TAU2, h0, 1, st.intensity);
+          : col(ringPart.role === 'accent' ? st.accent : st.leaf, natAt(ringPart, st, a / TAU2, h0), a / TAU2, h0, 1, st.intensity);
         place.put(x, y, a + (alt > 0 ? 0 : Math.PI) + alt * (0.7 + 0.4 * h1), size * 0.045 * ringPart.size * pop * (0.7 + 0.6 * h1),
           sid, c, 0, h0, ringPart.glow ?? 1);
       }

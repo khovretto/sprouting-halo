@@ -4,7 +4,9 @@
 // "Use in viewer" makes it the theme of every viewer.
 
 import { Pane } from 'tweakpane';
-import { allThemes, BUILTIN_SHAPES, isBuiltin, setDraft, ThemeDef, ThemePart, themeDef } from './themes';
+import { allThemes, BUILTIN_SHAPES, isBuiltin, MOVES, setDraft, ThemeDef, ThemePart, themeDef } from './themes';
+import { GradientEditor } from './gradient-editor';
+import type { FolderApi } from 'tweakpane';
 import { installTooltips, tip } from './tooltip';
 import { installSelectMenus } from './select-menu';
 import { slug } from './presets';
@@ -26,6 +28,23 @@ const PLACES: Record<string, string> = {
   'Small clusters (like berries)': 'clusters',
   'Mirrored pairs (like holly)': 'pairs',
 };
+
+/** A colour or gradient as a gradient string (one stop = one colour). */
+const asGradient = (v: string) => (v.includes(';') ? v : `ok;0:${v.replace('#', '').slice(0, 6) || 'ffffff'}`);
+
+/** A row with the gradient editor: label on the left, the editor under it. */
+function gradientRow(f: Pane | FolderApi, label: string, value: string, tipText: string, onChange: (v: string) => void) {
+  const holder = { v: value };
+  const b = f.addBinding(holder, 'v', { label });
+  tip(b.element, tipText);
+  const input = b.element.querySelector<HTMLElement>('.tp-lblv_v');
+  if (input) input.style.display = 'none';
+  const ed = new GradientEditor(asGradient(value), onChange);
+  ed.el.style.padding = '2px 4px 4px 8px';
+  ed.el.style.flexBasis = '100%';
+  b.element.style.flexWrap = 'wrap';
+  b.element.appendChild(ed.el);
+}
 
 const newPart = (): ThemePart => ({ place: 'spaced', shape: 'leaf', size: 1, amount: 1, role: 'leaf', natural: '#52c757', colour: 'tint', glow: 1, flutter: 1, opens: 'always', sizeFrom: 'none' });
 
@@ -151,6 +170,12 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
     tip(nameRow.element, 'The name shown in the theme lists.');
     nameRow.on('change', () => touched());
     p.addBinding({ id: current.id }, 'id', { readonly: true, label: 'file' });
+    gradientRow(p, 'branch colour', current.branch?.natural ?? '#7a5a3a',
+      'The branches\' own colour (one stop) or gradient, used when Look -> Colours -> Branches says "Theme colour".',
+      (v) => {
+        current.branch = { natural: v };
+        touched();
+      });
 
     current.parts.forEach((part, k) => {
       part.colour ??= 'tint';
@@ -158,6 +183,7 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
       part.flutter ??= 1;
       part.opens ??= 'always';
       part.sizeFrom ??= 'none';
+      part.move ??= 'Sparkle';
       const f = p.addFolder({ title: `Part ${k + 1}: ${part.shape.replace('tex:', '')}`, expanded: k === current.parts.length - 1 || current.parts.length <= 2 });
       const add = (key: keyof ThemePart, o: Record<string, unknown>, tipText: string, rebuildAfter = false) => {
         const b = f.addBinding(part as unknown as Record<string, unknown>, key as string, o);
@@ -192,7 +218,13 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
       add('size', { label: 'size', min: 0.2, max: 3 }, 'Size compared with the built-in part in that place (1 = the same).');
       add('amount', { label: 'amount', min: 0, max: 2 }, 'How many, compared with the built-in part (1 = the same; the track\'s amount still applies).');
       add('role', { label: 'coloured as', options: { 'Leaves colour': 'leaf', 'Blossoms & berries colour': 'accent' } }, 'Which colour settings paint it (Look → Colours).');
-      add('natural', { label: 'natural colour', view: 'color' }, 'Its own colour when the colour settings say "Theme colour".');
+      gradientRow(f, 'natural colour', part.natural, 'Its own colour (one stop) or gradient, used when the colour settings say "Theme colour". A gradient is spread over the parts as set in "colour movement".',
+        (v) => {
+          part.natural = v;
+          touched();
+        });
+      add('move', { label: 'colour movement', options: Object.fromEntries(Object.keys(MOVES).map((k) => [k, k])) },
+        'How a natural gradient is spread: Still (one colour), Root→tip, Flow (travels), Sparkle (each its own), Sing it (follows your pitch).');
       add('colour', { label: 'picture colours', options: { 'Tinted by the colour settings': 'tint', 'Keep the picture\'s own colours': 'own' } }, 'For pictures: tint a white/grey picture, or keep a colourful picture as it is (it still brightens and dims with the voice).');
       add('glow', { label: 'glow', min: 0, max: 3 }, 'How much it glows compared with leaves.');
       add('flutter', { label: 'flutter', min: 0, max: 1 }, 'How much it flutters in the wind (0 = rigid like a thorn, 1 = like a leaf).');
