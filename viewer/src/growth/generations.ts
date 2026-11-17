@@ -38,6 +38,10 @@ export interface Generation<T extends Structure> {
   /** A retired bough: 0..1 dried out, then 0..1 fallen. */
   dry?: number;
   fall?: number;
+  /** Ending (growth.ending): 0..1 how far it has withered back to the root. */
+  die?: number;
+  /** Ending now (a long silence ended the whole tree), without waiting for growth.fadeAfter. */
+  ending?: boolean;
 }
 
 const MAX_GENERATIONS = 5;
@@ -105,15 +109,29 @@ export class Generations<T extends Structure> {
       if (d.voice) cur.wither = Math.max(0, cur.wither - dt / 1.2);
     }
 
+    // A long silence ends the whole tree (trunk, limbs and all); the next phrase starts a new one.
+    // Trees planted by the commit animation wait for their first phrase instead.
+    if (g.dieAfter > 0 && !d.voice && d.silentFor > g.dieAfter)
+      for (const x of this.gens)
+        if (!x.stamped && !x.ending) {
+          x.retired = true;
+          x.ending = true;
+        }
+
     const fadeAfter = Math.max(0, g.fadeAfter);
     const fade = Math.max(0.05, g.fadeSeconds);
-    const dropping = this.gens.filter((x) => x.bough && x.retired).length;
+    const ending = g.ending ?? 'wither';
+    const dropping = this.gens.filter((x) => x.bough && x.retired && !x.ending).length;
     for (const gen of this.gens) {
       const growing = gen === cur && d.voice;
       if (!growing) gen.idle += dt;
       if (gen.bough && gen.retired) {
+        if (ending === 'fade') {
+          gen.alpha -= dt / fade; // fades where it is
+          continue;
+        }
         // A retired bough dries, then falls (faster when phrases come faster than boughs fall).
-        const hurry = dropping > 2 ? 3 : 1;
+        const hurry = dropping > 2 && !gen.ending ? 3 : 1;
         if ((gen.dry ?? 0) < 1) gen.dry = Math.min(1, (gen.dry ?? 0) + (hurry * dt) / Math.max(0.05, g.branchWitherSeconds));
         else gen.fall = Math.min(1, (gen.fall ?? 0) + (hurry * dt) / Math.max(0.05, g.branchFallSeconds));
         if ((gen.fall ?? 0) >= 1) gen.alpha = 0; // removed by the filter below
@@ -127,8 +145,17 @@ export class Generations<T extends Structure> {
       }
       const canFade = (g.newTreeEachPhrase || gen.retired) && !gen.stamped;
       if (gen.stamped) gen.alpha = Math.max(gen.alpha, g.restBrightness);
-      else if (canFade && gen.idle > fadeAfter) gen.alpha -= dt / fade;
-      else {
+      else if (gen.ending || (canFade && gen.idle > fadeAfter)) {
+        // Ending: wither back to the root (computeReveal), fade, or both.
+        if (ending !== 'fade') {
+          gen.die = (gen.die ?? 0) + dt / fade; // > 1: a safety margin past the planned time
+          const gone = !gen.tree.vis.length || gen.tree.vis[0] <= 0;
+          if (gone || gen.die >= 1.6) gen.alpha = 0;
+          // Withering alone keeps it lit, dimming toward rest, until the last of it is gone.
+          if (ending === 'wither') gen.alpha = gone ? 0 : Math.max(0.01, gen.alpha - (dt / fade) * Math.max(0, gen.alpha - g.restBrightness));
+        }
+        if (ending !== 'wither') gen.alpha -= dt / fade;
+      } else {
         const target = growing || (gen === cur && !d.phraseOver(p)) ? 1 : g.restBrightness;
         gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
       }

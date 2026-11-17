@@ -10,6 +10,7 @@ flat in float v_glow;
 flat in float v_uvPerPx;
 flat in float v_seed;
 
+uniform float u_glowFlat; // glow.tintFlat: dark ink glows in the tint colour too
 uniform vec4 u_glowTint; // rgb, amount: the glow leans toward this colour
 uniform highp sampler2DArray u_tex; // theme textures (shape ids 16..31)
 uniform vec4 u_texInfo[16];         // half-width, flutter, own colours
@@ -34,7 +35,7 @@ void main() {
     float a = tx.a * v_col.a;
     if (a <= 0.003) discard;
     o_colour = vec4(rgb * v_col.a, a);
-    vec3 gc = mix(rgb, u_glowTint.rgb * dot(rgb, vec3(0.2126, 0.7152, 0.0722)) * 2.0, u_glowTint.a);
+    vec3 gc = mix(rgb, u_glowTint.rgb * mix(dot(rgb, vec3(0.2126, 0.7152, 0.0722)), 0.5, u_glowFlat) * 2.0, u_glowTint.a);
     o_glow = vec4(gc * v_col.a * v_glow, a);
     return;
   }
@@ -88,6 +89,6 @@ void main() {
   if (cov <= 0.0) discard;
   o_colour = vec4(col, 1.0) * cov;
   vec3 gsrc = col;
-  vec3 gc = mix(gsrc, u_glowTint.rgb * dot(gsrc, vec3(0.2126, 0.7152, 0.0722)) * 2.0, u_glowTint.a);
+  vec3 gc = mix(gsrc, u_glowTint.rgb * mix(dot(gsrc, vec3(0.2126, 0.7152, 0.0722)), 0.5, u_glowFlat) * 2.0, u_glowTint.a);
   o_glow = vec4(gc * v_glow, 1.0) * cov;
 }

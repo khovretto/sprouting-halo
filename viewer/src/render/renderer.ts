@@ -52,20 +52,22 @@ export class Instances {
     d[o++] = px; d[o++] = py; d[o++] = pf; d[o++] = heading;
   }
 
-  /** A decoration at (x, y) pointing along `angle`, `size` long (local units). */
+  /** A decoration at (x, y) pointing along `angle`, `size` long (local units). pivY / pivX: where
+   *  on the shape (x, y) is, and what it grows and turns about: along 0 (base) .. 1 (tip), and
+   *  across -0.5 .. 0.5 of its width (0, 0 = the base centre, like a stalk). */
   sprite(
     x: number, y: number, angle: number, size: number,
     shape: number, flex: number, seed: number,
     r: number, g: number, b: number, a: number,
     glow: number, layer: number,
-    order = 1, px = x, py = y, pf = flex, heading = 0,
+    order = 1, px = x, py = y, pf = flex, heading = 0, pivY = 0, pivX = 0,
   ) {
     const d = this.data;
     let o = this.slot();
     d[o++] = x; d[o++] = y; d[o++] = angle; d[o++] = size;
-    d[o++] = shape; d[o++] = flex; d[o++] = 0; d[o++] = seed;
+    d[o++] = shape; d[o++] = flex; d[o++] = pivY; d[o++] = seed;
     d[o++] = r; d[o++] = g; d[o++] = b; d[o++] = a;
-    d[o++] = glow; d[o++] = layer; d[o++] = order; d[o++] = 0;
+    d[o++] = glow; d[o++] = layer; d[o++] = order; d[o++] = pivX;
     d[o++] = px; d[o++] = py; d[o++] = pf; d[o++] = heading;
   }
 }
@@ -80,8 +82,11 @@ export interface MotionState {
   a: ArrayLike<number>;
   b: ArrayLike<number>;
   c: ArrayLike<number>;
+  /** Writhe (motion.writhe): amplitude, phase, wave number. */
+  d?: ArrayLike<number>;
 }
-export const STILL: MotionState = { a: [0, 0, 0, 0], b: [0, 0, 0, 0], c: [0, 0, 0, 0] };
+const ZERO4 = [0, 0, 0, 0];
+export const STILL: MotionState = { a: [0, 0, 0, 0], b: [0, 0, 0, 0], c: [0, 0, 0, 0], d: ZERO4 };
 
 /** Per-layer placement and motion, filled by the app each frame. */
 export class LayerUniforms {
@@ -90,6 +95,7 @@ export class LayerUniforms {
   mA = new Float32Array(4 * MAX_LAYERS);
   mB = new Float32Array(4 * MAX_LAYERS);
   mC = new Float32Array(4 * MAX_LAYERS);
+  mD = new Float32Array(4 * MAX_LAYERS);
   /** Shape change of the layer's points only (x = vertical squash); widths and sizes stay. */
   shape = new Float32Array(4 * MAX_LAYERS).fill(1);
 
@@ -108,6 +114,7 @@ export class LayerUniforms {
     this.mA.set(motion.a, i * 4);
     this.mB.set(motion.b, i * 4);
     this.mC.set(motion.c, i * 4);
+    this.mD.set(motion.d ?? ZERO4, i * 4);
     this.shape[i * 4] = squash;
   }
 }
@@ -134,6 +141,11 @@ export interface GlowSettings {
   /** The glow leans toward this colour by tintAmount. */
   tint: string;
   tintAmount: number;
+  /** Dark ink glows in the tint colour as strongly as mid-bright ink (0..1). */
+  tintFlat?: number;
+  /** A soft outline under everything (0 = off), in shadowColour. */
+  shadow?: number;
+  shadowColour?: string;
 }
 
 export class Renderer {
@@ -305,9 +317,11 @@ export class Renderer {
       u_mA: layers.mA,
       u_mB: layers.mB,
       u_mC: layers.mC,
+      u_mD: layers.mD,
       u_shape: layers.shape,
       u_windT: windT,
       u_glowTint: [...hexToRgb(glow.tint), Math.min(1, Math.max(0, glow.tintAmount))],
+      u_glowFlat: Math.min(1, Math.max(0, glow.tintFlat ?? 0)),
       u_view: [(2 * view.s) / view.W, (2 * view.s) / view.H, view.cx, view.cy],
       u_px: 1 / view.s,
     };
@@ -344,6 +358,7 @@ export class Renderer {
       u_crowd: glow.crowd,
       u_inkMask: glow.inkMask,
       u_knee: glow.knee,
+      u_shadow: [...hexToRgb(glow.shadowColour ?? '#000000'), Math.max(0, glow.shadow ?? 0)],
     });
   }
 }

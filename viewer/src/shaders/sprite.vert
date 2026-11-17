@@ -5,9 +5,9 @@ precision highp float;
 // own stalk: trails downwind, flutters, shivers on vibrato (thorns stay rigid).
 
 layout(location = 0) in vec4 a_pos;   // x, y (local), angle (local, radians), size (local units)
-layout(location = 1) in vec4 a_shape; // shape id, flex, unused, seed
+layout(location = 1) in vec4 a_shape; // shape id, flex, pivot along (0 base .. 1 tip), seed
 layout(location = 2) in vec4 a_col;   // rgb, alpha
-layout(location = 3) in vec4 a_misc;  // glow, layer index, branch order, unused
+layout(location = 3) in vec4 a_misc;  // glow, layer index, branch order, pivot across (-0.5 .. 0.5 of the width)
 layout(location = 4) in vec4 a_bend;  // pivot.xy (local), pivot flex, heading
 
 const int MAX_LAYERS = 32;
@@ -78,7 +78,9 @@ void main() {
   float sx = (gl_VertexID & 1) == 0 ? -1.0 : 1.0;
   float sy = (gl_VertexID & 2) == 0 ? 0.0 : 1.0;
   vec2 uv = vec2(sx * (hw + pad), mix(-pad, 1.0 + pad, sy));
-  vec2 P = base + dirW * (uv.y * size) + perp * (uv.x * size * twist);
+  // The pivot (origin) sits on the branch point: the shape grows, flutters and turns about it.
+  vec2 pv = vec2(a_misc.w * 2.0 * hw, a_shape.z);
+  vec2 P = base + dirW * ((uv.y - pv.y) * size) + perp * ((uv.x - pv.x) * size * twist);
 
   v_uv = uv;
   v_shape = a_shape.x;

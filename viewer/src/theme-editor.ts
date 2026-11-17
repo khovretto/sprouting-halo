@@ -4,12 +4,13 @@
 // "Use in viewer" makes it the theme of every viewer.
 
 import { Pane } from 'tweakpane';
-import { allThemes, BUILTIN_SHAPES, isBuiltin, MOVES, setDraft, ThemeDef, ThemePart, themeDef } from './themes';
+import { allThemes, BUILTIN_SHAPES, isBuiltin, MOVES, pivotOf, setDraft, ThemeDef, ThemePart, themeDef } from './themes';
 import { GradientEditor } from './gradient-editor';
 import type { FolderApi } from 'tweakpane';
 import { installTooltips, tip } from './tooltip';
 import { installSelectMenus } from './select-menu';
 import { slug } from './presets';
+import { allowTypedBeyond } from './ui';
 
 export interface ThemeEditorHooks {
   /** Send a message to Sprout.exe; false when not connected. */
@@ -44,6 +45,76 @@ function gradientRow(f: Pane | FolderApi, label: string, value: string, tipText:
   ed.el.style.flexBasis = '100%';
   b.element.style.flexWrap = 'wrap';
   b.element.appendChild(ed.el);
+}
+
+/** Origin (pivot) of a part: two sliders and a picture of the shape to click on. */
+function originRow(f: FolderApi, part: ThemePart, texture: string | undefined, touched: () => void) {
+  const o = { x: pivotOf(part)[0], y: pivotOf(part)[1] };
+  const c = document.createElement('canvas');
+  c.width = c.height = 96;
+  c.style.cssText = 'width:72px;height:72px;margin:2px 0 4px 0;cursor:crosshair;border-radius:3px;' +
+    'background:repeating-conic-gradient(#3a3a3a 0 25%,#2a2a2a 0 50%) 0 0/12px 12px';
+  tip(c, 'Click (or drag) where the shape sits on the branch: it grows, flutters and turns about that point. Drawn pointing up, as on a branch going up.');
+  const img = new Image();
+  if (texture) img.src = texture;
+  const paint = () => {
+    const ctx = c.getContext('2d')!;
+    ctx.clearRect(0, 0, 96, 96);
+    if (texture && img.complete && img.naturalWidth) {
+      const asp = Math.min(2, Math.max(0.3, img.naturalWidth / img.naturalHeight)), h = 84, w = Math.min(84, h * asp);
+      ctx.drawImage(img, (96 - w) / 2, 6, w, h);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(18, 6, 60, 84);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(part.shape, 48, 50);
+    }
+    const px = 6 + o.x * 84, py = 90 - o.y * 84;
+    ctx.strokeStyle = '#ff5ad0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(px - 7, py); ctx.lineTo(px + 7, py); ctx.moveTo(px, py - 7); ctx.lineTo(px, py + 7);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(px, py, 3, 0, Math.PI * 2);
+    ctx.stroke();
+  };
+  img.onload = paint;
+  const set = () => {
+    part.pivot = [+o.x.toFixed(3), +o.y.toFixed(3)];
+    paint();
+    touched();
+  };
+  const bx = f.addBinding(o, 'x', { label: 'origin ←→', min: 0, max: 1, step: 0.01 });
+  tip(bx.element, 'Across the shape: 0 = its left edge, 0.5 = the middle, 1 = its right edge.');
+  const by = f.addBinding(o, 'y', { label: 'origin ↓↑', min: 0, max: 1, step: 0.01 });
+  tip(by.element, 'Along the shape: 0 = its bottom (a stalk, like leaves), 0.5 = its middle (like blossoms), 1 = its top.');
+  bx.on('change', set);
+  by.on('change', set);
+  const pick = (e: PointerEvent) => {
+    const r = c.getBoundingClientRect();
+    o.x = Math.min(1, Math.max(0, ((e.clientX - r.left) / r.width * 96 - 6) / 84));
+    o.y = Math.min(1, Math.max(0, (90 - (e.clientY - r.top) / r.height * 96) / 84));
+    bx.refresh();
+    by.refresh();
+    set();
+  };
+  c.addEventListener('pointerdown', (e) => {
+    c.setPointerCapture(e.pointerId);
+    pick(e);
+    const move = (ev: PointerEvent) => pick(ev);
+    c.addEventListener('pointermove', move);
+    c.addEventListener('pointerup', () => c.removeEventListener('pointermove', move), { once: true });
+  });
+  // Inside the row (tweakpane places later rows by index: a sibling element would shift them).
+  const line = document.createElement('div');
+  line.style.cssText = 'flex-basis:100%;display:flex;justify-content:flex-end;padding-right:4px';
+  line.appendChild(c);
+  by.element.style.flexWrap = 'wrap';
+  by.element.appendChild(line);
+  paint();
 }
 
 const newPart = (): ThemePart => ({ place: 'spaced', shape: 'leaf', size: 1, amount: 1, role: 'leaf', natural: '#52c757', colour: 'tint', glow: 1, flutter: 1, opens: 'always', sizeFrom: 'none' });
@@ -186,7 +257,12 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
       part.move ??= 'Sparkle';
       const f = p.addFolder({ title: `Part ${k + 1}: ${part.shape.replace('tex:', '')}`, expanded: k === current.parts.length - 1 || current.parts.length <= 2 });
       const add = (key: keyof ThemePart, o: Record<string, unknown>, tipText: string, rebuildAfter = false) => {
+        const v = (part as unknown as Record<string, unknown>)[key as string];
+        const spec = typeof v === 'number' && typeof o.min === 'number' ? { min: o.min as number, max: o.max as number } : undefined;
+        // Typed values may go past the slider (which stretches to hold them; never below 0).
+        if (spec) o = { ...o, min: Math.min(spec.min, v as number), max: Math.max(spec.max, v as number) };
         const b = f.addBinding(part as unknown as Record<string, unknown>, key as string, o);
+        if (spec) allowTypedBeyond(b as unknown as { element: HTMLElement; min: number; max: number }, 'theme.' + String(key), spec);
         tip(b.element, tipText);
         b.on('change', () => (rebuildAfter ? show() : touched()));
       };
@@ -195,7 +271,7 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
       for (const t of Object.keys(current.textures ?? {})) shapes['picture: ' + t] = 'tex:' + t;
       add('shape', { label: 'shape', options: shapes }, 'A built-in shape, or one of the pictures you loaded for this theme.', true);
       const load = f.addButton({ title: 'Load a picture (PNG)…' });
-      tip(load.element.querySelector('button'), 'A PNG with transparency, drawn pointing UP with its stalk at the bottom centre. White or grey pictures take their colour from the colour settings ("tint"); colourful ones can keep their own colours. Scaled to fit 256 × 256.');
+      tip(load.element.querySelector('button'), 'A PNG with transparency, drawn pointing UP (set where it sits on the branch with "origin"). White or grey pictures take their colour from the colour settings ("tint"); colourful ones can keep their own colours. Scaled to fit 256 × 256.');
       load.on('click', () => {
         const input = document.createElement('input');
         input.type = 'file';
@@ -215,6 +291,7 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
         };
         input.click();
       });
+      originRow(f, part, current.textures?.[part.shape.slice(4)], touched);
       add('size', { label: 'size', min: 0.2, max: 3 }, 'Size compared with the built-in part in that place (1 = the same).');
       add('amount', { label: 'amount', min: 0, max: 2 }, 'How many, compared with the built-in part (1 = the same; the track\'s amount still applies).');
       add('role', { label: 'coloured as', options: { 'Leaves colour': 'leaf', 'Blossoms & berries colour': 'accent' } }, 'Which colour settings paint it (Look → Colours).');

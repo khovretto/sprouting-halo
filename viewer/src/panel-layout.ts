@@ -76,18 +76,20 @@ export const FOLDERS: FolderSpec[] = [
   },
   {
     id: 'shape', tab: 'look', title: 'Tree shape',
-    keys: ['growth.reach', 'growth.flatten', 'growth.branching', 'growth.spread', 'plants.lift', 'plants.wildness', 'plants.taper'],
-    advanced: ['plants.clearance', 'plants.tipWidth', 'plants.maxWidth'],
+    keys: ['growth.reach', 'growth.flatten', 'growth.branching', 'growth.spread', 'plants.lift', 'plants.wildness', 'plants.taper',
+      'plants.twist', 'plants.gnarl', 'plants.curl', 'plants.strands'],
+    advanced: ['plants.clearance', 'plants.tipWidth', 'plants.maxWidth', 'plants.twistLength', 'plants.twistTighten', 'plants.twistTwigs',
+      'plants.knots', 'plants.twistDepth', 'plants.strandLay'],
   },
   {
     id: 'halo', tab: 'look', title: 'Live halo',
-    keys: ['halo.origins', 'halo.bothWays', 'halo.tailDeg', 'halo.sproutLength', 'halo.sproutCurl', 'halo.alwaysLeaves', 'halo.wander'],
-    advanced: ['halo.startAngle', 'halo.tailFade', 'halo.ringWidth', 'halo.vineWidth', 'halo.sproutWidth', 'halo.ringSpacing'],
+    keys: ['halo.origins', 'halo.bothWays', 'halo.tailDeg', 'halo.sproutLength', 'halo.sproutCurl', 'halo.alwaysLeaves', 'halo.wander', 'halo.braid'],
+    advanced: ['halo.twist', 'halo.startAngle', 'halo.tailFade', 'halo.ringWidth', 'halo.vineWidth', 'halo.sproutWidth', 'halo.ringSpacing'],
   },
   {
     id: 'glow', tab: 'look', title: 'Glow',
-    keys: ['glow.strength', 'glow.radius', 'glow.base', 'look.decoGlow', 'glow.tint', 'glow.tintAmount'],
-    advanced: ['glow.wide', 'glow.crowd', 'glow.inkMask', 'glow.knee'],
+    keys: ['glow.strength', 'glow.radius', 'glow.base', 'look.decoGlow', 'glow.tint', 'glow.tintAmount', 'glow.shadow', 'glow.shadowColour'],
+    advanced: ['glow.tintFlat', 'glow.wide', 'glow.crowd', 'glow.inkMask', 'glow.knee'],
   },
   {
     id: 'many', tab: 'look', title: 'Many takes',
@@ -98,7 +100,8 @@ export const FOLDERS: FolderSpec[] = [
   // ---------------- Reaction (reactivity preset) ----------------
   {
     id: 'phrases', tab: 'reaction', title: 'Singing & phrases: growing', open: true,
-    keys: ['growth.secondsToFull', 'growth.newTreeEachPhrase', 'growth.branchEachPhrase', 'response.phraseGap', 'growth.fadeAfter', 'growth.fadeSeconds',
+    keys: ['growth.secondsToFull', 'growth.newTreeEachPhrase', 'growth.branchEachPhrase', 'response.phraseGap', 'growth.ending', 'growth.dieAfter',
+      'growth.fadeAfter', 'growth.fadeSeconds',
       'growth.restBrightness', 'response.release'],
     advanced: ['response.variety', 'plants.moodShaping', 'growth.branchesKept', 'growth.branchWitherSeconds', 'growth.branchDroopDeg',
       'growth.branchFallSeconds'],
@@ -120,11 +123,11 @@ export const FOLDERS: FolderSpec[] = [
   },
   {
     id: 'timbre', tab: 'reaction', title: 'Pitch, effort and softness',
-    keys: ['response.pitchSteer', 'glow.pitchShine', 'response.effortWidth', 'look.thornEffort', 'glow.softGlow', 'plants.softDroop'],
+    keys: ['response.pitchSteer', 'glow.pitchShine', 'response.effortWidth', 'look.thornEffort', 'glow.softGlow', 'plants.softDroop', 'plants.twistVoice'],
   },
   {
     id: 'held', tab: 'reaction', title: 'Held notes & vibrato: blossoms, shiver',
-    keys: ['look.blossoms', 'look.blossomHold', 'motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity'],
+    keys: ['look.blossoms', 'look.blossomHold', 'motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity', 'motion.writhe', 'motion.writheVoice'],
     catchSections: ['motion', 'response'],
   },
   {
@@ -223,7 +226,8 @@ export const LABELS: Record<string, string> = {
   'growth.reach': 'size', 'growth.spread': 'arch', 'growth.flatten': 'flatten', 'growth.branching': 'density of branches',
   'plants.lift': 'tips up / droop', 'plants.clearance': 'gap between branches', 'plants.maxWidth': 'trunk width',
   'plants.tipWidth': 'tip width', 'plants.softDroop': 'droop when soft', 'plants.moodShaping': 'shaped by the phrase',
-  'growth.secondsToFull': 'grow time (s)', 'growth.fadeAfter': 'old tree stays (s)', 'growth.fadeSeconds': 'old tree fade (s)',
+  'growth.secondsToFull': 'grow time (s)', 'growth.fadeAfter': 'old tree stays (s)', 'growth.fadeSeconds': 'ending takes (s)',
+  'growth.ending': 'how things end', 'growth.dieAfter': 'silence that ends the tree (s)',
   'growth.restBrightness': 'brightness when resting', 'growth.witherOnPause': 'wither in pauses',
   'growth.witherDepth': 'wither depth', 'growth.twigFadeSeconds': 'wither-back time (s)', 'growth.newTreeEachPhrase': 'new tree each phrase',
   'look.themeFrom': 'per-track settings', 'look.theme': 'theme', 'look.density': 'leaf amount', 'look.decoSize': 'leaf size',
@@ -275,6 +279,12 @@ export const LABELS: Record<string, string> = {
   'commit.spinTurns': 'spin (turns)', 'commit.stampReveal': 'tree grown at impact',
   'commit.syncToOnset': 'land on the next note', 'commit.syncWindow': 'wait up to (s)',
   'transitions.liveEndSeconds': 'halo fade when not live (s)', 'transitions.pruneSeconds': 'deleted take fade (s)',
+  'plants.twist': 'twist', 'plants.gnarl': 'gnarl', 'plants.curl': 'curling tips', 'plants.strands': 'strands',
+  'plants.twistLength': 'turn length', 'plants.twistTighten': 'tighter toward tips', 'plants.twistTwigs': 'twig twist',
+  'plants.knots': 'knots', 'plants.twistDepth': 'depth shading', 'plants.strandLay': 'strand turn (widths)',
+  'plants.twistVoice': 'voice twists new trees', 'motion.writhe': 'writhe', 'motion.writheVoice': 'writhe follows',
+  'halo.braid': 'braided ring', 'halo.twist': 'vine corkscrew', 'glow.shadow': 'dark outline', 'glow.shadowColour': 'outline colour',
+  'glow.tintFlat': 'dark ink glows too',
 };
 
 /** Keys only this viewer uses (stripped from sync in main.ts). */
@@ -304,6 +314,25 @@ export function scopeOf(path: string): Scope {
  * value that has no comment there (or shares one with its neighbour).
  */
 export const TIPS: Record<string, string> = {
+  // Twist (docs/fable-consult-7-twist.md)
+  'plants.twist': 'Branches wind from side to side like a corkscrew instead of running straight. The tree keeps its size, outline and limbs. Strong twist looks best with a smaller segment length (Many takes, advanced).',
+  'plants.gnarl': 'Makes the twist irregular: uneven turns and sharp elbows, like old wood.',
+  'plants.curl': 'Limb ends and some twigs finish in a small spiral.',
+  'plants.strands': 'Main limbs are drawn as 2 or 3 strands wound round each other, like rope. Thin twigs stay single.',
+  'plants.twistLength': 'Length of one full turn on a main limb. Short turns need a small segment length (Many takes, advanced).',
+  'plants.twistTighten': 'Turns get shorter along the branch.',
+  'plants.twistTwigs': 'How much the side shoots twist compared with the limbs (0 = straight twigs).',
+  'plants.knots': 'Branches thicken at the turns and where a fork leaves.',
+  'plants.twistDepth': 'The near side of each turn (and the front strand of a rope) is brighter than the far side.',
+  'plants.strandLay': 'One strand turn per this many branch widths (lower = a tighter rope).',
+  'plants.twistVoice': 'A phrase sung with vibrato or effort grows a more twisted tree; a soft one a straighter tree.\nReads: when a tree is created, twist × (1 + this × (0.6 × vibrato + 0.5 × (effort − 0.5))). Needs “shaped by the phrase”.',
+  'motion.writhe': 'Branches slowly squirm from side to side.',
+  'motion.writheVoice': 'What makes them squirm harder: vibrato, effort, loudness, or always the same.',
+  'halo.braid': 'The ring becomes two strands braided round each other.',
+  'halo.twist': 'The vine winds in and out across the ring (shows on new growth).',
+  'glow.shadow': 'A soft dark edge round everything, so light colours and glow stay readable on a bright background. It is part of what OBS gets.',
+  'glow.shadowColour': 'Colour of that outline (a light one gives dark branches a pale edge over dark scenes).',
+  'glow.tintFlat': 'Glow no longer follows how bright a branch is: dark branches get the full glow colour (needs a glow colour amount above 0).',
   // Tree shape
   'growth.reach': 'How big the canopy of trees behind you is (its width; the height follows flatten).',
   'growth.flatten': '0 = a round canopy, 1 = wide and flat (about 40 % as tall as it is wide).',
@@ -391,7 +420,7 @@ export const TIPS: Record<string, string> = {
   // Connection
   'source.useTrackColours': 'Use each track\'s DAW colour for its tree or halo, for taps set to "Viewer palette" too.',
   // Test & preview
-  'scene.backdrop': 'Preview background: checkerboard, black, or transparent (as in OBS).',
+  'scene.backdrop': 'Preview background only (OBS always gets transparency): a dark or light checkerboard, both side by side, black, white, or transparent. The light ones show how the look reads over a bright scene or a pale avatar.',
   'scene.showAvatar': 'Preview: show the placeholder avatar (or your PNG) in the middle. Never shown in OBS.',
   'avatar.opacity': 'Preview: how solid the placeholder avatar or your PNG is drawn.',
   'avatar.imageX': 'Moves your avatar picture left or right.',
@@ -429,8 +458,10 @@ Object.assign(TIPS, {
   'growth.secondsToFull': 'Seconds of full voice to grow a whole tree (higher = slower).\nReads: singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase. While singing, a tree grows by (0.4 + loudness) ÷ this per second, so quiet singing grows at 40 % speed. loudness: Sprout.exe measures the last 10 ms in dB, −55 dB = 0 up to −10 dB = 1 (rises in 25 ms, falls in 0.3 s).',
   'growth.newTreeEachPhrase': 'Every phrase grows a brand-new tree; the previous one stays until its own fade. Off: one tree keeps growing.\nReads: a new phrase = singing again after a pause longer than “pause that ends a phrase”. singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase.',
   'growth.restBrightness': 'Brightness of a tree between phrases (it never ungrows).\nReads: a phrase is over after “pause that ends a phrase” of silence; the tree then dims to this over the settle time. singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase.',
-  'growth.fadeAfter': 'A tree starts fading this many seconds after it last grew.\nReads: the clock starts when you stop singing on that take (singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase).',
-  'growth.fadeSeconds': 'Seconds the fade itself takes.\nReads: timing only (starts after “old tree stays”).',
+  'growth.ending': 'How trees, old branches and withering twigs end.\nWither: they grow back into the tree, trunk and all, and their leaves fall. Fade: they stay whole and fade out. Both: they fade as they wither back.',
+  'growth.dieAfter': 'A silence this long ends the whole tree: it withers (or fades) away completely, and your next phrase grows a new one. Shorter pauses only wither the outer twigs. 0 = never (the tree rests between phrases).\nReads: seconds since you last sang on that take; a planted take waits for its first phrase.',
+  'growth.fadeAfter': 'A replaced tree starts to end this many seconds after it last grew.\nReads: the clock starts when you stop singing on that take (singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase).',
+  'growth.fadeSeconds': 'Seconds the ending takes: withering back to the root, or fading.\nReads: timing only (starts after “old tree stays”, or the silence that ends the tree).',
   'growth.witherOnPause': 'In a pause, the outer twigs grow back toward their limbs (leaves and all) and regrow when you sing again.\nReads: after 0.12 s without singing, the wither grows by 1 ÷ “pause to full wither” per second; singing takes it back at 1 ÷ 1.2 s. singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase.',
   'growth.witherSeconds': 'Pause length that withers to the full depth.\nReads: seconds of silence after the first 0.12 s; see wither in pauses.',
   'growth.witherOnPitchDip': 'A drop in pitch also makes the outer twigs grow back for a moment.\nReads: the pitch is compared with its recent peak (the peak falls back with a 0.35 s time constant); a drop of at least “pitch dip (semitones)” adds 0.6 wither at once. pitch: the sung note (detected over 43 ms); C3 = 0 up to F6 = 1, the last note is held through pauses (smoothed ~0.1 s).',

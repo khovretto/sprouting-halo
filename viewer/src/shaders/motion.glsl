@@ -10,6 +10,7 @@
 uniform vec4 u_mA[MAX_LAYERS]; // limb.xy, shoot.xy (spring leans, world, radians)
 uniform vec4 u_mB[MAX_LAYERS]; // twig.xy, turb, shiver phase
 uniform vec4 u_mC[MAX_LAYERS]; // shiver amp, flutter amp, twigs, mode (0 plant, 1 ring)
+uniform vec4 u_mD[MAX_LAYERS]; // writhe: amplitude (local units), phase, 2*pi / wavelength, 0
 uniform float u_windT;         // wind clock (s), wrapped at 4096
 
 uint hashU(uint x) { x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16; return x; }
@@ -62,8 +63,18 @@ vec2 carry(vec2 q, float flex, int layer, out float ang) {
   return rot(q, ang);
 }
 
-// The shoot this instance belongs to: carried pivot, and its own-bend angle at full lever.
-struct Branch { vec2 pb; float k; };
+// Writhe (motion.writhe, consult 7, 1.6) on limbs: sideways to the radial direction, stiff near the
+// root. A function of the rest point only, so the two segments at a joint move together.
+vec2 limbWave(vec2 P, float flex, int layer) {
+  vec4 D = u_mD[layer];
+  float r = length(P);
+  vec2 dir = r > 1e-4 ? P / r : vec2(0.0, 1.0);
+  return vec2(-dir.y, dir.x) * 0.6 * D.x * smoothstep(0.25, 0.7, flex) * sin(0.6 * D.z * flex - D.y + float(layer));
+}
+
+// The shoot this instance belongs to: carried pivot, its own-bend angle at full lever, and (writhe)
+// the limb wave at its pivot, its heading and its own phase.
+struct Branch { vec2 pb; float k; vec2 wp; vec2 hd; float ph; float shoot; };
 
 float shiverOf(float h, uint seed, float phase) {
   float off = h * 64.0;
@@ -75,6 +86,10 @@ Branch branchOf(vec4 bend, float order, int layer) {
   Branch br;
   br.pb = vec2(0.0);
   br.k = 0.0;
+  br.wp = vec2(0.0);
+  br.hd = vec2(0.0, 1.0);
+  br.ph = 0.0;
+  br.shoot = 0.0;
   if (order < 1.5) return br;
   vec4 A = u_mA[layer], B = u_mB[layer], C = u_mC[layer];
   float aB;
@@ -91,6 +106,12 @@ Branch branchOf(vec4 bend, float order, int layer) {
   vec2 hd = vec2(cos(bend.w), sin(bend.w));
   float sh = C.x * (0.5 + 0.5 * thin) * shiverOf(h1, seed + 2u, B.w);
   br.k = clamp(C.z * 0.5 * order * (cross2(hd, toLocalDir(W, layer)) + sh), -0.7, 0.7);
+  if (u_mD[layer].x > 0.0) {
+    br.wp = limbWave(br.pb, bend.z, layer);
+    br.hd = hd;
+    br.ph = 6.2831853 * h1;
+    br.shoot = 1.0;
+  }
   return br;
 }
 
@@ -101,5 +122,14 @@ vec2 bendPoint(vec2 p, float flex, vec4 bend, Branch br, int layer, out float an
   float u = max(flex - bend.z, 0.0);
   float own = br.k * u / (u + 0.10);
   ang = a + own;
-  return br.pb + rot(P - br.pb, own); // k = 0 on limbs: returns P
+  vec2 Q = br.pb + rot(P - br.pb, own); // k = 0 on limbs: returns P
+  vec4 D = u_mD[layer];
+  if (D.x > 0.0) {
+    if (br.shoot > 0.5) {
+      // A shoot rides its limb's wave at its pivot (u = 0 there: joined), plus its own wave.
+      vec2 d = rot(br.hd, ang);
+      Q += br.wp + vec2(-d.y, d.x) * D.x * (u / (u + 0.08)) * sin(D.z * u - D.y + br.ph);
+    } else Q += limbWave(P, flex, layer);
+  }
+  return Q;
 }

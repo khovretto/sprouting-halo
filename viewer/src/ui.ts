@@ -24,6 +24,64 @@ const STORAGE_KEY = 'sprout.viewer.params.v2';
 
 type Spec = { min?: number; max?: number; step?: number; options?: Record<string, string | number>; gradient?: boolean };
 
+/** Hard limits for typed values: a typed number may go past a slider's range (the slider stretches
+ *  to fit it), except past these, where the viewer would break (counts that size arrays, the port,
+ *  shapes that flip over). */
+const HARD: Record<string, [number, number]> = {
+  'source.port': [1, 65535],
+  'scene.layers': [1, 17],
+  'scene.scopeLayer': [0, 16],
+  'layout.tierFrom': [1, 99],
+  'layout.spinFrom': [1, 99],
+  'halo.origins': [1, 32],
+  'halo.sproutLength': [3, 400],
+  'halo.squish': [0, 0.95],
+  'plants.maxNodes': [50, 20000],
+  'plants.step': [0.005, 1],
+  'commit.burst': [0, 500],
+  'commit.limbs': [1, 4],
+  'fake.liveTracks': [1, 6],
+  'growth.branchesKept': [1, 6],
+  'plants.strands': [1, 3],
+  'plants.strandLay': [1, 100],
+  'plants.twistLength': [0.03, 5],
+  'perf.fps': [1, 240],
+  'perf.idleFps': [1, 240],
+  'perf.backgroundFps': [1, 240],
+  'perf.maxMegapixels': [0.1, 33],
+  'perf.renderScale': [0.1, 2],
+};
+/** The range a typed value may take: HARD, else never below 0 for sliders that start at 0 or
+ *  above (durations, sizes, amounts), and no upper limit. */
+export function hardRange(path: string, spec: { min?: number; max?: number; step?: number }): [number, number] {
+  if (HARD[path]) return HARD[path];
+  const lo = spec.min === undefined || spec.min < 0 ? -Infinity
+    : spec.min > 0 ? ((spec.step ?? 0) >= 1 ? Math.max(1, Math.ceil(spec.min * 0.1)) : spec.min * 0.1) : 0;
+  return [lo, Infinity];
+}
+/** Let a slider's typed value go past its range: a capture listener on the text field clamps the
+ *  number to hardRange and stretches the slider first (tweakpane clamps to the slider's range). */
+export function allowTypedBeyond(api: { element: HTMLElement; min?: number; max?: number }, path: string, spec: { min?: number; max?: number; step?: number }) {
+  if (!('min' in api) || spec.min === undefined || spec.max === undefined) return;
+  const [lo, hi] = hardRange(path, spec);
+  api.element.addEventListener('change', (e) => {
+    const input = e.target as HTMLInputElement;
+    if (!(input instanceof HTMLInputElement)) return;
+    const v = parseFloat(input.value);
+    if (!Number.isFinite(v)) return;
+    const c = Math.min(hi, Math.max(lo, v));
+    if (c !== v) input.value = String(c);
+    stretch(api, spec, c);
+  }, true);
+}
+/** Slider range = the spec's range, widened to hold v. */
+export function stretch(api: { min?: number; max?: number }, spec: { min?: number; max?: number }, v: number) {
+  if (spec.min === undefined || spec.max === undefined || !Number.isFinite(v)) return;
+  const mn = Math.min(spec.min, v), mx = Math.max(spec.max, v);
+  if (api.min !== mn) api.min = mn;
+  if (api.max !== mx) api.max = mx;
+}
+
 const RANGES: Record<string, Spec> = {
   'source.mode': { options: { 'Auto (live when connected)': 'auto', 'Live taps only': 'live', 'Fake singer': 'fake' } },
   'source.port': { min: 1, max: 65535, step: 1 },
@@ -35,7 +93,7 @@ const RANGES: Record<string, Spec> = {
   'scene.centerY': { min: -1.5, max: 1.5 },
   'scene.scopeLayer': { min: 0, max: 16, step: 1 },
   'scene.scopeSeconds': { min: 3, max: 40, step: 1 },
-  'scene.backdrop': { options: { Checker: 'checker', Black: 'black', 'None (transparent)': 'none' } },
+  'scene.backdrop': { options: { 'Checker (dark)': 'checker', 'Checker (light)': 'checker-light', 'Checker (half dark, half light)': 'checker-split', Black: 'black', White: 'white', 'None (transparent)': 'none' } },
   'growth.secondsToFull': { min: 0.5, max: 15 },
   'growth.branching': { min: 0, max: 1 },
   'growth.reach': { min: 0.4, max: 1.6 },
@@ -58,6 +116,25 @@ const RANGES: Record<string, Spec> = {
   'growth.twigFadeSeconds': { min: 0.05, max: 3 },
   'growth.regrowSpeed': { min: 0.2, max: 5 },
   'growth.fadeAfter': { min: 0, max: 15 },
+  'growth.dieAfter': { min: 0, max: 15 },
+  'plants.twist': { min: 0, max: 1 },
+  'plants.gnarl': { min: 0, max: 1 },
+  'plants.curl': { min: 0, max: 1 },
+  'plants.strands': { min: 1, max: 3, step: 1 },
+  'plants.twistLength': { min: 0.15, max: 0.8 },
+  'plants.twistTighten': { min: 0, max: 1 },
+  'plants.twistTwigs': { min: 0, max: 2 },
+  'plants.knots': { min: 0, max: 1 },
+  'plants.twistDepth': { min: 0, max: 1 },
+  'plants.strandLay': { min: 4, max: 20 },
+  'plants.twistVoice': { min: 0, max: 2 },
+  'motion.writhe': { min: 0, max: 1 },
+  'motion.writheVoice': { options: { Always: 'none', Vibrato: 'vibrato', Effort: 'effort', Loudness: 'loudness' } },
+  'halo.braid': { min: 0, max: 1 },
+  'halo.twist': { min: 0, max: 1 },
+  'glow.shadow': { min: 0, max: 1 },
+  'glow.tintFlat': { min: 0, max: 1 },
+  'growth.ending': { options: { 'Wither away': 'wither', 'Fade away': 'fade', 'Both': 'both' } },
   'growth.fadeSeconds': { min: 0.2, max: 10 },
   'response.release': { min: 0.1, max: 8 },
   'response.phraseGap': { min: 0.1, max: 2 },
@@ -216,7 +293,7 @@ const RANGES: Record<string, Spec> = {
   'palette.pick': { options: { 'In order': 'order', 'Random (per take)': 'random', 'Spread along the gradient': 'spread' } },
   'palette.seed': { min: 1, max: 99, step: 1 },
   'fake.fullStopEvery': { min: 0, max: 10, step: 1 },
-  'fake.fullStopSeconds': { min: 1.5, max: 10 },
+  'fake.fullStopSeconds': { min: 1.5, max: 20 },
   'fake.highNotes': { min: 0, max: 1 },
 };
 
@@ -382,7 +459,7 @@ const CSS = `
 .sprout-desc { color: #9aa0a8; font: 11px/1.35 sans-serif; padding: 2px 8px 6px; white-space: normal; }
 `;
 
-type Binding = { element: HTMLElement; hidden: boolean; refresh(): void };
+type Binding = { element: HTMLElement; hidden: boolean; refresh(): void; min?: number; max?: number };
 type Folder = FolderApi;
 
 export function buildUI(container: HTMLElement, p: Params, actions: UIActions, status: UIStatus): UI {
@@ -773,8 +850,21 @@ Key: ${key}`);
   }
 
   // ---- Parameter folders ----
-  type Row = { path: string; binding: Binding; button: HTMLButtonElement };
+  type Row = { path: string; binding: Binding; button: HTMLButtonElement; spec?: Spec };
   const rows: Row[] = [];
+  /** Before a refresh, every slider stretches to hold its value (tweakpane would clamp it). */
+  const fitRanges = (only?: Row) => {
+    for (const r of only ? [only] : rows) {
+      if (!r.spec) continue;
+      const v = getPath(p, r.path);
+      if (typeof v === 'number') stretch(r.binding, r.spec, v);
+    }
+  };
+  const paneRefresh = pane.refresh.bind(pane);
+  pane.refresh = () => {
+    fitRanges();
+    paneRefresh();
+  };
   const folderRows: { folder: Folder; title: string; rows: Row[] }[] = [];
 
   const placed = new Set(FOLDERS.flatMap((f) => [...f.keys, ...(f.advanced ?? []), ...(f.sub ?? []).flatMap((x) => x.keys)]));
@@ -809,7 +899,15 @@ Key: ${key}`);
       opts.min = Math.min(0, v * 4);
       opts.max = Math.max(1, v * 4);
     }
+    const spec: Spec | undefined = typeof v === 'number' && opts.min !== undefined && !opts.options
+      ? { min: opts.min as number, max: opts.max as number, step: opts.step as number | undefined } : undefined;
+    if (spec) {
+      // A saved value beyond the slider: the slider starts stretched to hold it.
+      opts.min = Math.min(spec.min!, v as number);
+      opts.max = Math.max(spec.max!, v as number);
+    }
     const binding = folder.addBinding(obj, key, opts) as unknown as Binding;
+    if (spec) allowTypedBeyond(binding, path, spec);
     tip(binding.element, TIPS[path] ?? HINTS[path]);
     const button = document.createElement('button');
     button.className = 'sprout-rv';
@@ -818,6 +916,7 @@ Key: ${key}`);
       e.stopPropagation();
       const to = e.shiftKey ? getPath(defaults, path) : baseline(path);
       obj[key] = structuredClone(to);
+      if (spec && typeof to === 'number') stretch(binding, spec, to);
       binding.refresh();
       updateMarks();
       userChange();
@@ -842,7 +941,7 @@ Key: ${key}`);
       binding.element.appendChild(ed.el);
       editors.push({ obj, key, ed, binding });
     }
-    const row = { path, binding, button };
+    const row = { path, binding, button, spec };
     rows.push(row);
     for (const g of groups) g.push(row);
   };

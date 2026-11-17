@@ -9,7 +9,7 @@ import type { Instances } from './render/renderer';
 import type { Skeleton } from './growth/skeleton';
 import { clamp, hash1, lerp, RGB } from './math';
 import { Ink, inkAt } from './colour';
-import { customDef, MOVES, shapeId, ThemeDef, ThemePart } from './themes';
+import { customDef, MOVES, pivotOf, shapeId, SHAPE_PIVOT, ThemeDef, ThemePart } from './themes';
 import { bakeGradient } from './gradient';
 import type { ShedPool } from './shed';
 import { hexToRgb } from './math';
@@ -132,6 +132,8 @@ class Placer {
   /** Set for one put(): that decoration lets go and falls (drawn by the pool from now on). */
   drop: ShedPool | null = null;
   now = 0;
+  /** Origin of the shapes put now (a user theme's part); null = the built-in shape's own. */
+  pivot: readonly [number, number] | null = null;
 
   constructor(private out: Instances, private st: DecoStyle) {}
 
@@ -146,15 +148,17 @@ class Placer {
       angle += st.fall * (h - 0.5) * 8;
       a *= 1 - st.fall;
     }
+    const pv = this.pivot ?? (shape < 16 ? SHAPE_PIVOT[shape] ?? SHAPE_PIVOT[0] : SHAPE_PIVOT[0]);
+    const pivY = pv[1], pivX = pv[0] - 0.5;
     if (this.drop) {
-      if (size > 0 && a > 0.01) this.drop.add(this.now, x, y, angle, size, shape, col, flex, h, glowMul, this.frame, this.nodeAlpha);
+      if (size > 0 && a > 0.01) this.drop.add(this.now, x, y, angle, size, shape, col, flex, h, glowMul, this.frame, this.nodeAlpha, pivY, pivX);
       this.drop = null;
       return;
     }
     if (a <= 0.01 || size <= 0) return;
     const f = this.frame;
-    if (f) this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer, f[0], f[1], f[2], f[3], f[4]);
-    else this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer);
+    if (f) this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer, f[0], f[1], f[2], f[3], f[4], pivY, pivX);
+    else this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer, 1, x, y, flex, 0, pivY, pivX);
   }
 }
 
@@ -338,6 +342,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       for (const part of custom.parts) {
         const sid = shapeId(custom.id, part.shape);
         if (sid < 0) continue;
+        place.pivot = pivotOf(part);
         const ink = part.role === 'accent' ? st.accent : st.leaf;
         const own = part.colour === 'own';
         const gl = part.glow ?? 1;
@@ -388,7 +393,8 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
             if (h2 >= (0.04 + 0.1 * dens) * amt) break;
             for (let k = 0; k < 3; k++) {
               const a = (k / 3) * Math.PI * 2 + h3 * 6;
-              place.put(x + (Math.cos(a) * 0.014) / unit, y + (Math.sin(a) * 0.014) / unit, a, size * 0.03 * part.size * eff * pop, sid,
+              const sz = size * 0.03 * part.size * eff * pop, r = 0.014 / unit + place.pivot![1] * sz;
+              place.put(x + Math.cos(a) * r, y + Math.sin(a) * r, a, sz, sid,
                 colourFor(flex * st.sScale, h3, 1, st.intensity), flex, h3, gl);
             }
             break;
@@ -402,6 +408,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
           }
         }
       }
+      place.pivot = null;
       continue;
     }
 
@@ -477,7 +484,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         if (h2 < 0.04 + 0.1 * dens) {
           for (let k = 0; k < 3; k++) {
             const a = (k / 3) * Math.PI * 2 + h3 * 6;
-            const ox = Math.cos(a) * 0.014 / unit, oy = Math.sin(a) * 0.014 / unit;
+            // Out by half a berry too: it grows from its middle (SHAPE_PIVOT), the cluster keeps its size.
+            const r = 0.014 / unit + 0.5 * size * 0.03 * pop;
+            const ox = Math.cos(a) * r, oy = Math.sin(a) * r;
             place.put(x + ox, y + oy, a, size * 0.03 * pop, Shape.Berry, col(st.accent, BERRY, flex * st.sScale, h3, 1, st.intensity), flex, h3, 1.3);
           }
         }
@@ -527,6 +536,7 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
     const alt = k % 2 ? 1 : -1;
     if (custom && ringPart) {
       const sid = shapeId(custom.id, ringPart.shape);
+      place.pivot = pivotOf(ringPart);
       if (sid >= 0 && h0 < dens * 0.8 * ringPart.amount) {
         const own = ringPart.colour === 'own';
         const c = own ? ((tintA[0] = tintA[1] = tintA[2] = st.intensity), tintA)
@@ -554,7 +564,8 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
         if (k % 12 === 0 && h0 < 0.4 + 0.6 * dens)
           for (let b = 0; b < 3; b++) {
             const ba = (b / 3) * Math.PI * 2 + h1 * 6;
-            place.put(x + (Math.cos(ba) * 0.015) / unit, y + (Math.sin(ba) * 0.015) / unit, ba, size * 0.032 * pop,
+            const r = 0.015 / unit + 0.5 * size * 0.032 * pop;
+            place.put(x + Math.cos(ba) * r, y + Math.sin(ba) * r, ba, size * 0.032 * pop,
               Shape.Berry, col(st.accent, BERRY, a / TAU2, h0, 1, st.intensity), 0, h0, 1.3);
           }
         if (k % 18 === 6)

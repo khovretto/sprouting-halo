@@ -27,7 +27,7 @@ export class ShedPool {
 
   /** frame: order, pivot x, y, flex, heading of the node it hung on (null = rigid at the point). */
   add(now: number, x: number, y: number, angle: number, size: number, shape: number, c: ArrayLike<number>,
-      flex: number, h: number, glowMul: number, frame: ArrayLike<number> | null, alpha: number) {
+      flex: number, h: number, glowMul: number, frame: ArrayLike<number> | null, alpha: number, pivY = 0, pivX = 0) {
     const d = this.d;
     let o = this.head * N;
     d[o++] = now; d[o++] = x; d[o++] = y; d[o++] = angle;
@@ -35,10 +35,11 @@ export class ShedPool {
     d[o++] = c[2]; d[o++] = flex; d[o++] = h; d[o++] = glowMul;
     d[o++] = alpha;
     if (frame) {
-      d[o++] = frame[0]; d[o++] = frame[1]; d[o++] = frame[2]; d[o++] = frame[3]; d[o++] = frame[4]; d[o++] = 1;
+      d[o++] = frame[0]; d[o++] = frame[1]; d[o++] = frame[2]; d[o++] = frame[3]; d[o++] = frame[4];
     } else {
-      d[o++] = 1; d[o++] = x; d[o++] = y; d[o++] = flex; d[o++] = 0; d[o++] = 0;
+      d[o++] = 1; d[o++] = x; d[o++] = y; d[o++] = flex; d[o++] = 0;
     }
+    d[o++] = pivY; d[o++] = pivX;
     this.head = (this.head + 1) % MAX;
     this.count = Math.min(MAX, this.count + 1);
   }
@@ -73,7 +74,7 @@ export class ShedPool {
       const px = d[o + 14] + (x - d[o + 1]), py = d[o + 15] + (y - d[o + 2]); // the pivot travels with it
       out.sprite(x, y, ang, d[o + 4], d[o + 5], d[o + 9], h,
         lerp(d[o + 6], dry[0], m), lerp(d[o + 7], dry[1], m), lerp(d[o + 8], dry[2], m),
-        a, st.glow * d[o + 11], st.layer, d[o + 13], px, py, d[o + 16], d[o + 17]);
+        a, st.glow * d[o + 11], st.layer, d[o + 13], px, py, d[o + 16], d[o + 17], d[o + 18], d[o + 19]);
     }
     if (!alive) this.count = this.head = 0;
   }

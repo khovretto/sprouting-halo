@@ -24,7 +24,7 @@ export const defaults = {
     viewRadius: 1.9,
     centerX: 0,
     centerY: 0.1,
-    backdrop: 'checker' as 'checker' | 'black' | 'none',
+    backdrop: 'checker' as 'checker' | 'checker-light' | 'checker-split' | 'black' | 'white' | 'none',
     showAvatar: true,
     showGuides: false,
     /** Rolling graphs of the voice and how the visuals read it (G toggles). */
@@ -64,9 +64,16 @@ export const defaults = {
     spread: 1.0,
     /** Brightness of a tree between phrases (it never ungrows). */
     restBrightness: 0.55,
-    /** A tree starts fading this many seconds after it stopped growing (its phrase ended). */
+    /** How trees, old branches and withering twigs end. wither: they grow back into the tree,
+     *  trunk and all, and the leaves fall. fade: they stay whole and fade out. both: they fade as
+     *  they wither back. */
+    ending: 'wither' as 'wither' | 'fade' | 'both',
+    /** A silence this long ends the whole tree (s): it withers (or fades) away completely and the
+     *  next phrase starts a new one. Shorter pauses only wither the outer twigs. 0 = never. */
+    dieAfter: 4,
+    /** A replaced tree starts to end this many seconds after it stopped growing (its phrase ended). */
     fadeAfter: 3,
-    /** Seconds the fade itself takes. */
+    /** Seconds the ending takes (withering back to the root, or fading). */
     fadeSeconds: 2.5,
     /** In a pause, the outer twigs grow back toward their stubs (leaves and all) and regrow when singing resumes. */
     witherOnPause: true,
@@ -212,6 +219,10 @@ export const defaults = {
     scatter: 0,
   },
   halo: {
+    /** The ring becomes two strands braided round each other (consult 7). 0 = a plain ring. */
+    braid: 0,
+    /** The vine winds in and out across the ring like a corkscrew (new growth only). */
+    twist: 0,
     /** Number of points the live vine grows from, spread evenly round the ring (1 = one point). */
     origins: 1,
     /** Where the first origin sits, in degrees (-90 = bottom, behind the neck; 90 = top). */
@@ -259,6 +270,29 @@ export const defaults = {
     tilt: 0,
   },
   plants: {
+    /** Branches wind from side to side like a corkscrew instead of running straight (consult 7).
+     *  The tree keeps its size, outline and limbs. 0 = straight. */
+    twist: 0,
+    /** Makes the twist irregular: uneven turns and sharp elbows, like old wood. */
+    gnarl: 0,
+    /** Limb ends and some twigs finish in a small spiral. */
+    curl: 0,
+    /** Main limbs drawn as 2 or 3 strands wound round each other, like rope (1 = one stroke). */
+    strands: 1,
+    /** Length of one full turn on a main limb (plant units). */
+    twistLength: 0.35,
+    /** Turns get shorter toward the tips (0 = the same all along). */
+    twistTighten: 0.5,
+    /** How much side shoots twist compared with the limbs (0 = straight twigs). */
+    twistTwigs: 1,
+    /** Branches thicken at the crests of the turns and where a fork leaves. */
+    knots: 0,
+    /** The near side of each turn (and the front strand) is brighter than the far side. */
+    twistDepth: 0.6,
+    /** One strand turn per this many branch widths (lower = a tighter rope). */
+    strandLay: 9,
+    /** A phrase sung with vibrato or effort grows a more twisted tree (needs "shaped by the phrase"). */
+    twistVoice: 1,
     /** Tips curve toward the sky (positive) or droop (negative). */
     lift: 0.2,
     /** Wander, ragged outline, the longer "hero" tip. */
@@ -342,6 +376,10 @@ export const defaults = {
   },
   /** Wind, push and shiver (docs/fable-consult-3-motion.md). */
   motion: {
+    /** Branches slowly squirm from side to side (a wave travelling along them). 0 = off. */
+    writhe: 0,
+    /** What makes them squirm harder: vibrato, effort, loudness, or none (always the same). */
+    writheVoice: 'vibrato' as 'none' | 'vibrato' | 'effort' | 'loudness',
     /** How far the tips lean in a full-voice gust (degrees). */
     swayDeg: 8,
     /** Share of the wind that stays when nobody sings (0 = stands still). */
@@ -363,6 +401,13 @@ export const defaults = {
     shiverSensitivity: 1,
   },
   glow: {
+    /** A soft dark outline round everything, so light colours and glow stay readable on a bright
+     *  background (part of the OBS output, under the ink and glow). 0 = off. */
+    shadow: 0,
+    shadowColour: '#000000',
+    /** Dark branches glow in the glow colour as strongly as mid-bright ones (needs a glow colour
+     *  amount above 0). 0 = glow follows how bright the ink is. */
+    tintFlat: 0,
     strength: 1.6,
     radius: 1.8,
     /** Weight of the widest bloom level (the heavy haze). */
@@ -429,7 +474,7 @@ export const defaults = {
     /** Every n-th phrase ends with a full stop: a long pause (fullStopSeconds), so phrase-end
      *  effects (withering, falling tips, a new branch) show. 0 = never. */
     fullStopEvery: 3,
-    fullStopSeconds: 3.5,
+    fullStopSeconds: 7,
     /** Plant the live take every n seconds (0 = never), to watch the planting hands-free. */
     autoCommit: 0,
     /** Pretend the DAW is recording (the halo opens with the first phrase and stays open). */

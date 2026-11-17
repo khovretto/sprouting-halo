@@ -151,9 +151,10 @@ export class HaloVine {
   private stepTip(ti: number, tip: Tip, h: Params['halo']) {
     const px = tip.node.x, py = tip.node.y;
     const rho = Math.hypot(px, py), th = Math.atan2(py, px);
-    const target = 1 + h.wander * noise1(tip.arc * 2.2, this.seed + ti * 13);
+    // halo.twist: a corkscrew in and out across the ring, a function of the arc already laid.
+    const target = 1 + h.wander * noise1(tip.arc * 2.2, this.seed + ti * 13) + 0.045 * (h.twist ?? 0) * Math.sin(tip.arc * (TAU / 0.42) + ti * 2.1);
     const corr = clamp((target - rho) * 14, -1, 1) * 0.9;
-    tip.heading = angleLerp(tip.heading, th + (tip.sign * Math.PI) / 2 - tip.sign * corr, 0.25) + (this.r() - 0.5) * 0.15;
+    tip.heading = angleLerp(tip.heading, th + (tip.sign * Math.PI) / 2 - tip.sign * corr, (h.twist ?? 0) > 0 ? 0.4 : 0.25) + (this.r() - 0.5) * 0.15;
     tip.arc += STEP;
     tip.node = this.add(px + Math.cos(tip.heading) * STEP, py + Math.sin(tip.heading) * STEP, tip.node, 0,
       h.vineWidth, NodeKind.Runner, ti, tip.arc, 0, 1);

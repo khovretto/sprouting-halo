@@ -542,6 +542,12 @@ function start() {
 
 
   let shown = new Uint8Array(0);
+  /** Rope limbs and elbows of a take tree (plants.strands, plants.twist). */
+  type Rope = { phase: ArrayLike<number>; strands: number; depth: number; k: number; elbow?: ArrayLike<number> };
+  const smoothstep01 = (a: number, b: number, x: number) => {
+    const t = clamp((x - a) / (b - a), 0, 1);
+    return t * t * (3 - 2 * t);
+  };
   /** A theme's natural branch colour (its middle, for a gradient); undefined = the take colour. */
   const branchCache = new Map<string, RGB>();
   const branchRgb = (theme: string): RGB | undefined => {
@@ -572,8 +578,12 @@ function start() {
 
   function pushTree(out: Instances, sk: Skeleton, vis: Float32Array, layer: number, ink: Ink,
                     look: Look, alpha: number, unit: number, frontGlow = params.glow.front, nodeAlpha?: ArrayLike<number>,
-                    tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>, sScale = 1, ring = false, natural?: RGB) {
+                    tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>, sScale = 1, ring = false, natural?: RGB,
+                    rope?: Rope) {
     const u = Math.max(1e-3, unit);
+    const elbow = rope?.elbow;
+    const W0 = Math.max(1.6 * params.plants.tipWidth, 0.008);
+    const S = rope ? Math.max(1, Math.min(3, Math.round(rope.strands))) : 1;
     if (alpha <= 0.005) return;
     const bright = brighten(look), fade = fadeOf(look);
     // shown[i]: a child segment of node i is drawn (so the segment ending at i can end flat).
@@ -594,29 +604,73 @@ function start() {
       const c = inkAt(ink, ring ? ringS(sk.x[i], sk.y[i], ink.loop) : sk.flex[i] * sScale, 0.5, C, natural);
       const tn = tone ? tone[i] : 1;
       const k = bright * tn;
-      out.stroke(
-        ax, ay, lerp(ax, sk.x[i], f), lerp(ay, sk.y[i], f),
-        (sk.w[pa] * look.width) / u, (sk.w[i] * look.width * (0.4 + 0.6 * f)) / u, sk.flex[pa], sk.flex[i],
-        lerp(c[0], 1, look.shine) * k, lerp(c[1], 1, look.shine) * k, lerp(c[2], 1, look.shine) * k, alpha * na * fade,
-        (look.glow + (f < 1 ? frontGlow * (1 - f) : 0)) * tn * tn, layer,
-        // Chain links tile: a flat start where the parent segment meets this one, and a flat end
-        // where a drawn child continues it (tips and growing ends stay round).
-        sk.parent[pa] >= 0 ? (shown[i] ? 2 : 1) : 0,
-        order ? order[i] : 1,
-        bend ? bend[i * 4] : ax, bend ? bend[i * 4 + 1] : ay, bend ? bend[i * 4 + 2] : sk.flex[pa], bend ? bend[i * 4 + 3] : 0,
-      );
+      const wa = (sk.w[pa] * look.width) / u, wb = (sk.w[i] * look.width * (0.4 + 0.6 * f)) / u;
+      const cr = lerp(c[0], 1, look.shine) * k, cg = lerp(c[1], 1, look.shine) * k, cb = lerp(c[2], 1, look.shine) * k;
+      const a = alpha * na * fade, gl = (look.glow + (f < 1 ? frontGlow * (1 - f) : 0)) * tn * tn;
+      // Chain links tile: a flat start where the parent segment meets this one, and a flat end
+      // where a drawn child continues it (tips, growing ends and twist elbows stay round).
+      const join = sk.parent[pa] >= 0 ? (shown[i] && !(elbow && elbow[i]) ? 2 : 1) : 0;
+      const ord = order ? order[i] : 1;
+      const px = bend ? bend[i * 4] : ax, py = bend ? bend[i * 4 + 1] : ay, pf = bend ? bend[i * 4 + 2] : sk.flex[pa], hd = bend ? bend[i * 4 + 3] : 0;
+      if (S > 1 && rope && ord <= 1 && sk.w[pa] > W0) {
+        // Rope (consult 7, 1.5): S thinner strands on a phase-shifted helix, back strand first and
+        // dimmer. The outer edge stays at the branch width; strands grow out of the main one.
+        const ph = rope.phase, rho = S === 2 ? 0.62 : 0.52, gp = sk.parent[pa];
+        let bx = sk.x[i] - ax, by = sk.y[i] - ay;
+        const bl = Math.hypot(bx, by) || 1;
+        bx /= bl;
+        by /= bl;
+        let qx = gp >= 0 ? ax - sk.x[gp] : bx, qy = gp >= 0 ? ay - sk.y[gp] : by;
+        const ql = Math.hypot(qx, qy) || 1;
+        qx /= ql;
+        qy /= ql;
+        const Ka = rope.k * smoothstep01(W0, 1.6 * W0, sk.w[pa]), Kb = rope.k * smoothstep01(W0, 1.6 * W0, sk.w[i]);
+        const mid = 0.5 * (ph[pa] + ph[i]);
+        strandOrder.length = 0;
+        for (let j = 0; j < S; j++) strandOrder.push(j);
+        strandOrder.sort((p1, p2) => Math.cos(mid + (TAU * p1) / S) - Math.cos(mid + (TAU * p2) / S));
+        for (const j of strandOrder) {
+          const o = (TAU * j) / S, z = Math.cos(mid + o);
+          const oa = wa * (1 - rho) * Ka * Math.sin(ph[pa] + o), ob = wb * (1 - rho) * Kb * Math.sin(ph[i] + o);
+          const ra = wa * (j === 0 ? lerp(1, rho, Ka) : rho * Ka), rb = wb * (j === 0 ? lerp(1, rho, Kb) : rho * Kb);
+          if (ra <= 0 && rb <= 0) continue;
+          const sh = 1 - 0.4 * rope.depth * (0.5 - 0.5 * z) * Math.min(1, Ka + Kb);
+          const Ax = ax - qy * oa, Ay = ay + qx * oa, Bx = sk.x[i] - by * ob, By = sk.y[i] + bx * ob;
+          out.stroke(Ax, Ay, lerp(Ax, Bx, f), lerp(Ay, By, f), ra, rb, sk.flex[pa], sk.flex[i],
+            cr * sh, cg * sh, cb * sh, a, gl, layer, join, ord, px, py, pf, hd);
+        }
+        continue;
+      }
+      out.stroke(ax, ay, lerp(ax, sk.x[i], f), lerp(ay, sk.y[i], f), wa, wb, sk.flex[pa], sk.flex[i],
+        cr, cg, cb, a, gl, layer, join, ord, px, py, pf, hd);
     }
   }
+  const strandOrder: number[] = [];
 
   function pushRing(out: Instances, layer: number, ink: Ink, look: Look, alpha: number, unit: number, level: number) {
     const h = params.halo;
     const N = 160;
     const w = (h.ringWidth * look.width * (1 + 0.6 * level)) / Math.max(1e-3, unit);
     // A clean circle: its oval / trefoil motion comes from the layer's ring mode (shaders/motion.glsl).
+    const braid = clamp(h.braid ?? 0, 0, 1);
     for (let k = 0; k < N; k++) {
       const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU;
       const c = inkAt(ink, (k / N) * (ink.loop ? 1 : 2), 0.5, C);
       const s = look.shine, i = brighten(look);
+      if (braid > 0) {
+        // halo.braid (consult 7, 1.8): two strands round each other, 12 crossings (whole: it closes),
+        // the back one first and dimmer.
+        const am = 0.5 * (a0 + a1);
+        const js = Math.cos(12 * am) < Math.cos(12 * am + Math.PI) ? [0, 1] : [1, 0];
+        for (const j of js) {
+          const r0 = 1 + 0.028 * braid * Math.sin(12 * a0 + j * Math.PI), r1 = 1 + 0.028 * braid * Math.sin(12 * a1 + j * Math.PI);
+          const z = Math.cos(12 * am + j * Math.PI), sh = i * (1 - 0.4 * params.plants.twistDepth * (0.5 - 0.5 * z));
+          const ws = w * lerp(1, 0.7, braid);
+          out.stroke(r0 * Math.cos(a0), r0 * Math.sin(a0), r1 * Math.cos(a1), r1 * Math.sin(a1), ws, ws, 0, 0,
+            lerp(c[0], 1, s) * sh, lerp(c[1], 1, s) * sh, lerp(c[2], 1, s) * sh, alpha * fadeOf(look), look.glow, layer);
+        }
+        continue;
+      }
       out.stroke(Math.cos(a0), Math.sin(a0), Math.cos(a1), Math.sin(a1), w, w, 0, 0,
         lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * fadeOf(look), look.glow, layer);
     }
@@ -858,6 +912,7 @@ function start() {
     for (const s of slots) if (!ids.includes(s.id)) dying.push({ slot: s, t0: t });
     slots = next;
 
+    let newBuilds = 0;
     // Ease placements toward the layout (re-layout morphs instead of rebuilding).
     const ease = 1 - Math.exp(-params.layout.ease * realDt);
     slots.forEach((s, k) => {
@@ -874,9 +929,12 @@ function start() {
       if (!pending) s.gens.update(s.drive, dt, params);
       for (const g of s.gens.gens) {
         g.tree.boost = s.stampT !== undefined ? 1 + 3 * Math.exp(-(t - s.stampT) / 0.35) : 1;
-        g.tree.ensureBuilt(tg, params, blocked, n);
+        // One new tree built per step: when several takes start a phrase together, the others wait
+        // a frame (invisible) instead of making one long frame the growth then catches up on.
+        if (!g.tree.built && newBuilds >= 1) continue;
+        if (g.tree.ensureBuilt(tg, params, blocked, n)) newBuilds++;
         // A replaced tree keeps its withered twigs while it fades (they no longer grow back).
-        g.tree.computeReveal(g.reveal, s.drive.pitch, params, g.wither, dt);
+        g.tree.computeReveal(g.reveal, s.drive.pitch, params, g.wither, dt, g.die ?? 0);
       }
       s.alpha = pending ? 0 : Math.min(1, s.alpha + realDt * 2);
       s.colour = takeColour(s.id, f);
@@ -992,7 +1050,11 @@ function start() {
         const [dx, dy] = localDown(ang, pl.scale);
         const sScale = 1 / Math.max(1e-3, g.tree.maxFlex);
         pushTree(back, g.tree.sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend, sScale,
-          false, branchRgb(s.theme));
+          false, branchRgb(s.theme), {
+            phase: g.tree.twistPhase, strands: params.plants.strands, depth: params.plants.twistDepth, elbow: g.tree.elbow,
+            // Just after a planting the frond (one stroke) splits into strands under the flash.
+            k: s.stampT !== undefined ? clamp((t - s.stampT) / 0.3, 0, 1) : 1,
+          });
         decorateTree(g.tree.sk, g.tree.vis, params,
           styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), backDeco,
           { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend,
@@ -1119,6 +1181,7 @@ function start() {
   let last = performance.now(); // time of the last simulated and drawn frame
   let lastRaf = last;
   let vsync = 1000 / 60; // measured rAF period (ms), smoothed
+  let typical = 1 / 60; // s between drawn frames, smoothed
   let activeUntil = last + IDLE_HOLD;
   let obsVisible = true;
   let contextLost = false;
@@ -1171,7 +1234,14 @@ function start() {
     const n = Math.max(1, Math.round(1000 / wantedFps(now) / vsync));
     if (now - last < (n - 0.5) * vsync) return;
     try {
-      const elapsed = clamp((now - last) / 1000, 0, MAX_CATCHUP);
+      // A stall (a tree being built, garbage collection) is not caught up beyond half a frame
+      // more than expected: the growth would visibly jump. Low frame rates still run in real time.
+      // (`typical` follows the real frame interval, so a browser that runs slower than the
+      // measured refresh rate is still simulated in real time.)
+      const raw = Math.min(MAX_CATCHUP, (now - last) / 1000);
+      const expected = Math.max((n * vsync) / 1000, typical);
+      typical += (raw - typical) * 0.1;
+      const elapsed = clamp(raw, 0, Math.max(expected * 1.5, 1 / 40));
       last = now;
       // Longer frames are simulated in steps, so a low frame rate never slows the plants down.
       const steps = Math.max(1, Math.ceil(elapsed / MAX_STEP - 1e-6));

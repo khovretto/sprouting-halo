@@ -37,6 +37,9 @@ export class LayerMotion {
   readonly a = new Float32Array(4);
   readonly b = new Float32Array(4);
   readonly c = new Float32Array(4);
+  /** Writhe: amplitude, phase, wave number (motion.writhe). */
+  readonly d = new Float32Array(4);
+  private wPhase = 0;
 
   constructor(private seed: number) {}
 
@@ -89,6 +92,12 @@ export class LayerMotion {
 
     // Vibrato: integrate the phase so a changing rate never jumps.
     this.phase = (this.phase + TAU * (d.vibratoRate || 5.5) * dt) % TAU;
+
+    // Writhe: a slow travelling wave along the branches, harder with vibrato / effort / loudness.
+    const wv = m.writheVoice === 'none' ? 1 : 0.25 + 0.75 * clamp(
+      m.writheVoice === 'vibrato' ? d.vibrato * m.shiverSensitivity : m.writheVoice === 'effort' ? d.effort : d.energy * 1.3);
+    this.wPhase = (this.wPhase + TAU * 0.35 * m.speed * (0.6 + wv) * dt) % TAU; // integrated: no jumps
+    this.d.set([m.writhe > 0 ? 0.035 * m.writhe * scale * wv : 0, this.wPhase, TAU / 0.22, 0]);
 
     this.a.set([this.x[0], this.x[1], this.x[2], this.x[3]]);
     this.b.set([this.x[4], this.x[5], 0.45 * amp, this.phase]);

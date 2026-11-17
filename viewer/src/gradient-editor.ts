@@ -1,6 +1,6 @@
 // Gradient picker (docs/fable-consult-5-colour-themes-panel.md, B.3 / B.4). A bar that always
-// shows the gradient; click it to open the editor below:
-//  - click the bar or the empty track: a new stop there (in the colour the gradient has there)
+// shows the gradient; click it to open the editor below, click it again (or Fold, or Esc) to fold it:
+//  - click the empty track under the bar: a new stop there (in the colour the gradient has there)
 //  - drag a stop sideways (Shift snaps to 0.05); drag it down, right-click or Delete removes it
 //  - arrows move the focused stop by 0.01 (Shift 0.1)
 //  - Smooth / Linear / Steps, Loop, Reverse, Spread, presets (built-in and saved)
@@ -32,6 +32,11 @@ const CSS = `
 .sprout-grad-row button.on { background: rgba(143,208,255,0.3); }
 .sprout-grad-row input[type=text] { flex: 1; min-width: 0; font-family: ui-monospace, Consolas, monospace; }
 .sprout-grad-row input[type=number] { width: 52px; }
+.sprout-grad-row select { color-scheme: dark; }
+.sprout-grad-row option { color: #ddd; background: #26282c; }
+.sprout-grad-row option:disabled { color: #888; }
+.sprout-grad-fold { margin-left: auto; }
+.sprout-grad.open .sprout-grad-bar { box-shadow: inset 0 0 0 1px #8fd0ff; }
 `;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '', tipText?: string) => {
@@ -78,15 +83,18 @@ export class GradientEditor {
     this.bar.className = 'sprout-grad-bar';
     this.bar.width = 256;
     this.bar.height = 1;
-    tip(this.bar, 'Click to edit the gradient; when open, click to add a colour stop there.');
+    tip(this.bar, 'Click to open the gradient editor; click again to fold it. Add a colour stop by clicking the strip under the bar.');
     this.track.className = 'sprout-grad-track';
     this.body.className = 'sprout-grad-body';
     this.body.hidden = true;
     this.el.append(this.bar, this.track, this.body);
     this.track.hidden = true;
-    this.bar.addEventListener('click', (e) => {
-      if (this.body.hidden) this.open(true);
-      else this.addAt(this.posOf(e));
+    this.bar.addEventListener('click', () => this.open(this.body.hidden));
+    this.el.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !this.body.hidden) {
+        e.stopPropagation();
+        this.open(false);
+      }
     });
     this.track.addEventListener('pointerdown', (e) => {
       if (e.target === this.track) this.addAt(this.posOf(e));
@@ -122,7 +130,10 @@ export class GradientEditor {
     });
     tip(this.presetSel, 'Built-in gradients, your saved ones, or save this one.');
     this.presetSel.addEventListener('change', () => this.choosePreset());
-    row1.append(this.interpSel, this.loopBtn, rev, spread, this.presetSel);
+    const fold = el('button', '▴ Fold', 'Fold the editor away (or click the bar again, or Esc).');
+    fold.className = 'sprout-grad-fold';
+    fold.addEventListener('click', () => this.open(false));
+    row1.append(this.interpSel, this.loopBtn, rev, spread, this.presetSel, fold);
 
     // Selected stop.
     const row2 = el('div');
@@ -180,9 +191,7 @@ export class GradientEditor {
         this.text.select();
       }
     });
-    const close = el('button', 'Close', 'Fold the editor away (the bar stays).');
-    close.addEventListener('click', () => this.open(false));
-    row3.append(this.text, copy, paste, close);
+    row3.append(this.text, copy, paste);
 
     this.body.append(row1, row2, pickHost, row3);
     this.fillPresets();
@@ -207,6 +216,7 @@ export class GradientEditor {
   private open(on: boolean) {
     this.body.hidden = !on;
     this.track.hidden = !on;
+    this.el.classList.toggle('open', on);
   }
 
   private posOf(e: MouseEvent) {

@@ -34,6 +34,7 @@ export const PATHS: string[] = Object.entries(D).flatMap(([s, o]) => Object.keys
 /** Keys that respond to the voice (the reactivity kind). */
 const REACTIVE = new Set([
   'growth.newTreeEachPhrase', 'growth.secondsToFull', 'growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds',
+  'growth.ending', 'growth.dieAfter', 'plants.twistVoice',
   'growth.witherOnPause', 'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
   'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed', 'growth.shed', 'growth.branchEachPhrase',
   'growth.branchesKept', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
@@ -118,7 +119,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colHalo: { source: 'take' },
         growth: { branching: 0.95, reach: 1.1, spread: 1.3, flatten: 0.45 },
         look: { theme: 'leaves', density: 0.85, decoSize: 1.5, variety: 0.8, depthShade: 0.8, decoGlow: 0.12, buds: 0.3 },
-        plants: { wildness: 0.7, overlap: 0.8, clearance: 0.03, taper: 0.55, lift: 0.05, maxNodes: 3600 },
+        plants: { wildness: 0.7, overlap: 0.8, clearance: 0.03, taper: 0.55, lift: 0.05, maxNodes: 3600, twist: 0.25, twistTwigs: 1.4, curl: 0.35 },
         halo: { origins: 2, tailDeg: 540, tailFade: 0.3, sproutLength: 16, alwaysLeaves: 0.7, wander: 0.14 },
         glow: { strength: 1.2, wide: 0.5, crowd: 1.1, inkMask: 0.85, tint: '#d8ffb0', tintAmount: 0.25 },
       },
@@ -131,7 +132,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colLeaf: { takeMix: 0.9 },
         growth: { branching: 0.3, spread: 0.7, flatten: 0.35 },
         look: { theme: 'branches', density: 0.3, decoSize: 1.0, variety: 0.35, depthShade: 0.4, buds: 0, dryColour: '#9aa3ad' },
-        plants: { taper: 0.8, wildness: 0.6, lift: 0.35, clearance: 0.07, overlap: 0.25 },
+        plants: { taper: 0.8, wildness: 0.6, lift: 0.35, clearance: 0.07, overlap: 0.25, twist: 0.3, gnarl: 0.6, knots: 0.3 },
         halo: { alwaysLeaves: 0.2, sproutLength: 8, sproutCurl: 0.4, tailDeg: 220 },
         glow: { strength: 1.9, radius: 2.6, wide: 1.2, base: 0.2, crowd: 0.4, knee: 1.2, tint: '#bfe3ff', tintAmount: 0.6 },
         palette: { from: 'list', list: 'step;0:e8f4ff,0.2:9fd0ff,0.4:6aa8f0,0.6:b8a8ff,0.8:8fe3ff', pick: 'order' },
@@ -146,7 +147,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         growth: { branching: 0.7, flatten: 0.4 },
         look: { theme: 'wreath', density: 0.8, decoSize: 2.2, decoGlow: 0.35, variety: 0.7, dryColour: '#5b4630' },
         plants: { lift: 0.3 },
-        halo: { origins: 2, tailDeg: 720, tailFade: 0.2, alwaysLeaves: 0.9, sproutLength: 7, sproutCurl: 0.5, wander: 0.04, ringWidth: 0.014, vineWidth: 0.01 },
+        halo: { origins: 2, tailDeg: 720, tailFade: 0.2, alwaysLeaves: 0.9, sproutLength: 7, sproutCurl: 0.5, wander: 0.04, ringWidth: 0.014, vineWidth: 0.01, braid: 0.5 },
         glow: { strength: 2.0, base: 0.45, crowd: 0.9, tint: '#ffcf7a', tintAmount: 0.35 },
         palette: { from: 'list', list: 'step;0:c8102e,0.25:1a7333,0.5:ffd24a,0.75:f4f4f4', pick: 'order' },
       },
@@ -159,9 +160,9 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colHalo: { source: 'branches' },
         growth: { branching: 0.95, spread: 1.5, flatten: 0.6 },
         look: { theme: 'thorns', density: 0.95, decoSize: 1.5, variety: 0.8, depthShade: 0.85, decoGlow: 0.05, tint: '#c0142c', tintAmount: 0.25, dryColour: '#3a2226' },
-        plants: { lift: -0.2, taper: 0.85, wildness: 0.75, clearance: 0.03, overlap: 0.7, maxNodes: 3400 },
-        halo: { sproutCurl: 0.3, sproutLength: 14, wander: 0.12, alwaysLeaves: 0.6 },
-        glow: { strength: 0.75, radius: 1.3, wide: 0.35, base: 0.12, crowd: 1.1, inkMask: 0.85, tint: '#ff2a3c', tintAmount: 0.5 },
+        plants: { lift: -0.2, taper: 0.85, wildness: 0.75, clearance: 0.045, overlap: 0.7, maxNodes: 3400, twist: 0.5, gnarl: 0.5, knots: 0.4, curl: 0.25 },
+        halo: { sproutCurl: 0.3, sproutLength: 14, wander: 0.12, alwaysLeaves: 0.6, twist: 0.4 },
+        glow: { strength: 0.75, radius: 1.3, wide: 0.35, base: 0.12, crowd: 1.1, inkMask: 0.85, tint: '#ff2a3c', tintAmount: 0.5, tintFlat: 0.4, shadow: 0.3 },
         palette: { from: 'list', list: 'step;0:c0142c,0.33:8a0f22,0.66:e0304a,1:6b1030', pick: 'order' },
       },
     },
@@ -185,7 +186,8 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colHalo: { source: 'branches' },
         growth: { branching: 0.7, spread: 1.4 },
         look: { density: 0.64 },
-        halo: { origins: 3, tailDeg: 200, alwaysLeaves: 0.49 },
+        halo: { origins: 3, tailDeg: 200, alwaysLeaves: 0.49, braid: 0.6 },
+        plants: { strands: 2, twistDepth: 0.8 },
         glow: { strength: 2.4, base: 0.2, knee: 1.2 },
       },
     },
@@ -208,7 +210,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colHalo: { source: 'gradient', gradient: 'ok;0:ff9ccb,1:ffffff', along: 1, speed: 0.05, perTake: 0, takeMix: 0.2 },
         growth: { branching: 0.775, spread: 1.2 },
         look: { theme: 'leaves', density: 0.7, decoSize: 1.6, variety: 0.7, buds: 0.35, dryColour: '#c9a0a8' },
-        plants: { lift: -0.1, wildness: 0.55 },
+        plants: { lift: -0.1, wildness: 0.55, twist: 0.2, gnarl: 0.4, curl: 0.2 },
         halo: { alwaysLeaves: 0.55, sproutCurl: 1.2 },
         glow: { strength: 1.5, tint: '#ffc4de', tintAmount: 0.45 },
         palette: { from: 'list', list: 'step;0:ff9ccb,0.25:ffc4de,0.5:f47fb0,0.75:ffe3ef', pick: 'order' },
@@ -229,13 +231,33 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         palette: { from: 'list', list: 'step;0:d9541e,0.25:f2a51e,0.5:7a1f0e,0.75:f7dc6f', pick: 'random' },
       },
     },
+    {
+      id: 'twisted', name: 'Dark & twisted', description: 'Gnarled black-violet limbs wound like rope, elbows, curled tips, bone-tipped thorns, a braided halo; a crimson rim and a dark outline keep it readable on dark and light backgrounds.',
+      values: {
+        colBranch: { source: 'gradient', gradient: 'ok;0:0d0a10,0.5:2a1030,0.85:5a1f4a,1:b23a6a', along: 1, speed: 0, perTake: 0, takeMix: 0.15, voice: 'effort', voiceAmount: 0.2 },
+        colLeaf: { source: 'gradient', gradient: 'ok;0:1a0d16,0.55:6b2244,1:d9c7b0', along: 0.6, scatter: 0.4, takeMix: 0.1 },
+        colAccent: { source: 'gradient', gradient: 'ok;0:8a0f22,1:ff3355', takeMix: 0, scatter: 0.6 },
+        colHalo: { source: 'gradient', gradient: 'ok;0:1a0d16,0.5:6b2244,0.8:b23a6a,1:f0e6d8', along: 2, speed: 0.03, perTake: 0, takeMix: 0 },
+        growth: { branching: 0.75, reach: 1.05, spread: 1.6, flatten: 0.5 },
+        look: { theme: 'thorns', density: 0.6, decoSize: 1.3, variety: 0.9, depthShade: 0.9, decoGlow: 0.05, buds: 0,
+          tint: '#3a0f2a', tintAmount: 0.15, dryColour: '#4a4046' },
+        plants: { lift: -0.35, wildness: 0.9, taper: 0.9, clearance: 0.06, overlap: 0.6, maxWidth: 0.06, tipWidth: 0.004,
+          step: 0.02, maxNodes: 4200,
+          twist: 0.8, twistLength: 0.4, gnarl: 0.7, knots: 0.6, curl: 0.6, strands: 2, twistTighten: 0.6, twistDepth: 0.75, strandLay: 7 },
+        halo: { origins: 2, tailDeg: 420, sproutLength: 18, sproutCurl: 2.2, wander: 0.16, alwaysLeaves: 0.5,
+          ringWidth: 0.011, vineWidth: 0.009, braid: 0.8, twist: 0.7 },
+        glow: { strength: 1.1, radius: 1.6, wide: 0.6, base: 0.25, crowd: 1.0, inkMask: 1, knee: 1.0,
+          tint: '#d0204f', tintAmount: 1, tintFlat: 0.85, shadow: 0.7, shadowColour: '#12060e' },
+        palette: { from: 'list', list: 'step;0:7a1238,0.2:4a1a6b,0.4:a3262e,0.6:2f3a6b,0.8:6b6b2a', pick: 'order' },
+      },
+    },
   ]),
   reactivity: built([
     { id: 'default', name: 'Responsive', description: 'The standard response: grows in about 3.5 s of singing, leaves fall in pauses, blossoms on notes held 1.5 s.', values: {} },
     {
       id: 'calm', name: 'Calm (ballad)', description: 'Slow and lingering. Each phrase grows one new branch; old ones dry, droop and fall. Gentle motion.',
       values: {
-        growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8,
+        growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, ending: 'both', dieAfter: 7, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8,
           branchEachPhrase: true, branchesKept: 4, branchWitherSeconds: 4, branchDroopDeg: 25, branchFallSeconds: 2 },
         response: { release: 3, brightness: 0.6, variety: 0.3 },
         look: { blossoms: 0.9, blossomHold: 2 },
@@ -248,12 +270,12 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'stage', name: 'Punchy (stage)', description: 'Fast and hard: trees shoot up and clear quickly, pitch drops throw leaves, short holds bloom, big planting.',
       values: {
-        growth: { secondsToFull: 1.8, fadeAfter: 1.5, fadeSeconds: 1.2, restBrightness: 0.4, witherOnPitchDip: true, witherDepth: 0.7, witherSeconds: 0.4, regrowSpeed: 2.5 },
+        growth: { secondsToFull: 1.8, fadeAfter: 1.5, fadeSeconds: 1.2, dieAfter: 2.5, restBrightness: 0.4, witherOnPitchDip: true, witherDepth: 0.7, witherSeconds: 0.4, regrowSpeed: 2.5 },
         response: { phraseGap: 0.6, release: 0.7, brightness: 1, effortWidth: 1.5, pitchSteer: 0.8, variety: 0.8 },
         look: { blossoms: 1, blossomHold: 0.8, thornEffort: 2 },
         halo: { idleSpeed: 20, singSpeed: 160, sproutRate: 8, sproutGrow: 0.3, spawnSeconds: 0.5 },
         glow: { levelGain: 1.6, onsetGain: 1.8, pitchShine: 1.0, front: 1.8 },
-        motion: { swayDeg: 12, kickDeg: 12, springiness: 0.7, speed: 1.4, shiverDeg: 5 },
+        motion: { swayDeg: 12, kickDeg: 12, springiness: 0.7, speed: 1.4, shiverDeg: 5, writhe: 0.25, writheVoice: 'effort' },
         transitions: { liveEndSeconds: 0.4, pruneSeconds: 0.9 },
         commit: { duration: 0.65, impact: 1.8, burst: 70, spinTurns: 1.5, plunge: 0.4, syncToOnset: true, syncWindow: 0.15, limbs: 4 },
       },
@@ -261,7 +283,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'subtle', name: 'Subtle', description: 'Small reactions: little brightness change, light motion, few blossoms, the halo plants as a single quiet frond.',
       values: {
-        growth: { restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2 },
+        growth: { restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2, ending: 'fade', dieAfter: 5 },
         response: { brightness: 0.5, effortWidth: 0.5 },
         look: { blossoms: 0.4, blossomHold: 2.5 },
         halo: { sproutRate: 1.5 },
@@ -274,20 +296,22 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       id: 'vibrato', name: 'Vibrato-sensitive', description: 'Light vibrato already makes twigs and leaves shimmer; soft singing glows wider; blossoms after a 1 s hold.',
       values: {
         look: { blossomHold: 1 },
-        motion: { shiverDeg: 6, shiverSensitivity: 2, flutterDeg: 18 },
+        motion: { shiverDeg: 6, shiverSensitivity: 2, flutterDeg: 18, writhe: 0.35, writheVoice: 'vibrato' },
+        plants: { twistVoice: 1.5 },
         glow: { softGlow: 0.8 },
       },
     },
     {
       id: 'branches', name: 'Branch by branch', description: 'One tree per take: every phrase grows a new branch on it while the oldest withers, droops and falls off.',
       values: {
-        growth: { branchEachPhrase: true, branchesKept: 3, branchWitherSeconds: 2.5, branchDroopDeg: 35, branchFallSeconds: 1.4, secondsToFull: 3, restBrightness: 0.7 },
+        growth: { branchEachPhrase: true, branchesKept: 3, branchWitherSeconds: 2.5, branchDroopDeg: 35, branchFallSeconds: 1.4, secondsToFull: 3, restBrightness: 0.7,
+          dieAfter: 5 },
       },
     },
     {
       id: 'bloom', name: 'Blossom ballad', description: 'One tree keeps growing through the song. Notes held for a second open the blossoms; their petals fall when the note ends.',
       values: {
-        growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5 },
+        growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5, ending: 'both', dieAfter: 6, fadeSeconds: 3.5 },
         look: { blossoms: 1, blossomHold: 1 },
         glow: { softGlow: 0.8 },
         motion: { shiverDeg: 5, shiverSensitivity: 1.5 },
@@ -296,14 +320,38 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'fall', name: 'Falling leaves', description: 'Pauses and pitch drops strip the outer twigs deep into the tree and the leaves rain down; it regrows fast when you sing.',
       values: {
-        growth: { newTreeEachPhrase: false, witherOnPitchDip: true, witherDipSemitones: 2, witherDepth: 0.8, witherSeconds: 0.6, twigFadeSeconds: 1.2, regrowSpeed: 2 },
+        growth: { newTreeEachPhrase: false, witherOnPitchDip: true, witherDipSemitones: 2, witherDepth: 0.8, witherSeconds: 0.6, twigFadeSeconds: 1.2, regrowSpeed: 2,
+          ending: 'wither', dieAfter: 3.5, fadeSeconds: 3 },
       },
     },
     {
       id: 'steady', name: 'Steady (no withering)', description: 'Nothing retracts or falls: one tree grows and stays, blossoms open whenever you sing. For comparing.',
       values: {
-        growth: { newTreeEachPhrase: false, witherOnPause: false, shed: false, restBrightness: 0.8 },
+        growth: { newTreeEachPhrase: false, witherOnPause: false, shed: false, restBrightness: 0.8, dieAfter: 0, ending: 'fade' },
         look: { blossomHold: 0 },
+      },
+    },
+    {
+      id: 'writhe', name: 'Writhing', description: 'Slow and heavy: branches squirm on vibrato and stay solid when you sing quietly; full voice thickens them and grows the thorns; phrases with vibrato grow more twisted trees.',
+      values: {
+        growth: { secondsToFull: 4.5, regrowSpeed: 0.9, restBrightness: 0.8, fadeAfter: 5, fadeSeconds: 4,
+          witherDepth: 0.6, witherSeconds: 1.2, twigFadeSeconds: 1.4, ending: 'both', dieAfter: 6 },
+        response: { brightness: 0.3, effortWidth: 1.4, pitchSteer: 0.3, variety: 0.8, release: 2.5 },
+        look: { thornEffort: 2.2, blossoms: 0 },
+        plants: { twistVoice: 1.6, softDroop: 1.5 },
+        halo: { idleSpeed: 4, singSpeed: 55, sproutRate: 4, sproutGrow: 0.9 },
+        glow: { levelGain: 0.5, onsetGain: 1.1, pitchShine: 0.2, front: 1.4, softGlow: 0.2 },
+        motion: { writhe: 0.7, writheVoice: 'vibrato', swayDeg: 5, idle: 0.5, speed: 0.6, kickDeg: 8, springiness: 0.75,
+          twigs: 1.6, flutterDeg: 6, shiverDeg: 5, shiverSensitivity: 1.5 },
+        commit: { duration: 1.3, impact: 1.3, spinTurns: 1.25, burst: 20, limbs: 3 },
+      },
+    },
+    {
+      id: 'fade', name: 'Fade away (nothing dies)', description: 'Nothing withers back or falls: in pauses the outer twigs and their leaves fade, and after a long silence the whole tree fades out.',
+      values: {
+        growth: { ending: 'fade', shed: false, witherOnPause: true, witherOnPitchDip: false, witherDepth: 0.5, witherSeconds: 1.2, dieAfter: 4, fadeAfter: 2, fadeSeconds: 3,
+          branchEachPhrase: false, newTreeEachPhrase: true },
+        response: { release: 2 },
       },
     },
   ]),
@@ -331,6 +379,14 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'pauses', name: 'Short phrases, long pauses', description: 'Every pause ends the phrase: shows a new tree or a new branch per phrase, withering and falling leaves.',
       values: { fake: { phraseMin: 1.5, phraseMax: 3, gapMin: 1.5, gapMax: 3, fullStopEvery: 1, fullStopSeconds: 3 } },
+    },
+    {
+      id: 'light', name: 'On a light background', description: 'Light checkerboard behind the preview, to check a look against bright scenes (or pick "half dark, half light" under Test & preview).',
+      values: { scene: { backdrop: 'checker-light' } },
+    },
+    {
+      id: 'stops', name: 'Full stops', description: 'Every second phrase ends with an 8 s full stop: the whole tree withers (or fades) away and a new one grows.',
+      values: { fake: { fullStopEvery: 2, fullStopSeconds: 8 } },
     },
     {
       id: 'jumps', name: 'Pitch jumps', description: 'Many jumps to very high notes and back down: shows pitch-dip withering and pitch-driven colour.',

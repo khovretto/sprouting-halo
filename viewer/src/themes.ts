@@ -32,6 +32,10 @@ export interface ThemePart {
   sizeFrom?: 'effort' | 'none';
   /** bloom: opens on long held notes like blossoms. */
   opens?: 'always' | 'bloom';
+  /** Origin: the point of the shape that sits on the branch, and that it grows and turns about.
+   *  x 0 (left) .. 1 (right), y 0 (bottom) .. 1 (top) of the shape drawn pointing up. Unset = the
+   *  shape's own (pictures and leaves: the bottom centre, like a stalk; blossoms, berries: the middle). */
+  pivot?: [number, number];
 }
 
 export interface ThemeDef {
@@ -64,7 +68,7 @@ export const BUILTIN_THEMES: ThemeDef[] = [
   {
     id: 'leaves', name: 'Leaves', version: 1, parts: [
       { place: 'spaced', shape: 'leaf', size: 1, amount: 1, role: 'leaf', natural: '#52c757', flutter: 1 },
-      { place: 'tips', shape: 'blossom', size: 1, amount: 1, role: 'accent', natural: '#ffd1e6', glow: 1.4, opens: 'bloom', flutter: 0.4 },
+      { place: 'tips', shape: 'blossom', size: 1, amount: 1, role: 'accent', natural: '#ffd1e6', glow: 1.4, opens: 'bloom', flutter: 0.4, pivot: [0.5, 0.5] },
     ],
   },
   {
@@ -75,7 +79,7 @@ export const BUILTIN_THEMES: ThemeDef[] = [
   {
     id: 'wreath', name: 'Christmas wreath', version: 1, parts: [
       { place: 'every', shape: 'needle', size: 1, amount: 1, role: 'leaf', natural: '#298c4d', glow: 0.5, flutter: 0.5 },
-      { place: 'clusters', shape: 'berry', size: 1, amount: 1, role: 'accent', natural: '#e61424', glow: 1.3, flutter: 0.3 },
+      { place: 'clusters', shape: 'berry', size: 1, amount: 1, role: 'accent', natural: '#e61424', glow: 1.3, flutter: 0.3, pivot: [0.5, 0.5] },
       { place: 'pairs', shape: 'holly', size: 1, amount: 1, role: 'leaf', natural: '#1a7333', flutter: 0.8 },
     ],
   },
@@ -83,6 +87,13 @@ export const BUILTIN_THEMES: ThemeDef[] = [
 ];
 
 const SHAPE_IDS: Record<string, number> = { leaf: 0, thorn: 1, berry: 2, needle: 3, holly: 4, blossom: 5 };
+/** Default origins of the built-in shapes, by shape id ([x, y] as in ThemePart.pivot). Round shapes
+ *  grow from their middle, not from their edge. */
+export const SHAPE_PIVOT: [number, number][] = [[0.5, 0], [0.5, 0], [0.5, 0.5], [0.5, 0], [0.5, 0], [0.5, 0.5]];
+const BOTTOM: [number, number] = [0.5, 0];
+/** The origin a part uses (its own, else its shape's). */
+export const pivotOf = (part: ThemePart): [number, number] =>
+  part.pivot ?? (part.shape.startsWith('tex:') ? BOTTOM : SHAPE_PIVOT[SHAPE_IDS[part.shape] ?? 0]);
 
 // ---- Registry ------------------------------------------------------------------------------------
 
@@ -169,13 +180,13 @@ async function decodeToCanvas(url: string): Promise<{ c: HTMLCanvasElement; aspe
   } catch {
     return null;
   }
-  // Fit inside 256 × 256 with a 2 px clear border, bottom-centred (the stalk at the base).
+  // Stretched over 256 × 256 with a 2 px clear border: the quad it is drawn on has the picture's
+  // own aspect (halfWidth), so it shows unstretched. (It used to be fitted bottom-centred, which
+  // squashed wide pictures and thinned tall ones.)
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const ctx = c.getContext('2d')!;
-  const k = Math.min(252 / img.naturalWidth, 252 / img.naturalHeight);
-  const w = img.naturalWidth * k, h = img.naturalHeight * k;
-  ctx.drawImage(img, (256 - w) / 2, 254 - h, w, h);
+  ctx.drawImage(img, 2, 2, 252, 252);
   return { c, aspect: img.naturalWidth / Math.max(1, img.naturalHeight) };
 }
 

@@ -10,6 +10,7 @@ flat in float v_glow;
 flat in float v_join; // 1 = a link in a chain: flat start, flat end
 uniform float u_px;
 
+uniform float u_glowFlat; // glow.tintFlat: dark ink glows in the tint colour too
 uniform vec4 u_glowTint; // rgb, amount: the glow leans toward this colour
 layout(location = 0) out vec4 o_colour; // premultiplied
 layout(location = 1) out vec4 o_glow;   // emission fed to the bloom chain
@@ -58,6 +59,6 @@ void main() {
   vec3 col = v_col.rgb * mix(1.0, mix(0.6, 1.0, smoothstep(0.0, 2.0, inside)), wide);
   o_colour = vec4(col, 1.0) * cov;
   vec3 gsrc = v_col.rgb;
-  vec3 gc = mix(gsrc, u_glowTint.rgb * dot(gsrc, vec3(0.2126, 0.7152, 0.0722)) * 2.0, u_glowTint.a);
+  vec3 gc = mix(gsrc, u_glowTint.rgb * mix(dot(gsrc, vec3(0.2126, 0.7152, 0.0722)), 0.5, u_glowFlat) * 2.0, u_glowTint.a);
   o_glow = vec4(gc * v_glow, 1.0) * cov;
 }

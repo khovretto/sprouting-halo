@@ -14,7 +14,29 @@
         background-size: 32px 32px;
         background-position: 0 0, 0 16px, 16px -16px, -16px 0;
       }
+      body.backdrop-checker-light, body.backdrop-checker-split {
+        background-color: #ececf0;
+        background-image:
+          linear-gradient(45deg, #d6d6de 25%, transparent 25%), linear-gradient(-45deg, #d6d6de 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #d6d6de 75%), linear-gradient(-45deg, transparent 75%, #d6d6de 75%);
+        background-size: 32px 32px;
+        background-position: 0 0, 0 16px, 16px -16px, -16px 0;
+      }
+      /* Split: the dark checker over the left half (the canopy is symmetric: one look, both backgrounds). */
+      body.backdrop-checker-split::before {
+        content: ''; position: fixed; inset: 0 50% 0 0;
+        background-color: #1b1b1f;
+        background-image:
+          linear-gradient(45deg, #26262c 25%, transparent 25%), linear-gradient(-45deg, #26262c 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #26262c 75%), linear-gradient(-45deg, transparent 75%, #26262c 75%);
+        background-size: 32px 32px;
+        background-position: 0 0, 0 16px, 16px -16px, -16px 0;
+      }
       body.backdrop-black { background: #000; }
+      body.backdrop-white { background: #fff; }
+      /* Native dropdown lists: dark like the panel (they were white on white in places). */
+      select { color-scheme: dark; }
+      select option { color: #e6e9ee; background: #26282c; }
       #gl, #overlay { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       #overlay { pointer-events: none; }
       #scope { position: fixed; left: 8px; bottom: 8px; inset: auto auto 8px 8px; display: none; border-radius: 6px; cursor: pointer; }

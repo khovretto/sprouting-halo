@@ -18,6 +18,7 @@ uniform float u_wide;
 uniform float u_crowd;
 uniform float u_inkMask;
 uniform float u_knee;
+uniform vec4 u_shadow; // rgb, amount: a soft outline under everything (consult 7, 3.3)
 out vec4 o;
 void main() {
   vec4 b = texture(u_base, v_uv);
@@ -30,5 +31,9 @@ void main() {
   g /= 1.0 + u_knee * max(g.r, max(g.g, g.b));             // soft knee: never clips flat, hue kept
   vec3 rgb = b.rgb + g;
   float a = clamp(b.a + max(g.r, max(g.g, g.b)), 0.0, 1.0);
-  o = vec4(min(rgb, vec3(a)), a);
+  rgb = min(rgb, vec3(a));
+  // Dark outline from the blurred coverage (no extra pass), under ink and glow, cut to zero where
+  // coverage is negligible: pale and glowing parts stay readable over a bright scene.
+  float s = clamp(u_shadow.a * (1.4 * g1.a + 0.8 * g2.a) - 0.02, 0.0, 1.0) * (1.0 - a);
+  o = vec4(rgb + u_shadow.rgb * s, a + s);
 }
