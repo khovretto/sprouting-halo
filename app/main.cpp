@@ -563,11 +563,23 @@ std::string base64Decode (const std::string& in)
     return out;
 }
 
+/** Built-in themes the viewer defines as data (viewer/src/themes.ts BUILTIN_THEMES beyond the four
+ *  coded ones): listed for the tap windows, never saved or deleted as files. */
+struct DataBuiltin { const char* id; const char* name; };
+const DataBuiltin kDataBuiltins[] = { { "briar", "Briar (leaves & thorns)" } };
+bool isDataBuiltin (const std::string& id)
+{
+    for (const auto& b : kDataBuiltins)
+        if (id == b.id)
+            return true;
+    return false;
+}
+
 /** themeSave / themeDelete from a local page. Returns true when the folder changed. */
 bool handleThemeMessage (const std::string& msg)
 {
     const std::string id = stringField (msg, "id");
-    if (! validThemeId (id))
+    if (! validThemeId (id) || isDataBuiltin (id))
         return false;
     const std::wstring dir = themesDir();
     CreateDirectoryW (dir.c_str(), nullptr);
@@ -606,7 +618,7 @@ void publishThemeList (sprout::Bus& bus)
             std::string id;
             for (wchar_t ch : w.substr (0, w.size() - 5))
                 id += ch < 128 ? (char) ch : '?';
-            if (! validThemeId (id) || list.size() >= sprout::kMaxThemeList)
+            if (! validThemeId (id) || isDataBuiltin (id) || list.size() + 1 >= sprout::kMaxThemeList)
                 continue;
             // The name is near the start; don't read the textures.
             std::string head (4096, '\0');
@@ -630,6 +642,15 @@ void publishThemeList (sprout::Bus& bus)
         FindClose (h);
     }
     std::sort (list.begin(), list.end(), [] (const auto& a, const auto& b) { return _stricmp (a.name, b.name) < 0; });
+    // The viewer's data-defined built-in themes come first, so a tap can pick them by name
+    // (the viewer knows them without a file; the bus's fixed theme numbers stay as they are).
+    for (int k = (int) (sizeof (kDataBuiltins) / sizeof (kDataBuiltins[0])) - 1; k >= 0; --k)
+    {
+        sprout::ThemeEntry e {};
+        std::snprintf (e.id, sizeof (e.id), "%s", kDataBuiltins[k].id);
+        std::snprintf (e.name, sizeof (e.name), "%s", kDataBuiltins[k].name);
+        list.insert (list.begin(), e);
+    }
     // Only when it changed (or the bus is new), so tap windows don't rebuild their list for nothing.
     std::string key;
     for (const auto& e : list)
