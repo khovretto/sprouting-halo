@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for wanting to help. Bug reports, looks and themes, and code are all welcome.
+Thanks for wanting to help with Sprouting Halo (https://github.com/khovretto/sprouting-halo). Bug reports, looks and themes, and code are all welcome.
 
 ## Reporting a problem
 

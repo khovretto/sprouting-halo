@@ -169,7 +169,7 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
 
   function rebuild() {
     pane?.dispose();
-    pane = new Pane({ container, title: 'Sprout themes' });
+    pane = new Pane({ container, title: 'Sprouting Halo themes' });
     const p = pane;
     // Status line: plain text under the title (a readonly text field would scroll sideways).
     const statusEl = document.createElement('div');

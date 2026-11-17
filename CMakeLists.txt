@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SproutVisualizer VERSION 0.1.0 LANGUAGES C CXX)
+project(SproutingHalo VERSION 0.1.0 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "Sprout targets Windows (Spout, Direct3D 11).")

@@ -1,4 +1,5 @@
-# Builds Sprout (app, plugin, tools, viewer) and puts a release into release\Sprout-<version>\ plus a zip.
+# Builds Sprouting Halo (Sprout.exe, the Sprout Tap plugin, tools, viewer) and puts a release into
+# release\SproutingHalo-<version>\ plus a zip.
 #
 #   powershell -ExecutionPolicy Bypass -File tools/package.ps1            # build, then package
 #   powershell -ExecutionPolicy Bypass -File tools/package.ps1 -NoBuild   # package what is built
@@ -39,7 +40,7 @@ foreach ($p in @($exe, $plugin, "$web\index.html")) {
     if (-not (Test-Path $p)) { throw "Missing ${p}: build first (run without -NoBuild)." }
 }
 
-$name = "Sprout-$version"
+$name = "SproutingHalo-$version"
 $out = Join-Path 'release' $name
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -56,7 +57,7 @@ Copy-Item docs\images (Join-Path $out 'docs\images') -Recurse
 Copy-Item tap\LICENSE (Join-Path $out 'Sprout Tap.vst3\LICENSE-AGPL-3.0.txt')
 
 @"
-Sprout Visualizer $version
+Sprouting Halo $version
 
 1. Copy the "Sprout Tap.vst3" folder to C:\Program Files\Common Files\VST3\ and rescan plugins in your DAW.
 2. Put Sprout Tap first on every vocal track (Role: Auto).

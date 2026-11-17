@@ -41,7 +41,7 @@ jobs:
         run: ./tools/package.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: Sprout-release
+          name: SproutingHalo-release
           path: release/*.zip
       - name: Attach to the GitHub release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')

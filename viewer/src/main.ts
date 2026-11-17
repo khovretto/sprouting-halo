@@ -112,12 +112,12 @@ function start() {
   const controls = /\/controls\/?$/.test(location.pathname) || query.has('controls');
   if (controls) {
     document.documentElement.classList.add('controls');
-    document.title = 'Sprout controls';
+    document.title = 'Sprouting Halo controls';
   }
   // /themes (or ?themes): make your own themes, with a live preview.
   const themesPage = /\/themes\/?$/.test(location.pathname) || query.has('themes');
   let editorTheme = 'leaves';
-  if (themesPage) document.title = 'Sprout themes';
+  if (themesPage) document.title = 'Sprouting Halo themes';
   const renderer = controls ? (null as unknown as Renderer) : new Renderer(glCanvas);
   const overlay = new Overlay(ovCanvas);
   if (!obs && !controls) void loadAvatarImage().then((img) => (overlay.image = img));

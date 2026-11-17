@@ -1,6 +1,6 @@
 # Third-party software
 
-Sprout Visualizer uses the following. They are not part of this repository: the C++ ones are
+Sprouting Halo uses the following. They are not part of this repository: the C++ ones are
 cloned into `external/` before building (see the README), the viewer's are installed by npm.
 
 | Component | Used by | Licence | Source |

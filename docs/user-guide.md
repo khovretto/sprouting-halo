@@ -1,4 +1,4 @@
-# Sprout Visualizer: user guide
+# Sprouting Halo: user guide
 
 This guide takes you from the downloaded files to a working overlay in OBS, then through the
 settings panel, presets, themes and the per-track options in the DAW. For building from source,

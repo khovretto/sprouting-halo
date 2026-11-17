@@ -5,7 +5,8 @@ update both together.
 
 ## 0.1.0 (unreleased, bus v5)
 
-The first public version.
+The first public version, published as Sprouting Halo (https://github.com/khovretto/sprouting-halo). It was developed as
+"Sprout Visualizer"; the app and the plugin keep the short name Sprout.
 
 ### Overlay (viewer)
 

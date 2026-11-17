@@ -493,7 +493,7 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     return k ? presetValue(activePreset(k), path) : getPath(defaults, path);
   };
 
-  const pane = new Pane({ container, title: 'Sprout viewer  (H hides, G scope)' });
+  const pane = new Pane({ container, title: 'Sprouting Halo  (H hides, G scope)' });
   installTooltips(container);
   installSelectMenus(container);
   const folderTip = (f: Folder, text?: string) => tip(f.element.querySelector('.tp-fldv_b'), text);

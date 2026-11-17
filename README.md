@@ -1,4 +1,6 @@
-# Sprout Visualizer
+# Sprouting Halo
+
+[![Build](https://github.com/khovretto/sprouting-halo/actions/workflows/build.yml/badge.svg)](https://github.com/khovretto/sprouting-halo/actions/workflows/build.yml)
 
 An audio-reactive stage overlay for VTubers who sing and record themselves live. A glowing halo
 grows behind your avatar while you sing, and every take you record is planted as its own tree.
@@ -15,6 +17,8 @@ with your loudness, shiver with your vibrato and bloom on long held notes.
 DAW tracks ── Sprout Tap (VST3) ── shared memory ──► Sprout.exe ── WebSocket ──► viewer page (OBS Browser Source)
               one per vocal track                    voice analysis              WebGL2 halo and trees
 ```
+
+The parts keep the short name Sprout: **Sprout.exe** (the app) and **Sprout Tap** (the DAW plugin).
 
 ## What it does
 
@@ -38,7 +42,7 @@ DAW tracks ── Sprout Tap (VST3) ── shared memory ──► Sprout.exe �
 You need Windows 10 or 11, a DAW that loads VST3 plugins (REAPER works best: it also reports the
 record-armed track), and OBS Studio.
 
-1. **Get the files.** Download a release zip, or build it yourself (see [Build](#build)). The release
+1. **Get the files.** Download a zip from [Releases](https://github.com/khovretto/sprouting-halo/releases), or build it yourself (see [Build](#build)). The release
    holds `Sprout.exe`, a `web` folder next to it, and the `Sprout Tap.vst3` plugin.
 2. **Install the plugin.** Copy the whole `Sprout Tap.vst3` folder to
    `C:\Program Files\Common Files\VST3\` and let the DAW rescan its plugins.
@@ -57,6 +61,14 @@ The [user guide](docs/user-guide.md) walks through each step in detail, with tro
 
 Requirements: Windows 10/11, Visual Studio 2022 (C++ desktop workload), CMake 3.22+, Git, and
 Node.js 20+ for the viewer.
+
+```bash
+git clone https://github.com/khovretto/sprouting-halo.git
+```
+
+```bash
+cd sprouting-halo
+```
 
 ```bash
 git clone --depth 1 --branch 8.0.9 https://github.com/juce-framework/JUCE.git external/JUCE
