@@ -105,6 +105,18 @@ export const defaults = {
     brightness: 0.7,
   },
   look: {
+    /** The wood stays: trees are there in full from the start (no growing), one per take, and
+     *  their branches never wither, fade or die. Pauses and endings only touch the leaves (they
+     *  fall, see leafFall). For seasonal looks like Autumn. */
+    woodStays: false,
+    /** Leaves let go on their own and fall while the branches stay, then grow back (0 = never).
+     *  Trembling (vibrato) and pauses shake more loose. */
+    leafFall: 0,
+    /** Seconds before a fallen leaf grows back. */
+    leafRegrow: 3,
+    /** A faint light vein and edge on leaves, so near-black leaves keep their form (0 = off). */
+    leafSheen: 0,
+    sheenColour: '#ffffff',
     /** Where each track's theme and amount come from: its Sprout Tap window, or theme and density
      *  below for every track. (Picking a preset already sets every Sprout Tap window to its theme.) */
     themeFrom: 'tracks' as 'tracks' | 'preset',
@@ -378,6 +390,8 @@ export const defaults = {
   motion: {
     /** Branches slowly squirm from side to side (a wave travelling along them). 0 = off. */
     writhe: 0,
+    /** With look.leafFall: how much trembling (vibrato) shakes the leaves loose (0 = not at all). */
+    leafShake: 1,
     /** What makes them squirm harder: vibrato, effort, loudness, or none (always the same). */
     writheVoice: 'vibrato' as 'none' | 'vibrato' | 'effort' | 'loudness',
     /** How far the tips lean in a full-voice gust (degrees). */

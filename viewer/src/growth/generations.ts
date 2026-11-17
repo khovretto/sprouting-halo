@@ -69,16 +69,20 @@ export class Generations<T extends Structure> {
   /** Start a new tree now (new seed); older ones are retired but not cut short. */
   regrow(p: Params) {
     const g = p.growth, keep = Math.max(1, Math.round(g.branchesKept));
-    if (!g.branchEachPhrase) for (const x of this.gens) x.retired = true;
+    const each = g.branchEachPhrase && !p.look.woodStays;
+    if (!each) for (const x of this.gens) x.retired = true;
     else {
       // The oldest living boughs start to wither, so at most `keep` stay with the new one.
       const alive = this.gens.filter((x) => !x.retired);
       while (alive.length >= keep) alive.shift()!.retired = true;
     }
     const M = clamp(keep + 1, 3, 7);
-    const slice = g.branchEachPhrase ? ([ORDER[M][this.phrase++ % M], M] as [number, number]) : null;
+    const slice = each ? ([ORDER[M][this.phrase++ % M], M] as [number, number]) : null;
     const seed = this.nextSeed++;
-    this.gens.push({ tree: this.make(seed, slice), seed, reveal: 0, alpha: 1, retired: false, idle: 0, wither: 0,
+    const tree = this.make(seed, slice);
+    // look.woodStays: the tree is there in full at once.
+    if (p.look.woodStays) (tree as unknown as { instant?: boolean }).instant = true;
+    this.gens.push({ tree, seed, reveal: p.look.woodStays ? 1 : 0, alpha: 1, retired: false, idle: 0, wither: 0,
       bough: !!slice, dry: 0, fall: 0 });
     const cap = Math.max(MAX_GENERATIONS, keep + 3);
     while (this.gens.length > cap) this.gens.shift();
@@ -86,8 +90,10 @@ export class Generations<T extends Structure> {
 
   update(d: Drive, dt: number, p: Params) {
     const g = p.growth;
+    const stays = p.look.woodStays;
     if (d.voice) {
       if (!this.current) this.regrow(p);
+      else if (stays) this.current.stamped = false; // one tree for good: phrases do not replace it
       else if (this.current.stamped) this.current.stamped = false; // the first phrase grows the planted tree
       // A new bough only when the current one is at least half grown (a short phrase keeps growing it).
       else if (d.newPhrase && (g.branchEachPhrase ? this.current.reveal > 0.5 : g.newTreeEachPhrase && this.current.reveal > 0.05)) this.regrow(p);
@@ -111,7 +117,7 @@ export class Generations<T extends Structure> {
 
     // A long silence ends the whole tree (trunk, limbs and all); the next phrase starts a new one.
     // Trees planted by the commit animation wait for their first phrase instead.
-    if (g.dieAfter > 0 && !d.voice && d.silentFor > g.dieAfter)
+    if (g.dieAfter > 0 && !stays && !d.voice && d.silentFor > g.dieAfter)
       for (const x of this.gens)
         if (!x.stamped && !x.ending) {
           x.retired = true;
@@ -143,7 +149,7 @@ export class Generations<T extends Structure> {
         gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
         continue;
       }
-      const canFade = (g.newTreeEachPhrase || gen.retired) && !gen.stamped;
+      const canFade = (g.newTreeEachPhrase || gen.retired) && !gen.stamped && !(stays && gen === cur);
       if (gen.stamped) gen.alpha = Math.max(gen.alpha, g.restBrightness);
       else if (gen.ending || (canFade && gen.idle > fadeAfter)) {
         // Ending: wither back to the root (computeReveal), fade, or both.

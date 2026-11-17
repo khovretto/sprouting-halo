@@ -34,7 +34,7 @@ export const PATHS: string[] = Object.entries(D).flatMap(([s, o]) => Object.keys
 /** Keys that respond to the voice (the reactivity kind). */
 const REACTIVE = new Set([
   'growth.newTreeEachPhrase', 'growth.secondsToFull', 'growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds',
-  'growth.ending', 'growth.dieAfter', 'plants.twistVoice',
+  'growth.ending', 'growth.dieAfter', 'plants.twistVoice', 'motion.leafShake',
   'growth.witherOnPause', 'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
   'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed', 'growth.shed', 'growth.branchEachPhrase',
   'growth.branchesKept', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
@@ -181,7 +181,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       id: 'neon', name: 'Neon stage', description: 'Pink, cyan and lime light running along wide-arching trees; your pitch pushes the colours. Strong glow.',
       values: {
         colBranch: { source: 'gradient', gradient: 'rgb~;0:ff2bd6,0.33:2bd9ff,0.66:7dff2b', along: 0.3, speed: 0.12, perTake: 0.33, takeMix: 0, voice: 'pitch', voiceAmount: 0.5 },
-        colLeaf: { source: 'gradient', gradient: 'rgb~;0:ff2bd6,0.33:2bd9ff,0.66:7dff2b', along: 0, speed: 0.12, scatter: 1, takeMix: 0 },
+        colLeaf: { source: 'gradient', gradient: 'rgb~;0:ff2bd6,0.33:2bd9ff,0.66:7dff2b', along: 0, speed: 0.12, scatter: 1, takeMix: 0.1 },
         colAccent: { source: 'gradient', gradient: 'ok;0:ffffff', takeMix: 0, scatter: 0 },
         colHalo: { source: 'branches' },
         growth: { branching: 0.7, spread: 1.4 },
@@ -195,7 +195,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       id: 'rainbow', name: 'Rainbow', description: 'Every take runs through the rainbow, each a step further along; pastel leaves; the halo jumps colour on note starts.',
       values: {
         colBranch: { source: 'gradient', takeMix: 0 },
-        colLeaf: { source: 'gradient', gradient: 'rgb~;0:ffa6a6,0.167:ffffa6,0.333:a6ffa6,0.5:a6ffff,0.667:a6a6ff,0.833:ffa6ff', along: 0.3, speed: 0.05, perTake: 0.13, scatter: 0.6, takeMix: 0 },
+        colLeaf: { source: 'gradient', gradient: 'rgb~;0:ffa6a6,0.167:ffffa6,0.333:a6ffa6,0.5:a6ffff,0.667:a6a6ff,0.833:ffa6ff', along: 0.3, speed: 0.05, perTake: 0.13, scatter: 0.6, takeMix: 0.1 },
         colAccent: { source: 'gradient', gradient: 'ok;0:ffffff', takeMix: 0, scatter: 0 },
         colHalo: { source: 'gradient', gradient: 'rgb~;0:ff4d4d,0.167:ffff4d,0.333:4dff4d,0.5:4dffff,0.667:4d4dff,0.833:ff4dff', along: 1, speed: 0.05, perTake: 0.15, takeMix: 0, voice: 'flash', voiceAmount: 0.15 },
         glow: { strength: 1.8 },
@@ -217,18 +217,37 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       },
     },
     {
-      id: 'autumn', name: 'Autumn', description: 'Brown wood and leaves scattered from rust to gold that brighten as you sing louder; amber glow.',
+      id: 'autumn', name: 'Autumn', description: 'Brown wood that is simply there, never growing or withering; leaves from rust to gold keep falling and growing back, in showers when your voice trembles. No blossoms; amber glow.',
       values: {
         colBranch: { source: 'gradient', gradient: 'ok;0:2e1c10,1:6b4a2b', along: 1, speed: 0, perTake: 0, takeMix: 0.2 },
         colLeaf: { source: 'gradient', gradient: 'ok;0:7a1f0e,0.4:d9541e,0.7:f2a51e,1:f7dc6f', along: 0.3, scatter: 0.9, takeMix: 0.1, voice: 'loudness', voiceAmount: 0.2 },
         colAccent: { source: 'gradient', gradient: 'ok;0:f7dc6f,1:fff6cf', scatter: 1, takeMix: 0 },
         colHalo: { source: 'gradient', gradient: 'ok;0:d9541e,0.5:f2a51e,1:f7dc6f', along: 1, speed: 0.04, perTake: 0, takeMix: 0.2 },
         growth: { branching: 0.67 },
-        look: { theme: 'leaves', density: 0.61, variety: 0.8, dryColour: '#6b4a2b' },
+        look: { theme: 'leaves', density: 0.75, variety: 0.8, dryColour: '#6b4a2b', blossoms: 0, buds: 0, woodStays: true, leafFall: 0.6, leafRegrow: 2.5 },
         plants: { lift: 0.05 },
         halo: { alwaysLeaves: 0.46 },
         glow: { tint: '#ffb060', tintAmount: 0.4 },
         palette: { from: 'list', list: 'step;0:d9541e,0.25:f2a51e,0.5:7a1f0e,0.75:f7dc6f', pick: 'random' },
+      },
+    },
+    {
+      id: 'blackbriar', name: 'Black briar', description: 'Gothic bramble: charcoal wood with a little gnarl, pure black leaves with a hairline silver vein, bone thorns, a few blood-red roses on held notes, a thorn-crown halo; a cold moonlight rim and a soft dark outline keep it readable on dark and light backgrounds. Pairs with the Nocturne reaction.',
+      values: {
+        colBranch: { source: 'gradient', gradient: 'ok;0:0a090b,0.55:19161c,1:34303a', along: 1, speed: 0, perTake: 0, takeMix: 0, voice: 'effort', voiceAmount: 0.15 },
+        colLeaf: { source: 'gradient', gradient: 'ok;0:040405,1:0c0b0f', along: 0, speed: 0, perTake: 0, scatter: 1, takeMix: 0 },
+        colAccent: { source: 'theme', takeMix: 0 },
+        colHalo: { source: 'gradient', gradient: 'ok;0:121015,0.5:3c3844,0.82:8d8a9c,1:ecebf5', along: 2, speed: 0.03, perTake: 0, takeMix: 0 },
+        growth: { branching: 0.7, reach: 1.0, spread: 1.1, flatten: 0.5 },
+        look: { theme: 'briar', density: 0.55, decoSize: 1.6, variety: 0.7, depthShade: 0.5, decoGlow: 0.3, buds: 0.3,
+          tintAmount: 0, dryColour: '#6f6a78', leafSheen: 0.35, sheenColour: '#8f96c8' },
+        plants: { lift: 0.1, wildness: 0.6, taper: 0.75, clearance: 0.05, overlap: 0.6, maxWidth: 0.045, tipWidth: 0.005, maxNodes: 3200,
+          twist: 0.3, twistLength: 0.45, gnarl: 0.65, knots: 0.5, curl: 0, strands: 1, twistTwigs: 0.6, twistTighten: 0.3, twistDepth: 0.4 },
+        halo: { origins: 2, tailDeg: 360, sproutLength: 10, sproutCurl: 0.5, wander: 0.08, alwaysLeaves: 0.75,
+          ringWidth: 0.011, vineWidth: 0.008, braid: 0.7, twist: 0.25 },
+        glow: { strength: 1.0, radius: 1.5, wide: 0.45, base: 0.3, crowd: 0.8, inkMask: 1, knee: 1.0,
+          tint: '#aeb6e8', tintAmount: 1, tintFlat: 1, shadow: 0.35, shadowColour: '#07060a' },
+        palette: { from: 'list', list: 'step;0:b9b4c8,0.2:7d1626,0.4:5b6b8c,0.6:8a7f9e,0.8:c9c2b4', pick: 'order' },
       },
     },
     {
@@ -329,6 +348,19 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       values: {
         growth: { newTreeEachPhrase: false, witherOnPause: false, shed: false, restBrightness: 0.8, dieAfter: 0, ending: 'fade' },
         look: { blossomHold: 0 },
+      },
+    },
+    {
+      id: 'nocturne', name: 'Nocturne', description: 'For dark, solid looks (Black briar): trees stay opaque when you are quiet and the voice shows in the rim glow instead; slow growth, stiff branches that only sway, thorns that grow when you push, roses on notes held a second.',
+      values: {
+        growth: { secondsToFull: 4, restBrightness: 0.9, fadeAfter: 4, fadeSeconds: 3.5, ending: 'wither', dieAfter: 6,
+          witherDepth: 0.5, witherSeconds: 1.2, twigFadeSeconds: 1.0, regrowSpeed: 1.0 },
+        response: { brightness: 0.25, effortWidth: 1.1, release: 2.2 },
+        look: { thornEffort: 0.9, blossoms: 0.6, blossomHold: 1.2 },
+        plants: { twistVoice: 0.6 },
+        halo: { idleSpeed: 5, singSpeed: 50, sproutRate: 3, sproutGrow: 0.8 },
+        glow: { levelGain: 0.9, onsetGain: 0.9, pitchShine: 0.3, front: 1.2, softGlow: 0.5 },
+        motion: { writhe: 0, swayDeg: 5, idle: 0.4, speed: 0.7, kickDeg: 5, springiness: 0.4, twigs: 0.8, flutterDeg: 9, shiverDeg: 3 },
       },
     },
     {

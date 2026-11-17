@@ -106,7 +106,9 @@ export function inkAt(ink: Ink, s: number, h: number, out: number[], natural?: R
     g = ink.take[1];
     b = ink.take[2];
   }
-  const m = ink.takeMix >= 1 ? 1 : 1 - clamp((1 - ink.takeMix) * natScale);
+  // takeMix 0 is none at all ("0 = pure gradient or natural colour"); unchanged from 0.1 up
+  // (consult 8, 2.1: per-leaf variety used to leak up to 40 % take colour at 0).
+  const m = ink.takeMix >= 1 ? 1 : (1 - clamp((1 - ink.takeMix) * natScale)) * Math.min(1, ink.takeMix * 10);
   const k = ink.tintK, a = (1 - m) * (1 - k) * gain, tk = m * (1 - k) * gain, kk = k * gain;
   out[0] = r * a + ink.take[0] * tk + ink.tint[0] * kk;
   out[1] = g * a + ink.take[1] * tk + ink.tint[1] * kk;

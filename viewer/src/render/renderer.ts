@@ -146,6 +146,9 @@ export interface GlowSettings {
   /** A soft outline under everything (0 = off), in shadowColour. */
   shadow?: number;
   shadowColour?: string;
+  /** look.leafSheen: a hairline vein and edge on leaves, in sheenColour. */
+  sheen?: number;
+  sheenColour?: string;
 }
 
 export class Renderer {
@@ -322,6 +325,7 @@ export class Renderer {
       u_windT: windT,
       u_glowTint: [...hexToRgb(glow.tint), Math.min(1, Math.max(0, glow.tintAmount))],
       u_glowFlat: Math.min(1, Math.max(0, glow.tintFlat ?? 0)),
+      u_sheen: [...hexToRgb(glow.sheenColour ?? '#ffffff'), Math.max(0, glow.sheen ?? 0)],
       u_view: [(2 * view.s) / view.W, (2 * view.s) / view.H, view.cx, view.cy],
       u_px: 1 / view.s,
     };

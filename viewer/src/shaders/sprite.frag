@@ -14,6 +14,7 @@ uniform float u_glowFlat; // glow.tintFlat: dark ink glows in the tint colour to
 uniform vec4 u_glowTint; // rgb, amount: the glow leans toward this colour
 uniform highp sampler2DArray u_tex; // theme textures (shape ids 16..31)
 uniform vec4 u_texInfo[16];         // half-width, flutter, own colours
+uniform vec4 u_sheen;               // look.leafSheen: rgb, amount (a hairline vein and edge on leaves)
 layout(location = 0) out vec4 o_colour;
 layout(location = 1) out vec4 o_glow;
 
@@ -84,6 +85,12 @@ void main() {
     float inside = clamp(-d / v_uvPerPx, 0.0, 4.0); // pixels in from the edge
     col *= mix(0.45, 1.0, smoothstep(0.0, 2.5, inside));
     col *= mix(0.70, 1.12, smoothstep(0.0, 1.0, y));
+    if (u_sheen.a > 0.0) {
+      // At least 0.75 px wide, so it survives on small leaves; the edge line on one side only.
+      float vein = (1.0 - smoothstep(0.0, max(0.03, 0.75 * v_uvPerPx), abs(x))) * step(0.06, y) * step(y, 0.9);
+      float edge = smoothstep(0.5, 1.5, inside) * (1.0 - smoothstep(1.5, 3.0, inside)) * smoothstep(-0.05, 0.2, x);
+      col = mix(col, u_sheen.rgb, u_sheen.a * max(0.8 * vein, 0.6 * edge));
+    }
   }
   float cov = clamp(0.5 - d / v_uvPerPx, 0.0, 1.0) * v_col.a;
   if (cov <= 0.0) discard;

@@ -542,6 +542,8 @@ function start() {
 
 
   let shown = new Uint8Array(0);
+  /** Glow settings plus the leaf sheen, one object reused every frame. */
+  const glowArgs = { ...params.glow, sheen: 0, sheenColour: '#ffffff' };
   /** Rope limbs and elbows of a take tree (plants.strands, plants.twist). */
   type Rope = { phase: ArrayLike<number>; strands: number; depth: number; k: number; elbow?: ArrayLike<number> };
   const smoothstep01 = (a: number, b: number, x: number) => {
@@ -934,7 +936,15 @@ function start() {
         if (!g.tree.built && newBuilds >= 1) continue;
         if (g.tree.ensureBuilt(tg, params, blocked, n)) newBuilds++;
         // A replaced tree keeps its withered twigs while it fades (they no longer grow back).
-        g.tree.computeReveal(g.reveal, s.drive.pitch, params, g.wither, dt, g.die ?? 0);
+        const stays = params.look.woodStays;
+        // The wood stays: pauses wither nothing (they shake leaves loose below instead).
+        g.tree.computeReveal(g.reveal, s.drive.pitch, params, stays ? 0 : g.wither, dt, g.die ?? 0);
+        if (params.look.leafFall > 0) {
+          // Leaves fall on their own: a trickle, much more while trembling (vibrato) and in pauses.
+          const shake = params.motion.leafShake * clamp(s.drive.vibrato * 1.5, 0, 1.5);
+          const pause = stays ? g.wither : 0;
+          g.tree.fallLeaves(dt, params.look.leafFall * (0.04 + 0.9 * shake + 0.5 * pause), params.look.leafRegrow);
+        }
       }
       s.alpha = pending ? 0 : Math.min(1, s.alpha + realDt * 2);
       s.colour = takeColour(s.id, f);
@@ -1058,7 +1068,7 @@ function start() {
         decorateTree(g.tree.sk, g.tree.vis, params,
           styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), backDeco,
           { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend,
-            leafState: g.tree.leafState, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone,
+            leafState: g.tree.leafState, leafGone: params.look.leafFall > 0 ? g.tree.leafGone : undefined, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone,
             shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry });
       }
     };
@@ -1149,7 +1159,8 @@ function start() {
     const view: View = { s: Math.min(W, H) / 2 / params.scene.viewRadius, cx: params.scene.centerX, cy: params.scene.centerY, W, H };
     const tGpu0 = performance.now();
     perfAdd('build', tGpu0 - tDraw0);
-    renderer.render(batches, layerU, view, wind.t, params.glow);
+    Object.assign(glowArgs, params.glow, { sheen: params.look.leafSheen, sheenColour: params.look.sheenColour });
+    renderer.render(batches, layerU, view, wind.t, glowArgs);
     perfAdd('gpu', performance.now() - tGpu0);
     lastView = view;
 

@@ -108,6 +108,10 @@ export class Plant {
   tone = new Float32Array(0);
   /** Per node: pivot x, y, flex and heading of the shoot it belongs to (motion; bendFrames). */
   bend = new Float32Array(0);
+  /** Per node: seconds until a fallen leaf grows back (look.leafFall); 0 = the leaf is there. */
+  leafGone = new Float32Array(0);
+  /** look.woodStays: every segment shows at once (no growing). */
+  instant = false;
   /** Per-node leaf presence 0..1 (eased by decorateTree, so leaves fade in and out). */
   leafState = new Float32Array(0);
   /** Per-node blossom open amount shown (deco.ts), -1 after its petals fell. */
@@ -259,14 +263,26 @@ export class Plant {
         continue;
       }
       const ready = pa < 0 || this.vis[pa] >= 0.999;
-      if (dt <= 0) {
-        if (!shrink || this.witherH[i] >= reach) this.vis[i] = this.target[i]; // paused: show the allowed growth
+      if (dt <= 0 || this.instant) {
+        if (this.instant || !shrink || this.witherH[i] >= reach) this.vis[i] = this.target[i]; // paused (or the wood stays): all at once
       } else if (ready && this.vis[i] < this.target[i]) {
         const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
         this.vis[i] = Math.min(this.target[i], this.vis[i] + (dt * g.regrowSpeed * this.boost) / seg);
       }
     }
     this.markDone();
+  }
+
+  /** look.leafFall: each leaf that is there lets go with `rate` per second (it falls: decorateTree
+   *  sees leafGone and sheds it), and grows back after about `regrow` seconds. */
+  fallLeaves(dt: number, rate: number, regrow: number) {
+    const gone = this.leafGone, ls = this.leafState, n = Math.min(gone.length, ls.length);
+    if (dt <= 0) return;
+    const pr = 1 - Math.exp(-Math.max(0, rate) * dt);
+    for (let i = 0; i < n; i++) {
+      if (gone[i] > 0) gone[i] = Math.max(0, gone[i] - dt);
+      else if (pr > 0 && ls[i] > 0.9 && Math.random() < pr) gone[i] = Math.max(0.3, regrow) * (0.6 + 0.8 * Math.random());
+    }
   }
 
   /** Mark branches that have grown to their tip (once; withering does not undo it). */
@@ -366,6 +382,7 @@ export class Plant {
     this.life = new Float32Array(n).fill(1);
     this.leafLife = new Float32Array(n).fill(1);
     this.leafState = new Float32Array(n);
+    this.leafGone = new Float32Array(n);
     this.bloomState = new Float32Array(n);
     this.shed.clear();
     return height;

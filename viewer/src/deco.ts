@@ -196,6 +196,8 @@ export interface TreeExtras {
   retracting?: boolean;
   /** An old bough drying out (0..1): its leaves let go one by one, blossoms stay closed. */
   dry?: number;
+  /** look.leafFall: per node, > 0 while its leaf has fallen and not grown back. */
+  leafGone?: ArrayLike<number>;
 }
 
 export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: DecoStyle, out: Instances, extras: TreeExtras = {}) {
@@ -203,6 +205,12 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   if (st.theme === 'branches' || st.density <= 0) return;
   const custom = customDef(st.theme);
   if (custom && !custom.parts.length) return;
+  // Spaced parts share the leaf slots (consult 8, 1.3): the first takes ranks up to its cut, each
+  // further one the next window, so leaves and thorns never sit on the same node.
+  const spaced = custom ? custom.parts.filter((x) => x.place === 'spaced') : [];
+  const cuts: number[] = [];
+  for (let k = 0, acc = 0; k < spaced.length; k++) cuts.push(Math.min(1, (acc += st.density * Math.max(0, spaced[k].amount))));
+  const sparse = !!custom && custom.parts.every((x) => x.place === 'spaced' || x.place === 'tips');
   const place = new Placer(out, st);
   const underPlace = extras.under ? new Placer(extras.under, { ...st, glow: 0 }) : null;
   place.now = extras.now ?? 0;
@@ -299,12 +307,14 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     }
     place.put(x, y, ang, base * shown, Shape.Blossom, pc, flex, h3, lerp(0.6, 1.4, open));
   };
+  const gone = extras.leafGone;
   const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns') && !custom;
   for (let i = 1; i < sk.n; i++) {
     const f = vis[i];
     if (f <= 0.02) continue;
     // Take plants: most nodes carry nothing; skip them before any per-node work.
     if (leafOnly && rank![i] > Math.min(1, dens * 1.3) && tipScratch[i] === 0 && !(ls && ls[i] > 0.003)) continue;
+    if (sparse && rank && rank[i] > 1 && tipScratch[i] === 0 && bloomSite[i] !== 1 && !(ls && ls[i] > 0.003)) continue;
     place.nodeAlpha = extras.alpha ? extras.alpha[i] : 1;
     if (place.nodeAlpha <= 0.01) continue;
     const id = extras.ids ? extras.ids[i] : i;
@@ -338,7 +348,27 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       const bId = extras.branchId, bDone = extras.branchDone;
       const allowed = !rank || (f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1));
       const visTip = !!rank && allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
-      let spacedDone = false;
+      // Which spaced part owns this node (-1: none), and whether it is there now (one presence per node).
+      let owner = -1, pres = 0;
+      if (spaced.length) {
+        const key = rank ? rank[i] : h0 / 0.45; // rank 2 = never a slot
+        for (let k = 0; k < cuts.length; k++)
+          if (key <= cuts[k]) {
+            owner = k;
+            break;
+          }
+        if (rank) {
+          const tip = visTip && dens > 0.1;
+          // True twig ends, bare visible ends and leaves still fading out belong to the first part.
+          if ((tip && (terminal || owner < 0)) || (owner < 0 && ls && ls[i] > 0.003)) owner = 0;
+          const has = owner >= 0 && allowed && !bloomSite[i] && !(gone && gone[i] > 0) && (key <= cuts[cuts.length - 1] || tip)
+            && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
+          pres = owner >= 0 ? presence(i, has) : 0;
+        } else {
+          if (owner < 0 && terminal && dens > 0.15) owner = 0;
+          pres = owner >= 0 && !bloomSite[i] ? 1 : 0;
+        }
+      }
       for (const part of custom.parts) {
         const sid = shapeId(custom.id, part.shape);
         if (sid < 0) continue;
@@ -352,13 +382,13 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
           own ? ((tintA[0] = tintA[1] = tintA[2] = gain), tintA) : col(ink, natAt(part, st, s, h), s, h, natScale, gain);
         switch (part.place) {
           case 'spaced': {
-            const has = !bloomSite[i] && (rank ? allowed && (rank[i] <= Math.min(1, dens * amt) || (visTip && dens > 0.1)) : h0 < dens * 0.45 * amt || (terminal && dens > 0.15));
-            const pres = rank && !spacedDone ? presence(i, has) : has ? 1 : 0;
-            spacedDone = true;
-            if (pres <= 0) break;
+            void amt;
+            if (spaced[owner] !== part || pres <= 0) break;
             const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * lerp(0.95, 0.5 + 0.8 * h2, variety);
             const sz = size * 0.055 * part.size * eff * lerp(1, 0.6 + 0.65 * h2, variety) * pop * pres;
             place.put(x, y, ang, sz, sid, colourFor(flex * st.sScale, h2, lerp(1, 0.4 + 1.2 * h2, variety), st.intensity * tone), flex, h0, gl);
+            place.drop = null; // presence() arms both placers; only this one was used
+            if (underPlace) underPlace.drop = null;
             break;
           }
           case 'tips': {
@@ -368,7 +398,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
             const c = colourFor(flex * st.sScale, h3, 1, st.intensity * 1.1);
             const blooms = part.opens === 'bloom';
             const open = blooms
-              ? blossomOpen(i, st.bloom, h3, () => {
+              ? blossomOpen(i, (extras.dry ?? 0) > 0 ? 0 : st.bloom, h3, () => {
                 place.drop = extras.shed!;
                 place.put(x, y, ang, base * Math.max(0.02, bs ? bs[i] : 1), sid, c, flex, h3, gl);
               })
@@ -421,7 +451,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       const bId = extras.branchId, bDone = extras.branchDone;
       const allowed = f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1);
       const visTip = allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
-      const has = allowed && !bloomSite[i] && (rank[i] <= dens || (visTip && dens > 0.1)) && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
+      const has = allowed && !bloomSite[i] && !(gone && gone[i] > 0) && (rank[i] <= dens || (visTip && dens > 0.1)) && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
       const pxv = x, pyv = y;
       if (st.theme === 'leaves') {
         const pres = presence(i, has);
@@ -513,13 +543,15 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
   const L = p.look;
   if (st.theme === 'branches' || st.density <= 0) return;
   const custom = customDef(st.theme);
-  const ringPart = custom?.parts.find((x) => x.place === 'spaced' || x.place === 'every');
-  if (custom && !ringPart) return;
+  // Every spaced / every part, alternating round the ring (a leaf, a thorn, a leaf…).
+  const ringParts = custom ? custom.parts.filter((x) => x.place === 'spaced' || x.place === 'every') : [];
+  if (custom && !ringParts.length) return;
+  const nR = Math.max(1, ringParts.length);
   const place = new Placer(out, st);
   const unit = Math.max(1e-3, st.unit);
   const size = (L.decoSize * (st.sizeMul ?? 1)) / unit;
   const dens = st.density;
-  const spacing = st.theme === 'wreath' ? 0.07 : st.theme === 'thorns' ? 0.2 : 0.3;
+  const spacing = (st.theme === 'wreath' ? 0.07 : st.theme === 'thorns' ? 0.2 : 0.3) / nR;
 
   let k = 0;
   for (let a = 0; a < Math.PI * 2; a += spacing, k++) {
@@ -533,7 +565,8 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
     const pop = easeOutBack(clamp(v));
     const x = Math.cos(a), y = Math.sin(a);
     const tangent = a + Math.PI / 2;
-    const alt = k % 2 ? 1 : -1;
+    const alt = Math.floor(k / nR) % 2 ? 1 : -1; // not k % 2: with two parts every thorn would point inward
+    const ringPart = ringParts[k % nR];
     if (custom && ringPart) {
       const sid = shapeId(custom.id, ringPart.shape);
       place.pivot = pivotOf(ringPart);

@@ -71,7 +71,8 @@ export const FOLDERS: FolderSpec[] = [
   },
   {
     id: 'theme', tab: 'look', title: 'Theme & leaves',
-    keys: ['look.theme', 'look.density', 'look.decoSize', 'look.variety', 'look.depthShade', 'look.buds', 'look.dryColour'],
+    keys: ['look.theme', 'look.density', 'look.decoSize', 'look.variety', 'look.depthShade', 'look.buds', 'look.dryColour',
+      'look.leafFall', 'look.leafRegrow', 'look.woodStays', 'look.leafSheen', 'look.sheenColour'],
     advanced: ['look.themeFrom'],
   },
   {
@@ -127,7 +128,7 @@ export const FOLDERS: FolderSpec[] = [
   },
   {
     id: 'held', tab: 'reaction', title: 'Held notes & vibrato: blossoms, shiver',
-    keys: ['look.blossoms', 'look.blossomHold', 'motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity', 'motion.writhe', 'motion.writheVoice'],
+    keys: ['look.blossoms', 'look.blossomHold', 'motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity', 'motion.writhe', 'motion.writheVoice', 'motion.leafShake'],
     catchSections: ['motion', 'response'],
   },
   {
@@ -227,7 +228,10 @@ export const LABELS: Record<string, string> = {
   'plants.lift': 'tips up / droop', 'plants.clearance': 'gap between branches', 'plants.maxWidth': 'trunk width',
   'plants.tipWidth': 'tip width', 'plants.softDroop': 'droop when soft', 'plants.moodShaping': 'shaped by the phrase',
   'growth.secondsToFull': 'grow time (s)', 'growth.fadeAfter': 'old tree stays (s)', 'growth.fadeSeconds': 'ending takes (s)',
-  'growth.ending': 'how things end', 'growth.dieAfter': 'silence that ends the tree (s)',
+  'growth.ending': 'how things end',
+  'look.woodStays': 'wood stays (no growing or withering)', 'look.leafFall': 'leaves fall', 'look.leafRegrow': 'leaves regrow (s)',
+  'motion.leafShake': 'trembling shakes leaves loose',
+  'look.leafSheen': 'leaf sheen', 'look.sheenColour': 'sheen colour', 'growth.dieAfter': 'silence that ends the tree (s)',
   'growth.restBrightness': 'brightness when resting', 'growth.witherOnPause': 'wither in pauses',
   'growth.witherDepth': 'wither depth', 'growth.twigFadeSeconds': 'wither-back time (s)', 'growth.newTreeEachPhrase': 'new tree each phrase',
   'look.themeFrom': 'per-track settings', 'look.theme': 'theme', 'look.density': 'leaf amount', 'look.decoSize': 'leaf size',
@@ -314,6 +318,12 @@ export function scopeOf(path: string): Scope {
  * value that has no comment there (or shares one with its neighbour).
  */
 export const TIPS: Record<string, string> = {
+  'look.woodStays': 'Trees are there in full from the start (no growing), one per take, and their branches never wither, fade or die: pauses and endings only touch the leaves. Overrides the growing and withering settings under Reaction. For seasonal looks like Autumn.',
+  'look.leafFall': 'Leaves let go on their own and fall while the branches stay, then grow back. 0 = never. A trickle at rest, showers when your voice trembles (vibrato) and, with the wood staying, in pauses.\nReads: each leaf falls with chance leafFall × (0.04 + 0.9 × shake × vibrato + 0.5 × pause) per second.',
+  'look.leafRegrow': 'Seconds before a fallen leaf grows back (each a little different).',
+  'look.leafSheen': 'A faint light vein and edge on every leaf. Made for very dark leaves, which otherwise lose their form.',
+  'look.sheenColour': 'Colour of the leaf vein and edge.',
+  'motion.leafShake': 'With "leaves fall" (Look): how much trembling, i.e. vibrato, shakes the leaves loose. 0 = only the slow trickle.',
   // Twist (docs/fable-consult-7-twist.md)
   'plants.twist': 'Branches wind from side to side like a corkscrew instead of running straight. The tree keeps its size, outline and limbs. Strong twist looks best with a smaller segment length (Many takes, advanced).',
   'plants.gnarl': 'Makes the twist irregular: uneven turns and sharp elbows, like old wood.',

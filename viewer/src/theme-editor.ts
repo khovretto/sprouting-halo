@@ -4,7 +4,7 @@
 // "Use in viewer" makes it the theme of every viewer.
 
 import { Pane } from 'tweakpane';
-import { allThemes, BUILTIN_SHAPES, isBuiltin, MOVES, pivotOf, setDraft, ThemeDef, ThemePart, themeDef } from './themes';
+import { allThemes, BUILTIN_IDS, BUILTIN_SHAPES, isBuiltin, MOVES, pivotOf, setDraft, ThemeDef, ThemePart, themeDef } from './themes';
 import { GradientEditor } from './gradient-editor';
 import type { FolderApi } from 'tweakpane';
 import { installTooltips, tip } from './tooltip';
@@ -194,7 +194,7 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
       return b;
     };
     row('New theme', 'Start an empty theme with one leaf part.', () => {
-      const name = 'My theme ' + (allThemes().length - 3);
+      const name = 'My theme ' + (allThemes().length - BUILTIN_IDS.length + 1);
       current = { id: uniqueId(name), name, version: 1, parts: [newPart()], textures: {} };
       editable = true;
       status = 'A new theme: give it a name, set its parts, then Save.';

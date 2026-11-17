@@ -5,7 +5,7 @@
 import type { Instances } from './render/renderer';
 import { lerp, RGB } from './math';
 
-const MAX = 256;
+const MAX = 512; // room for showers (look.leafFall)
 const N = 20; // floats per particle
 
 /** What the pool needs from the decoration style of the frame it is drawn in. */

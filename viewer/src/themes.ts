@@ -63,7 +63,8 @@ const BUILTIN_BRANCH: Record<string, string> = { leaves: '#7a5a3a', thorns: '#5a
 /** The natural branch colour of a theme ('' = none: the take colour). */
 export const branchNatural = (id: string) => BUILTIN_BRANCH[id] ?? themeDef(id)?.branch?.natural ?? '';
 
-export const BUILTIN_IDS = ['leaves', 'thorns', 'wreath', 'branches'];
+/** Built-in themes drawn by their own code in deco.ts; the other built-ins run through the part loop. */
+const CODED_IDS = ['leaves', 'thorns', 'wreath', 'branches'];
 export const BUILTIN_THEMES: ThemeDef[] = [
   {
     id: 'leaves', name: 'Leaves', version: 1, parts: [
@@ -84,7 +85,17 @@ export const BUILTIN_THEMES: ThemeDef[] = [
     ],
   },
   { id: 'branches', name: 'Branches (no decorations)', version: 1, parts: [] },
+  {
+    // Data-defined (consult 8, 1.2): leaves and thorns on different nodes, a few roses on twig ends.
+    id: 'briar', name: 'Briar (leaves & thorns)', version: 1, branch: { natural: '#3b2b26' }, parts: [
+      { place: 'spaced', shape: 'leaf', size: 1, amount: 1, role: 'leaf', natural: '#2f6b3a', flutter: 1 },
+      { place: 'spaced', shape: 'thorn', size: 0.62, amount: 0.7, role: 'accent', natural: '#d6ccb8', glow: 0.6, flutter: 0, sizeFrom: 'effort' },
+      { place: 'tips', shape: 'blossom', size: 0.9, amount: 0.5, role: 'accent', natural: 'ok;0:6b0a18,1:c2152e', move: 'Sparkle',
+        glow: 1.2, opens: 'bloom', flutter: 0.4, pivot: [0.5, 0.5] },
+    ],
+  },
 ];
+export const BUILTIN_IDS = BUILTIN_THEMES.map((t) => t.id);
 
 const SHAPE_IDS: Record<string, number> = { leaf: 0, thorn: 1, berry: 2, needle: 3, holly: 4, blossom: 5 };
 /** Default origins of the built-in shapes, by shape id ([x, y] as in ThemePart.pivot). Round shapes
@@ -108,7 +119,7 @@ export function themeDef(id: string): ThemeDef | undefined {
   return custom.get(id) ?? BUILTIN_THEMES.find((t) => t.id === id);
 }
 /** A user theme (generic part loop), or undefined for a built-in one. */
-export const customDef = (id: string) => (isBuiltin(id) ? undefined : themeDef(id));
+export const customDef = (id: string) => (CODED_IDS.includes(id) ? undefined : themeDef(id));
 export const allThemes = (): ThemeDef[] => [...BUILTIN_THEMES, ...[...custom.values()].sort((a, b) => a.name.localeCompare(b.name))];
 export function onThemesChanged(fn: () => void) {
   listeners.push(fn);
@@ -138,7 +149,7 @@ export async function loadThemes(base: string) {
       }
     }));
     custom.clear();
-    for (const d of got) if (d) custom.set(d.id, d);
+    for (const d of got) if (d && !isBuiltin(d.id)) custom.set(d.id, d); // a built-in id is never replaced
     changed();
   } catch {
     /* no Sprout.exe (offline page): built-in themes only */
