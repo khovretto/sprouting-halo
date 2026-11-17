@@ -115,7 +115,7 @@ export class LiveSource {
    * Current features: every live-role tap (a halo each), then the takes. Takes are
    * ordered by when it first appeared. A tap keeps its place when its role changes (a recorded
    * take turning into playback). A take that vanishes is held (silent) for `holdSeconds` so a
-   * brief dropout doesn't reshuffle the layout. Instrument taps are not visualised yet.
+   * brief dropout doesn't reshuffle the layout. Instrument taps are not visualised yet (README: known limitations).
    */
   frame(now: number, holdSeconds: number): FeatureFrame {
     for (const tap of this.latest) {

@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  viewer:
+    name: Viewer (type check and build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+      - run: npm --prefix viewer ci
+      - run: npm --prefix viewer run build
+
+  windows:
+    name: Sprout.exe, Sprout Tap and release zip
+    runs-on: windows-2022
+    permissions:
+      contents: write # attach the zip to a release on version tags
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies (JUCE 8.0.9, Spout2 2.007.018)
+        shell: bash
+        run: |
+          git clone --depth 1 --branch 8.0.9 https://github.com/juce-framework/JUCE.git external/JUCE
+          git clone --depth 1 --branch 2.007.018 https://github.com/leadedge/Spout2.git external/Spout2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build and package
+        shell: pwsh
+        run: ./tools/package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sprout-release
+          path: release/*.zip
+      - name: Attach to the GitHub release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.zip

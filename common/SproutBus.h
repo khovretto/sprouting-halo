@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // SproutBus.h - shared-memory protocol between Sprout Tap plugins and the Sprout app.
 //
 // One named file mapping ("Local\SproutBus_v5") holds a fixed array of slots.
@@ -5,9 +6,11 @@
 //   - metadata + per-block features are published under a seqlock,
 //   - dry mono audio goes into a per-slot ring buffer,
 //   - a heartbeat says the instance is still alive.
-// The app only reads, except for look requests (lookSeq / lookTheme / lookDensityBits: a viewer
-// picked a preset), which the tap applies to its own parameters, and the list of user themes in
-// the header (v4), which the tap shows in its window. Works across processes, so DAWs that sandbox plugins are fine.
+// The app only reads, except for look requests (lookSeq / lookTheme / lookDensityBits / lookCustom:
+// the viewer's "Set every tap to Auto"), which the tap applies to its own parameters, and the theme
+// list in the header (v4: the viewer's data-defined built-ins and the user themes), which the tap
+// shows in its window. Works across processes, so DAWs that sandbox plugins are fine.
+// Changing SlotInfo, Slot or Bus needs a new kVersion and mapping name (docs/architecture.md).
 #pragma once
 
 #ifndef NOMINMAX
@@ -101,8 +104,8 @@ struct alignas (64) Slot
     std::atomic<uint32_t> owner;        // 0 = free, otherwise the owner's random token
     std::atomic<uint64_t> heartbeatMs;  // GetTickCount64() at the last update
     std::atomic<uint32_t> seq;          // seqlock: odd while the writer is updating `info`
-    // App -> tap (v3): a look request (a viewer picked a preset). The app writes theme and
-    // density, then bumps lookSeq; the tap applies each new lookSeq to its own parameters.
+    // App -> tap (v3): a look request ("Set every tap to Auto" in a viewer). The app writes theme
+    // and density, then bumps lookSeq; the tap applies each new lookSeq to its own parameters.
     std::atomic<uint32_t> lookSeq;
     std::atomic<uint32_t> lookTheme;       // ThemeChoice
     std::atomic<uint32_t> lookDensityBits; // float bits, 0..1
@@ -112,7 +115,8 @@ struct alignas (64) Slot
     float                 audio[kAudioRingSize];
 };
 
-// The user themes in Sprout.exe's themes folder (v4). Written by the app under a seqlock.
+// The themes a tap can pick by id (v4): the viewer's data-defined built-ins, then the user themes in
+// Sprout.exe's themes folder. Written by the app under a seqlock.
 struct ThemeList
 {
     std::atomic<uint32_t> seq; // odd while the app is updating; 0 = never written

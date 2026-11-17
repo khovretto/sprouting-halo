@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Sprout Tap plugin (JUCE). Licensed under the GNU AGPL v3: see tap/LICENSE.
+
 #include "ReaperHost.h"
 
 #include <pluginterfaces/base/funknown.h>

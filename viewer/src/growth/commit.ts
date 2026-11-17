@@ -523,7 +523,8 @@ export class CommitAnimation {
     const pl = tg.place;
     const [hx, hy] = [this.p.avatar.headX, this.p.layout.midOriginY];
     const shapeOf = (h: number) =>
-      snap.theme === 'thorns' ? 1 : snap.theme === 'wreath' ? (h < 0.2 ? 2 : 3) : snap.theme === 'branches' ? -1 : 0;
+      snap.theme === 'thorns' ? 1 : snap.theme === 'wreath' ? (h < 0.2 ? 2 : 3) : snap.theme === 'briar' ? (h < 0.35 ? 1 : 0)
+        : snap.theme === 'branches' ? -1 : 0;
     for (const i of order.slice(0, max)) {
       const h = hash1(snap.ids[i] * 5.1 + 2);
       const [wx, wy] = toWorld(sk.x[i], sk.y[i], pl, tg.spinAngle);

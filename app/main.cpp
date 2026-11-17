@@ -1,5 +1,8 @@
-// Sprout app (MVP): reads Sprout Tap slots from shared memory, renders a transparent
-// audio-reactive halo with Direct3D 11, and publishes it as the Spout sender "Sprout".
+// Sprout.exe: reads the Sprout Tap slots from shared memory (common/SproutBus.h), analyses each
+// voice (pitch, vibrato, effort, breath: Pitch.h) and streams the features to the web viewer over
+// WebSocket, which it also serves (FeatureServer). It keeps the synced viewer settings, the user
+// themes and the vibrato detection settings next to itself. It also renders the simple Direct3D 11
+// halo and publishes it as the Spout sender "Sprout" (the older OBS path; the viewer is the main one).
 //
 // Keys in the preview window:
 //   Up / Down  sensitivity +/- 3 dB
@@ -7,7 +10,9 @@
 //   Esc        quit
 //
 // Command line:
-//   --size N         output size in pixels (square), default 1080
+//   --port N         viewer web page + WebSocket port, default 7777 (0 = off)
+//   --web DIR        serve this viewer build instead of <exe>\web or the repo's viewer\dist
+//   --size N         Spout output size in pixels (square), default 1080
 //   --name NAME      Spout sender name, default "Sprout"
 //   --stats          print per-tap levels to the parent console
 //   --exit-after S   quit after S seconds (for tests)

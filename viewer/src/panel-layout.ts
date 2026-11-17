@@ -358,7 +358,7 @@ export const TIPS: Record<string, string> = {
   'growth.witherOnPitchDip': 'A drop in pitch (by at least the semitones below) also makes the outer twigs grow back for a moment.',
   // Leaves & decorations
   'look.themeFrom': 'Used: a Sprout Tap set to its own theme or amount keeps it (taps on Auto follow this look). Ignored: this look\'s theme and amount for every track, whatever the Tap windows say.',
-  'look.theme': 'Leaves, thorns, Christmas wreath, or bare branches. Used by the fake singer, by taps set to "Viewer default", and for every track when "theme comes from" is this preset.',
+  'look.theme': 'Leaves, thorns, Christmas wreath, briar (leaves and thorns), bare branches, or one of your own themes. Used by every track whose Sprout Tap Theme is on Auto, by the fake singer, and by every track when "per-track settings" is Ignored.',
   'look.density': 'How close together the leaves (or thorns) sit. They always keep a little space, so they never pile up.',
   'look.decoSize': 'Size of leaves, thorns, needles and blossoms.',
   'look.tint': 'A colour the whole look leans toward: branches, leaves and the halo. Part of the look preset, so a look can have its own colouring over your palette.',
@@ -467,7 +467,7 @@ export const TIPS: Record<string, string> = {
 Object.assign(TIPS, {
   'growth.secondsToFull': 'Seconds of full voice to grow a whole tree (higher = slower).\nReads: singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase. While singing, a tree grows by (0.4 + loudness) ÷ this per second, so quiet singing grows at 40 % speed. loudness: Sprout.exe measures the last 10 ms in dB, −55 dB = 0 up to −10 dB = 1 (rises in 25 ms, falls in 0.3 s).',
   'growth.newTreeEachPhrase': 'Every phrase grows a brand-new tree; the previous one stays until its own fade. Off: one tree keeps growing.\nReads: a new phrase = singing again after a pause longer than “pause that ends a phrase”. singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase.',
-  'growth.restBrightness': 'Brightness of a tree between phrases (it never ungrows).\nReads: a phrase is over after “pause that ends a phrase” of silence; the tree then dims to this over the settle time. singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase.',
+  'growth.restBrightness': 'Brightness of a tree between phrases (it rests until “silence that ends the tree”).\nReads: a phrase is over after “pause that ends a phrase” of silence; the tree then dims to this over the settle time. singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase.',
   'growth.ending': 'How trees, old branches and withering twigs end.\nWither: they grow back into the tree, trunk and all, and their leaves fall. Fade: they stay whole and fade out. Both: they fade as they wither back.',
   'growth.dieAfter': 'A silence this long ends the whole tree: it withers (or fades) away completely, and your next phrase grows a new one. Shorter pauses only wither the outer twigs. 0 = never (the tree rests between phrases).\nReads: seconds since you last sang on that take; a planted take waits for its first phrase.',
   'growth.fadeAfter': 'A replaced tree starts to end this many seconds after it last grew.\nReads: the clock starts when you stop singing on that take (singing = loudness above 0.05; silence longer than “pause that ends a phrase” ends the phrase).',

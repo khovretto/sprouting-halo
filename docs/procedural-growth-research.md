@@ -1,6 +1,6 @@
 # Procedural sprouting & growth — research notes
 
-Status: research, 2026-11-12. Nothing here is implemented yet.
+Status: research notes from 2026-11-12, written before the web viewer existed. The viewer (`viewer/`) grew out of them; see `docs/architecture.md` for what was built.
 
 ## 1. What we're actually solving
 

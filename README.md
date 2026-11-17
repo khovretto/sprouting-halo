@@ -1,27 +1,62 @@
-# Sprout Visualizer (MVP)
+# Sprout Visualizer
 
-A giant audio-reactive halo for a VTube Studio avatar. Sprout Tap plugins in the DAW stream the
-dry vocal of each take to the Sprout app, which renders a transparent halo and sends it to OBS
-over Spout.
+An audio-reactive stage overlay for VTubers who sing and record themselves live. A glowing halo
+grows behind your avatar while you sing, and every take you record is planted as its own tree.
+The trees grow with each phrase, rest in pauses and wither away after a long silence. They sway
+with your loudness, shiver with your vibrato and bloom on long held notes.
+
+![Sprout: the live halo and two take trees in their take colours](docs/images/sprout.jpg)
+
+| Black briar (half dark, half light background) | Autumn | Dark & twisted |
+| --- | --- | --- |
+| ![Black briar](docs/images/black-briar.jpg) | ![Autumn](docs/images/autumn.jpg) | ![Dark & twisted](docs/images/dark-twisted.jpg) |
 
 ```
-DAW track(s) ── Sprout Tap (VST3) ──shared memory──► Sprout.exe ──Spout "Sprout"──► OBS
+DAW tracks ── Sprout Tap (VST3) ── shared memory ──► Sprout.exe ── WebSocket ──► viewer page (OBS Browser Source)
+              one per vocal track                    voice analysis              WebGL2 halo and trees
 ```
 
-What the MVP does:
+## What it does
 
-- One ring per take: the live voice is the main gold ring, playback takes add inner rings, and an
-  optional instrument track adds a thin outer ring that sparkles on strums.
-- Rings breathe, grow, glow and run hot toward white with loudness, and flash on onsets.
-- A single live track looks complete on its own.
-- When no tap is connected, a faint idle ring shows so you can position the halo in OBS.
+- **A halo for the live voice.** The record-armed track grows a vine round a ring behind your
+  head. It opens when you start recording and is planted as a tree when the take is done.
+- **A tree for every take.** Each take playing back grows its own tree into a shared canopy round
+  the avatar. Several takes read as one wide plant, each in its own colour.
+- **Reads the voice, not just loudness.** Pitch, vibrato, vocal effort, breathiness, note starts and
+  phrases come from the voice analysis in Sprout.exe and each drives something you can see.
+- **Looks:** 12 built-in Look presets (Sprout, Lush ivy, Winter branches, Festive wreath, Red bramble,
+  Minimal, Neon stage, Rainbow, Cherry blossom, Autumn, Dark & twisted, Black briar), 12 Reaction
+  presets for how it answers the voice, and themes (leaves, thorns, Christmas wreath, briar, or your own
+  made from PNG pictures).
+- **Per-track control from the DAW.** Each Sprout Tap window sets its track's role and, if you
+  want, its own theme, leaf amount and colour. Everything else follows the look.
+- **One settings panel for everything,** synced live between the browser you tweak in and the
+  OBS source. About 250 settings, most of them hidden until you ask for them.
 
-Pitch (MPM, to F6) and vibrato are analysed in the app and sent to the web viewer (`viewer/`), which also
-does sway and themes. Not done yet: calibration, VTube Studio link (see the design doc).
+## Quick start
+
+You need Windows 10 or 11, a DAW that loads VST3 plugins (REAPER works best: it also reports the
+record-armed track), and OBS Studio.
+
+1. **Get the files.** Download a release zip, or build it yourself (see [Build](#build)). The release
+   holds `Sprout.exe`, a `web` folder next to it, and the `Sprout Tap.vst3` plugin.
+2. **Install the plugin.** Copy the whole `Sprout Tap.vst3` folder to
+   `C:\Program Files\Common Files\VST3\` and let the DAW rescan its plugins.
+3. **In the DAW,** put **Sprout Tap** first on every vocal track, before reverb, EQ or pitch correction.
+   Leave its Role on **Auto**: in REAPER the record-armed track is the live voice and every other
+   track is a take playing back.
+4. **Run `Sprout.exe`.** Its title bar shows `web: http://localhost:7777`.
+5. **In OBS,** add **+ → Browser** with the URL `http://localhost:7777/?obs` and your canvas size
+   (for example 1920 × 1080). Put it **below** your VTube Studio source. Transparency is built in.
+6. **Tweak** in a normal browser at `http://localhost:7777/`: pick a Look and a Reaction preset, fit
+   the halo to your avatar under Setup → Fit to avatar. The OBS source follows every change.
+
+The [user guide](docs/user-guide.md) walks through each step in detail, with troubleshooting.
 
 ## Build
 
-Requirements: Windows 10/11, Visual Studio 2022 (C++ desktop workload), CMake 3.22+.
+Requirements: Windows 10/11, Visual Studio 2022 (C++ desktop workload), CMake 3.22+, Git, and
+Node.js 20+ for the viewer.
 
 ```bash
 git clone --depth 1 --branch 8.0.9 https://github.com/juce-framework/JUCE.git external/JUCE
@@ -39,99 +74,65 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-Outputs:
+```bash
+npm --prefix viewer ci
+```
 
-| File | What it is |
+```bash
+npm --prefix viewer run build
+```
+
+| Output | What it is |
 | --- | --- |
-| `build/Release/Sprout.exe` | The app: renderer + Spout sender |
+| `build/Release/Sprout.exe` | The app: voice analysis, viewer server, settings, themes (and a simple Spout halo) |
 | `build/SproutTap_artefacts/Release/VST3/Sprout Tap.vst3` | The tap plugin |
+| `viewer/dist/` | The viewer page. A `Sprout.exe` in `build/Release` serves it from here; a release serves its `web` folder |
 | `build/Release/fake_tap.exe` | Test tool: fake sung takes, no DAW needed |
-| `build/Release/spout_snapshot.exe` | Test tool: grabs one Spout frame as a PNG |
-| `build/Release/pitch_test.exe` | Test tool: scores the app's pitch tracker on `bench/data/synth` |
+| `build/Release/spout_snapshot.exe` | Test tool: saves one Spout frame as a PNG |
+| `build/Release/pitch_test.exe` | Test tool: scores the pitch tracker on `bench/data/synth` |
 
-## Setup
+To make a release zip (Sprout.exe, `web`, the plugin, docs and licences in one folder):
 
-1. **Install the plugin:** copy the whole `Sprout Tap.vst3` folder to
-   `C:\Program Files\Common Files\VST3\` and rescan plugins in Reaper.
-2. **In Reaper:** put **Sprout Tap first** on each take track, before reverb, EQ or pitch
-   correction. Its Role:
-   - **Auto (follows record arm)**, the default: in Reaper a record-armed track is the live voice
-     and every other track is a take playing back. Disarm a track after recording it and its
-     visual turns from the halo into a plant on its own. Other DAWs don't report record arm, so
-     there Auto acts as Live voice; pick a role by hand instead.
-   - **Live voice** on the track you're singing into now,
-   - **Take playback** on recorded layers,
-   - **Instrument** on a separate instrument track, if you have one.
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/package.ps1
+```
 
-   The same window holds this track's overrides. Each starts on **Auto**, which means the viewer's
-   look decides; change one only when this track should differ:
-   - **Theme**: Auto, a built-in theme, or one of your own themes made on the
-     `localhost:7777/themes` page (listed while Sprout.exe runs),
-   - **Leaves**: Auto, or this track's own amount (moving the slider turns Auto off),
-   - **Colour**: Auto (the viewer's palette, or the look's), Track colour (the DAW's), My colour
-     (a picker), or My gradient (built-in gradients, or Paste one copied in the viewer).
-
-   **All Auto** puts the three back to Auto; the viewer's "Set every tap to Auto" button (Look ->
-   Theme & leaves) does it for every track at once. Picking a preset in the viewer no longer
-   changes the taps. Everything is saved with the DAW project.
-
-   This plugin speaks bus protocol v5: update Sprout.exe and every Sprout Tap instance together.
-
-   The plugin window shows "Connected" when it has a slot. Track name and color are picked up
-   from Reaper automatically.
-3. **Run `Sprout.exe`.** The preview window shows the halo over a checkerboard.
-   - Up / Down: sensitivity (raise it if the halo barely reacts, lower it if it's always maxed)
-   - I: hide the idle ring
-   - Esc: quit
-4. **In OBS:**
-   1. Install the Off World Live Spout2 plugin for OBS from its GitHub releases page
-      (Off-World-Live/obs-spout2-plugin). Close OBS and run the installer with its default folder.
-      Pick the release that matches your OBS version; current releases need OBS 33 or newer.
-   2. With `Sprout.exe` running, add a source with **+ → Spout2 Capture** and name it "Sprout halo".
-   3. In its properties, set **Spout Sender** to **Sprout** and change **Composite mode** from
-      the default **Opaque** to the **alpha** option. Opaque draws the halo on a black square.
-      Leave the other options at their defaults.
-   4. In the Sources list, drag "Sprout halo" **below** your VTube Studio source, so the avatar
-      draws over the halo.
-   5. Scale and move the halo so the ring sits around your avatar's head and shoulders. Hold
-      Shift while dragging a corner if OBS won't keep it square.
-
-   If the source stays black, OBS and Sprout are probably on different GPUs. Set both to the same
-   GPU (High performance) in Windows Settings → System → Display → Graphics.
-
-Start order doesn't matter: taps and the app find each other whenever both are running.
-
-## Test without a DAW
+## Try it without a DAW
 
 ```bash
 build/Release/Sprout.exe
 ```
 
 ```bash
-build/Release/fake_tap.exe --takes 3 --instrument
+build/Release/fake_tap.exe --takes 3
 ```
 
-`fake_tap` sings a melody up to F6 with vibrato on up to 6 takes (harmony layers above take 1).
-With the app running, `spout_snapshot.exe --out frame.png` saves what OBS would receive plus a
-`frame_preview.png` over a checkerboard, and prints an alpha profile.
+Or open the viewer on its own: `npm --prefix viewer run dev`, then `http://localhost:5173/?offline`.
+With no Sprout.exe it plays a built-in fake singer, so every look can be tried in the browser.
 
-## Layout
+## Documentation
 
-| Path | Contents |
+| Document | For |
 | --- | --- |
-| `common/SproutBus.h` | Shared-memory protocol (slots, seqlock, audio ring) |
-| `tap/` | JUCE tap plugin |
-| `app/` | Renderer, analysis, Spout sender; `HaloShaders.h` has the HLSL |
-| `tools/` | `fake_tap`, `spout_snapshot`, `pitch_test` |
-| `app/Pitch.h` | Pitch + vibrato tracker (MPM, octave guard, voicing hysteresis) |
-| `viewer/` | New web visual layer (WebGL2, OBS Browser Source): halo vine, take plants, layouts. `Sprout.exe` feeds it live tap features over WebSocket and serves it at `http://localhost:7777`. See `viewer/README.md` for the OBS setup that replaces Spout. |
-| `app/FeatureServer.*` | Localhost HTTP + WebSocket server in `Sprout.exe` for the viewer. |
-| `docs/` | Research notes (procedural growth, layer layout) |
+| [docs/user-guide.md](docs/user-guide.md) | Setting up and using it: DAW, OBS, the panel, presets, themes, troubleshooting |
+| [viewer/README.md](viewer/README.md) | How the viewer behaves, its panel, console helpers, performance, and its code layout |
+| [docs/architecture.md](docs/architecture.md) | How the parts talk: the shared-memory bus, the feature stream, settings sync, files on disk |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Developing: building, checks before a commit, where things live |
+| [docs/README.md](docs/README.md) | The design notes behind the visuals |
+| [bench/README.md](bench/README.md) | The pitch-detector benchmark |
+| [CHANGELOG.md](CHANGELOG.md) | What changed |
 
-### Protocol in short
+## Known limitations
 
-`Local\SproutBus_v1` holds 16 slots. Each tap instance claims one and is its only writer. It
-publishes role, track name and color, sample rate, tempo and playhead, and block level under a
-seqlock, and writes dry mono audio into a 32768-sample ring. A heartbeat marks it alive, and a
-slot older than 5 s can be reclaimed after a crash. The app only reads, so DAWs that run plugins
-in separate processes work too.
+- Windows only (shared memory, Direct3D 11 and Spout).
+- Instrument taps are read but not drawn yet; only voices (live halo and takes) show.
+- Record-arm detection (Role: Auto) needs REAPER. In other DAWs set the role by hand.
+- Sprout.exe and every Sprout Tap must be the same version (bus protocol v5); update them together.
+- The live halo's blossoms close instead of falling (only take trees shed petals).
+
+## Licence
+
+The app, the viewer, the tools and the docs are under the [MIT licence](LICENSE). The Sprout Tap
+plugin (`tap/`) is built with JUCE and is under the [GNU AGPL v3](tap/LICENSE). See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for JUCE, the VST3 SDK, Spout2 and the viewer's
+packages.

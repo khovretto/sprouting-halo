@@ -62,7 +62,7 @@ export const defaults = {
     flatten: 0.55,
     /** 0.4 = straight rays from the hub, 2 = limbs arch strongly out from each plant's middle. */
     spread: 1.0,
-    /** Brightness of a tree between phrases (it never ungrows). */
+    /** Brightness of a tree between phrases (it rests, until a long silence ends it: dieAfter). */
     restBrightness: 0.55,
     /** How trees, old branches and withering twigs end. wither: they grow back into the tree,
      *  trunk and all, and the leaves fall. fade: they stay whole and fade out. both: they fade as
@@ -80,7 +80,7 @@ export const defaults = {
     /** A drop in pitch (a dip of witherDipSemitones or more) also withers the outer twigs. */
     witherOnPitchDip: false,
     witherDipSemitones: 3,
-    /** How far in from the tips withering can reach (plant units; the trunk never withers). */
+    /** How far in from the tips withering in pauses can reach (plant units; it never reaches the trunk). */
     witherDepth: 0.45,
     /** Pause length that withers to the full depth (s). */
     witherSeconds: 0.8,
@@ -118,10 +118,10 @@ export const defaults = {
     leafSheen: 0,
     sheenColour: '#ffffff',
     /** Where each track's theme and amount come from: its Sprout Tap window, or theme and density
-     *  below for every track. (Picking a preset already sets every Sprout Tap window to its theme.) */
+     *  below for every track. Taps on Auto always follow the look. */
     themeFrom: 'tracks' as 'tracks' | 'preset',
     /** Fallback theme. Each track sets its own theme and amount in the Sprout Tap window; this
-     *  is used only for the fake singer and taps set to "Viewer default". */
+     *  is used for the fake singer and every tap whose Theme is on Auto. */
     theme: 'leaves' as string,
     /** Fallback decoration amount (per track in the Sprout Tap window): leaf *spacing* on take
      *  plants (low = sparse, high = close), so leaves never pile up. */

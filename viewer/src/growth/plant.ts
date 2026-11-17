@@ -797,7 +797,7 @@ export class Plant {
     const height = this.finish(limbs.length);
     this.branchDone = new Uint8Array(limbs.length);
     this.bend = bendFrames(sk, this.order, new Float32Array(n * 4));
-    // The trunk never withers; limbs hold a little longer than shoots.
+    // Pause withering never reaches the trunk (dying does: computeReveal); limbs hold a little longer than shoots.
     for (let i = 0; i < n; i++) this.witherH[i] = height[i] + (this.order[i] === 0 ? 99 : this.order[i] === 1 ? 0.12 : 0);
 
     // 6. Reveal schedule: trunk, then the primaries from the territory's middle outward, then

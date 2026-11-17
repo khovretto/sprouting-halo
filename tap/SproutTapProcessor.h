@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Sprout Tap plugin (JUCE). Licensed under the GNU AGPL v3: see tap/LICENSE.
+
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>

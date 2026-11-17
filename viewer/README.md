@@ -10,15 +10,20 @@ keeps it while it stays connected. Instrument taps aren't shown yet. Each tap ca
 onsets, pitch (MIDI, 0 when unvoiced), vibrato depth/rate, **effort** (0 soft … 1 full/pressed,
 independent of mic gain) and **breathiness**, all from `app/Pitch.h`.
 
-The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio source → mode picks
+The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connection & sync → audio source picks
 **auto** (live taps when Sprout.exe is running, otherwise the fake singer), **live** or **fake**.
 
 ## How it behaves
 
-- **Take plants grow at phrase speed and never ungrow.** About 3.5 s of full voice grows a whole
-  tree (Growth → secondsToFull). With newTreeEachPhrase on, each phrase grows a new tree on a new
-  seed; older trees stay and only start fading growth.fadeAfter seconds after their own phrase
-  ended (fadeSeconds for the fade). Off: one tree keeps growing and rests dimmer between phrases.
+- **Take plants grow at phrase speed.** About 3.5 s of full voice grows a whole tree (grow time).
+  With "new tree each phrase" on, each phrase grows a new tree on a new seed; the replaced tree
+  stays for "old tree stays" seconds, then ends. With "new branch each phrase" every phrase grows one
+  branch of the take's tree and the oldest dries, droops and falls once more than "branches kept"
+  are there. Off: one tree keeps growing and rests dimmer between phrases.
+- **Endings** (Reaction → Singing & phrases): a silence longer than "silence that ends the tree"
+  (4 s) ends the whole tree, trunk and all, and the next phrase starts a new one. "How things end":
+  **wither** (it grows back into the root and the leaves fall), **fade**, or **both**; "ending takes"
+  sets how long. The same choice applies to old branches and to twigs withering in pauses.
 - **Tree shape (docs/fable-consult-2.md):** all take plants grow from one hub behind the neck
   and end on one shared, flattened canopy outline, so several takes read as one wide canopy that
   cradles the avatar. Each plant fills its own territory (an angular sector of the arc outside
@@ -27,10 +32,10 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   so the density stays level instead of bunching. Ivy side shoots are only placed into free space
   and stop short of other branches (Take plants → clearance). Leaves keep a guaranteed spacing
   (density = how close), the inside of a plant is dimmer than its rim, and some leaves sit dim
-  under the branches for depth. Sliders: Growth → branching, reach (canopy size), flatten (round …
-  flat), spread (how much limbs arch out); Take plants → lift (tips up / droop), wildness,
-  overlap (how far neighbours interleave at the seams), taper, clearance, moodShaping (each new
-  tree takes its character from its phrase); Look → variety, depthShade; Layout → shrinkPerTake.
+  under the branches for depth. Sliders (Look → Tree shape): branching, reach (canopy size),
+  flatten (round … flat), spread (how much limbs arch out), lift (tips up / droop), wildness,
+  overlap (how far neighbours interleave at the seams), taper, clearance; "shaped by the phrase"
+  (Reaction) gives each new tree the character of its phrase.
   A tree keeps its form when the layout eases; a change in take count rebuilds it for its new
   territory. Console checks: `sprout.metrics()` (shape), `sprout.ink()` (bunching and blobbing),
   `sprout.pixels()` (clipping and contrast).
@@ -40,11 +45,20 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
 - **Leaves come with finished branches:** a branch carries leaves once it has grown to its tip,
   so nothing rides along a growing twig. A finished branch that withers back keeps the leaves on
   what remains.
-- **Pauses and dips:** in a pause shorter than a phrase gap (Response → phraseGap, 1 s) the outer
-  twigs *grow back* toward their limbs, leaves shrinking with them, so a withered tree looks
-  younger, never dead: every visible tip keeps a leaf and the limbs keep buds where shoots
-  were. They regrow when singing resumes; the main limbs stay. Optional: pitch dips do the same (Growth → witherOnPitchDip). Depth and
-  speeds: witherDepth, witherSeconds, leafFadeSeconds, twigFadeSeconds, regrowSpeed.
+- **Pauses and dips:** in a pause the outer twigs *grow back* toward their limbs (Reaction →
+  Pauses: withering), and with "leaves fall instead of shrinking" (on by default) their leaves and
+  petals let go and fall, turning toward the withered colour. Every visible tip keeps a leaf. They
+  regrow when singing resumes; pause withering never reaches the main limbs. Optional: pitch dips do
+  the same (wither on pitch dips). Depth and speeds: witherDepth, witherSeconds, twigFadeSeconds,
+  regrowSpeed.
+- **Seasonal leaves** (Look → Theme & leaves): "leaves fall" makes leaves let go on their own and
+  grow back after "leaves regrow (s)", in showers when the voice trembles (Reaction: "trembling
+  shakes leaves loose"). "Wood stays" keeps one full-grown tree per take that never withers, fades
+  or dies, so only the leaves come and go (the Autumn look).
+- **Twist** (Look → Tree shape, docs/fable-consult-7-twist.md): branches can wind like a corkscrew
+  (twist, gnarl, knots, turn length), end in curls, and be drawn as rope (strands) without changing
+  the tree's outline, limbs or reveal order. Writhe (Reaction → Held notes & vibrato) makes them
+  squirm, harder with vibrato. The halo ring can be braided and the vine corkscrew.
 - **Halo vine loops forever.** Tips grow round the ring from halo.origins points spread evenly
   from halo.startAngle (-90 = bottom), both ways if bothWays. They creep at idleSpeed and race up to
   singSpeed while singing; each trails tailDeg of vine whose oldest part fades away. Singing sets
@@ -58,7 +72,7 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   every note start is a push that swings back, a swelling note lifts the boughs and a fading one
   lets them sag, soft singing damps the ringing. Vibrato makes twigs and leaves shimmer at the
   sung rate. Leaves trail downwind, flutter and turn edge-on now and then. The halo ring goes
-  slightly oval on a push instead of wobbling. Panel: Wind & shiver.
+  slightly oval on a push instead of wobbling. Panel: Reaction → Loudness, Note starts, Held notes & vibrato.
 - **Halo size follows recording.** Small on top of the head while nothing is being recorded. When
   the DAW records the live take, it opens with the first phrase and stays open until recording
   stops (the tap reports the DAW's record state; the fake singer has fake.recording).
@@ -68,15 +82,15 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Panel → Audio s
   and travels round the head to the new take's place, unrolls along the tree's main limb like a
   fern crozier, pulls back, waits up to 0.3 s for the next note start and drives into the root.
   On the impact the new tree flashes, jolts and grows out fast, a shock ring spreads from behind
-  the avatar and the halo's leaves fly out along the branches. Panel: Take commit & removal
+  the avatar and the halo's leaves fly out along the branches. Panel: Reaction → Planting a take & removal
   (turn it off with "plant the halo" to get the plain fade).
-- **Take deleted:** after a short hold (Audio source → holdSeconds) the plant flashes and fades
+- **Take deleted:** after a short hold (Setup → Connection & sync → hold) the plant flashes and fades
   away while its leaves fall.
-- **Looks per track:** Theme, Amount and Colour in each track's **Sprout Tap window**. Picking a
-  preset sends its theme and amount to every Sprout Tap through Sprout.exe: each Tap window
-  switches as if you had set it there (saved with the project, undoable in the DAW), and you can
-  change single tracks afterwards. Leaves & decorations → "theme comes from: this preset" forces
-  the viewer's theme for every track instead (for taps that are not connected).
+- **Looks per track:** Theme, Leaves and Colour in each track's **Sprout Tap window** start on
+  **Auto** and follow the look; set one only when that track should differ. Presets never change the
+  taps. Look → Theme & leaves → "Set every tap to Auto" resets every tap (through Sprout.exe; saved
+  with the project, undoable in the DAW). "Per-track settings: Ignored" (advanced) uses the look for
+  every track whatever the taps say.
 - **Idle halo sideways, squish and tilt** (Setup: fit to avatar) hang the resting ring to one
   side and flatten it like a halo seen slightly from above, for a 3D look. Squish changes the
   ring's shape only (lines and leaves keep their size). The recording halo opens round and
@@ -119,19 +133,23 @@ changed are saved in the browser, so improved defaults still reach the rest. The
 to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
 
 - **Panel:** every value in `src/params.ts` has a control, grouped for the artist
-  (`src/panel-layout.ts`, docs/fable-consult-3-panel.md): Preset, Tree shape, Growing & fading,
-  Leaves, Colours, Live halo, Voice response, Glow, Wind & shiver, Take commit, Many takes, then
-  the setup folders (fit to avatar, connection, test & preview). Rarely needed values sit in each
-  folder's Advanced fold. Hover a row for its description. **H** hides the panel.
-- **Presets** come in three kinds, picked independently on the tabs of the Presets folder:
-  **Visual** (how it looks: Sprout, Lush ivy, Winter branches, Festive wreath, Red bramble,
-  Minimal, Neon stage), **Reactivity** (how it answers the voice: Responsive, Calm, Punchy,
-  Subtle, Vibrato-sensitive) and **Testing** (fake singer and preview, this browser only).
-  None of them touches the fit to the avatar or the colour palette; a visual preset can lean
-  everything toward its own colour (Colours → tint). Changed rows get a **↺** button: click returns the value to the active
-  preset, Shift-click to the factory default; folders with changes show a dot and the preset
-  title a star. *Save as new preset* stores your own (in this browser); Export / Import move them
-  as .json. Switching away from unsaved tweaks keeps them as "Unsaved tweaks" in the list.
+  (`src/panel-layout.ts`) on three tabs: **Look** (colours, theme & leaves, tree shape, live halo,
+  glow, many takes), **Reaction** (singing & phrases, pauses, loudness, note starts, pitch / effort /
+  softness, held notes & vibrato, planting) and **Setup** (fit to avatar, voice detection,
+  performance, connection, test & preview). Rarely needed values sit in each folder's Advanced
+  fold ("show advanced"). Hover a row for its description. **H** hides the panel, **/** lists the
+  keys. Typed numbers may go past a slider's ends (the slider stretches), within hard limits where
+  the viewer would break.
+- **Presets** come in three kinds, one per tab, picked independently:
+  **Look** (Sprout, Lush ivy, Winter branches, Festive wreath, Red bramble, Minimal, Neon stage,
+  Rainbow, Cherry blossom, Autumn, Dark & twisted, Black briar), **Reaction** (Responsive, Calm,
+  Punchy, Subtle, Vibrato-sensitive, Branch by branch, Blossom ballad, Falling leaves, Steady, Fade
+  away, Writhing, Nocturne) and **Setup** testing presets (fake singer and preview, this browser only).
+  None of them touches the fit to the avatar, your own take colours or the taps. Changed rows get a
+  **↺** button: click returns the value to the active preset, Shift-click to the factory default;
+  folders with changes show a dot. *Save as new preset* stores your own (in this browser); Export /
+  Import move them as .json. Switching away from unsaved tweaks keeps them as "Unsaved tweaks".
+  The dev page's console lists settings no built-in preset uses yet.
 - **Voice scope:** **G** (or Test & preview → voice scope) shows rolling graphs of the followed
   layer: loudness, pitch, effort / breath / softness, vibrato, note starts and phrases, growth.
   Thin lines are what the tap sends, bold lines what the viewer makes of it. Header buttons
@@ -163,16 +181,19 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   colour from the take colour, the theme's natural colours, or a **gradient** that can flow with
   time, run from root to tip, shift per take, follow the voice (pitch, loudness, effort, airiness,
   vibrato, note starts) or scatter per leaf. Quick buttons: Still, Root→tip, Flow, Sparkle, Sing
-  it. The gradient picker: click the bar to edit; click to add a stop, drag to move, drag down or
-  right-click to remove; Smooth / Linear / Steps, Loop, Reverse, Spread, presets (Rainbow, Fire,
+  it. The gradient picker: click the bar to open it, again (or Fold, or Esc) to fold it; click the
+  strip under the bar to add a stop, drag to move, drag down or right-click to remove; Smooth / Linear / Steps, Loop, Reverse, Spread, presets (Rainbow, Fire,
   Ice, Sakura…), take-colour stops, copy / paste as text. Your take colours are kept across presets.
 - **Blossoms** open only on notes held longer than "blossoms after holding" (1.5 s).
-- **Themes** (http://localhost:7777/themes, or Look → Theme & leaves → Edit themes…): make your
-  own from up to six parts, each a built-in shape or your own PNG (drawn pointing up, stalk at the
-  bottom; white pictures take the colour settings, colourful ones can keep their own), placed like
-  leaves, needles, blossoms, berries or holly. Save keeps it in the `themes` folder next to
-  Sprout.exe, so OBS gets it; "Use in viewer" makes it everyone's theme. Custom themes apply to
-  tracks on "Viewer default" (the VST's own list stays the four built-ins for now).
+- **Themes:** built in are Leaves, Thorns, Christmas wreath, Briar (leaves and thorns, a few roses;
+  defined as data in `src/themes.ts`) and Branches. Make your own at http://localhost:7777/themes
+  (or Look → Theme & leaves → Edit themes…) from up to six parts, each a built-in shape or your own
+  PNG (drawn pointing up; white pictures take the colour settings, colourful ones can keep their
+  own), placed like leaves, needles, blossoms, berries or holly. Each part has an **origin**, the
+  point that sits on the branch and that it grows and turns about (bottom centre for a stalked
+  leaf, the middle for a flower), and a natural colour or gradient with a movement. Save keeps it
+  in the `themes` folder next to Sprout.exe, so OBS gets it and every Sprout Tap lists it; "Use in
+  viewer" makes it the look's theme. The normal panel sits beside the editor.
 
 ## Controls and sync
 
@@ -236,7 +257,15 @@ your output size.
 | `src/growth/halo.ts` | Live halo vine (unit circle): runners + curling sprouts, revealed by the voice. |
 | `src/growth/plant.ts` | Take plants: hub, territory and sector subdivision, ivy shoots on an occupancy grid, reveal order, tone and leaf spacing. |
 | `src/growth/skeleton.ts` | Shared node tree. |
-| `src/deco.ts` | Theme decorations on branches and the halo ring. |
+| `src/deco.ts` | Theme decorations on branches and the halo ring (leaf ranks, presence, blossoms, shedding, pivots). |
+| `src/shed.ts` | Falling leaves and petals (one pool per plant). |
+| `src/themes.ts` | Built-in and user themes, textures, origins, natural colours. |
+| `src/theme-editor.ts` | The /themes page. |
+| `src/colour.ts`, `src/gradient.ts` | Colour roles and gradients (parse, bake, sample). |
+| `src/gradient-editor.ts` | The gradient picker. |
+| `src/hotkeys.ts`, `src/tooltip.ts`, `src/select-menu.ts` | Keys and the / sheet, tooltips, dropdowns inside OBS. |
+| `src/avatar-image.ts`, `src/overlay.ts` | The preview's avatar picture and placeholder, guides. |
+| `src/debug.ts`, `src/debug-ink.ts` | Console checks: tree shape, ink bunching, pixel clipping. |
 | `src/render/` | WebGL2 helpers and the pass pipeline. |
 | `src/shaders/` | GLSL: tapered-capsule strokes, decoration shapes, downsample, blur, composite. |
 | `src/main.ts` | Frame loop: features → drives → layout → reveal → instances → render; transitions; sync. |

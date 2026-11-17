@@ -6,3 +6,5 @@ external/
 *.png
 viewer/node_modules/
 viewer/dist/
+release/
+!docs/images/*.png
