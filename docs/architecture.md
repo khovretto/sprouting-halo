@@ -95,7 +95,8 @@ Per frame (`viewer/src/main.ts`):
 3. **Layout** (`layout.ts`): the shared canopy outline and each take's territory.
 4. **Growth:** the live halo vine (`growth/halo.ts`); for takes, `growth/generations.ts` (trees per
    phrase, branch per phrase, endings) over `growth/plant.ts` (the tree build: hub, territory,
-   sector subdivision, ivy shoots, twist, reveal order, withering and dying, leaf fall).
+   sector subdivision, ivy shoots, twist, reveal order, pauses and endings, leaf fall). Harmony
+   between tracks comes from their pitches (`harmony.ts`).
 5. **Planting** (`growth/commit.ts`): the halo winds up, travels and unrolls into the new tree.
 6. **Instances:** branch segments as tapered strokes (`pushTree`), decorations as sprites
    (`deco.ts`, with falling ones in `shed.ts`), colours from the colour roles (`colour.ts`,

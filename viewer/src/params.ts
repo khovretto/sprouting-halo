@@ -49,8 +49,8 @@ export const defaults = {
     branchDroopDeg: 30,
     /** Seconds an old branch takes to fall and fade. */
     branchFallSeconds: 1.4,
-    /** Leaves and blossoms let go and fall instead of shrinking back into a withering twig or a
-     *  closing bloom. */
+    /** Leaves and blossoms let go and fall when their twig goes or their bloom closes. Off: they go
+     *  the way of their twig (shrink back with it, fade with it, fall only when it falls). */
     shed: true,
     /** Seconds of full voice to grow a whole tree (higher = slower). */
     secondsToFull: 3.5,
@@ -64,19 +64,25 @@ export const defaults = {
     spread: 1.0,
     /** Brightness of a tree between phrases (it rests, until a long silence ends it: dieAfter). */
     restBrightness: 0.55,
-    /** How trees, old branches and withering twigs end. wither: they grow back into the tree,
-     *  trunk and all, and the leaves fall. fade: they stay whole and fade out. both: they fade as
-     *  they wither back. */
-    ending: 'wither' as 'wither' | 'fade' | 'both',
-    /** A silence this long ends the whole tree (s): it withers (or fades) away completely and the
-     *  next phrase starts a new one. Shorter pauses only wither the outer twigs. 0 = never. */
+    /** What the outer twigs (within witherDepth of the tips) do in a short pause; they grow back
+     *  when singing resumes. keep: nothing. ungrow: they grow back into the tree from the tips.
+     *  fadeTips / fade: they fade, from the tips inward or all together. fallTips / fall: pieces
+     *  break off and fall, from the tips inward or all at once. */
+    onPause: 'ungrow' as 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall',
+    /** What the whole tree does once its phrase has ended (a pause longer than response.phraseGap,
+     *  plus fadeAfter). Same choices; it acts on the whole tree, trunk and all, and takes
+     *  fadeSeconds. A tree that was not replaced comes back when its take sings again. */
+    onPhraseEnd: 'ungrow' as 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall',
+    /** What the whole tree does at a full stop (a silence of dieAfter seconds); the next phrase
+     *  then starts a new tree. Same choices. */
+    onStop: 'ungrow' as 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall',
+    /** A silence this long is a full stop (s): onStop acts on every tree and the next phrase starts
+     *  a new one. 0 = never. */
     dieAfter: 4,
-    /** A replaced tree starts to end this many seconds after it stopped growing (its phrase ended). */
-    fadeAfter: 3,
-    /** Seconds the ending takes (withering back to the root, or fading). */
+    /** A tree waits this many seconds after its phrase ended before onPhraseEnd acts on it. */
+    fadeAfter: 0,
+    /** Seconds an ending takes (the phrase end's or the full stop's). */
     fadeSeconds: 2.5,
-    /** In a pause, the outer twigs grow back toward their stubs (leaves and all) and regrow when singing resumes. */
-    witherOnPause: true,
     /** A drop in pitch (a dip of witherDipSemitones or more) also withers the outer twigs. */
     witherOnPitchDip: false,
     witherDipSemitones: 3,
@@ -444,6 +450,29 @@ export const defaults = {
     tint: '#ffffff',
     tintAmount: 0,
   },
+  /** Harmony: two tracks singing different notes that sound well together. The viewer finds it
+   *  from the tracks' pitches (harmony.ts); each effect has its own amount, 0 = off. */
+  harmony: {
+    /** Seconds two voices have to stay in harmony before it counts. */
+    minSeconds: 0.25,
+    /** Seconds the effects take to come in; they leave in about twice that. */
+    attack: 0.6,
+    /** Unison and octaves (the same note) count as harmony too. */
+    unison: false,
+    /** How far each voice's colours move toward the shared colour (0 = not at all). */
+    colour: 0.7,
+    /** The shared colour. gradient: each voice's branches run from its own colour at the root to
+     *  the other's at the tips. mix: both turn into the mix of the two. colour: the colour below. */
+    colourMode: 'gradient' as 'gradient' | 'mix' | 'colour',
+    colourValue: '#ffe9a8',
+    /** Branches weave from side to side across each other, and the trees of the two voices lean
+     *  into one another; every branch keeps its course and the tree its outline. */
+    cross: 0.6,
+    /** Blossoms (and theme parts that open "on long held notes") also open in harmony. */
+    blossoms: 0,
+    /** Extra glow while in harmony. */
+    glow: 0.4,
+  },
   /** Performance: how often and how large the picture is drawn. Shared with OBS, never part of a preset. */
   perf: {
     /** Most frames per second (OBS, and the preview while its window has focus). Snaps to a whole
@@ -495,6 +524,15 @@ export const defaults = {
     recording: true,
     /** Live tracks for the fake singer (more than 1 = concentric halos). */
     liveTracks: 1,
+    /** How the fake voices relate. independent: each has its own phrases, pauses and notes.
+     *  duet: they trade phrases, one alone, then another, some together. together: every voice
+     *  sings every phrase at a fixed interval. */
+    voices: 'independent' as 'independent' | 'duet' | 'together',
+    /** How often a second voice joins the first in harmony (a third, fourth, fifth or sixth)
+     *  rather than clashing with it. */
+    harmony: 0.7,
+    /** duet: share of the phrases that all voices sing together. */
+    together: 0.4,
   },
 };
 

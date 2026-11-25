@@ -29,11 +29,17 @@ export interface Ink {
   scatter: number;
   /** Mean colour (glow equalisation, commit effects). */
   mid: number[];
+  /** Harmony (harmony.colour): how far the colour moves toward `mix`, and how that spreads.
+   *  0 = everywhere alike, 1 = rising from root to tip, 2 = once round the halo ring and back. */
+  mixK: number;
+  mix: RGB;
+  mixAlong: number;
 }
 
 export const newInk = (): Ink => ({
   lut: null, loop: false, natural: false, take: [1, 1, 1], takeMix: 1,
   tint: [1, 1, 1], tintK: 0, u0: 0, along: 0, scatter: 0, mid: [1, 1, 1],
+  mixK: 0, mix: [1, 1, 1], mixAlong: 0,
 });
 
 const voiceOf = (d: Drive | undefined, v: string) =>
@@ -45,6 +51,7 @@ export function setInk(ink: Ink, p: Params, role: RoleId, take: RGB, k: number, 
   let r = p[role] as RoleParams;
   if (role === 'colHalo' && (r.source as string) === 'branches') r = p.colBranch;
   ink.take = take;
+  ink.mixK = 0;
   ink.tint = hexToRgb(p.look.tint);
   ink.tintK = clamp(p.look.tintAmount);
   if (override && (role === 'colBranch' || role === 'colHalo')) {
@@ -113,6 +120,14 @@ export function inkAt(ink: Ink, s: number, h: number, out: number[], natural?: R
   out[0] = r * a + ink.take[0] * tk + ink.tint[0] * kk;
   out[1] = g * a + ink.take[1] * tk + ink.tint[1] * kk;
   out[2] = b * a + ink.take[2] * tk + ink.tint[2] * kk;
+  if (ink.mixK > 0) {
+    // Harmony: toward the colour shared with the other voice.
+    const sp = ink.mixAlong === 1 ? clamp(s) : ink.mixAlong === 2 ? 0.5 - 0.5 * Math.cos(s * Math.PI * 2) : 1;
+    const w = ink.mixK * sp, mx = ink.mix;
+    out[0] += (mx[0] * gain - out[0]) * w;
+    out[1] += (mx[1] * gain - out[1]) * w;
+    out[2] += (mx[2] * gain - out[2]) * w;
+  }
   return out;
 }
 

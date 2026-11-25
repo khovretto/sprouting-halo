@@ -21,12 +21,13 @@ import { bakeGradient, parseGradient } from './gradient';
 import { addHotkeys, installHotkeys, toggleSheet } from './hotkeys';
 import { LiveSource, ViewerMessage } from './sources/live';
 import { HaloVine } from './growth/halo';
-import { Plant } from './growth/plant';
+import { Plant, Wilt } from './growth/plant';
 import { plantMetrics } from './debug';
 import { inkMetrics, pixelMetrics } from './debug-ink';
 import { Generations } from './growth/generations';
 import { Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
+import { HarmonyTracker } from './harmony';
 import { decorateRing, decorateTree, DecoStyle } from './deco';
 import { layoutTakes, outlineOf, Placement, plantArc, toWorld } from './layout';
 import { angleLerp, clamp, deg, hash1, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
@@ -47,6 +48,8 @@ interface Slot {
   /** Sim time of the commit impact (flash, quiver, growth burst). */
   stampT?: number;
   motion: LayerMotion;
+  /** Harmony (harmony.cross): radians this tree leans toward the voice it harmonises with. */
+  lean?: number;
 }
 
 /** A deleted take: fades away while its leaves fall (no ungrowing). */
@@ -167,6 +170,7 @@ function start() {
   let commits: CommitAnimation[] = [];
   const wind = new Wind();
   const commitDrive = new Drive();
+  const harmony = new HarmonyTracker();
 
   function newHalo(id: string): LiveHalo {
     haloSeed += 1000;
@@ -198,6 +202,7 @@ function start() {
     plantSeed = 1;
     haloSeed = params.fake.seed * 31;
     fake.reset(params.fake.seed);
+    harmony.clear();
     halos = [];
     endingHalos = [];
     commits = [];
@@ -532,10 +537,12 @@ function start() {
     const intensity = lerp(1, 0.45 + 0.75 * clamp(d.energy * 1.3) + 0.3 * d.flash, r.brightness);
     return {
       intensity,
-      glow: g.base + g.levelGain * d.energy + g.onsetGain * d.flash + g.pitchShine * d.pitch * d.energy + g.softGlow * d.softness * d.energy,
+      glow: g.base + g.levelGain * d.energy + g.onsetGain * d.flash + g.pitchShine * d.pitch * d.energy + g.softGlow * d.softness * d.energy
+        + params.harmony.glow * d.harmony,
       shine: clamp(0.2 * d.flash + 0.25 * d.pitch * d.energy),
       width: Math.max(0.25, 1 + r.effortWidth * (d.effort - 0.5) * 1.6),
-      bloom: d.bloom,
+      // Blossoms open on a held note, and (harmony.blossoms) in harmony.
+      bloom: Math.max(d.bloom, clamp(params.harmony.blossoms) * d.harmony),
     };
   }
 
@@ -570,12 +577,35 @@ function start() {
   const inkPool: Ink[][] = Array.from({ length: MAX_LAYERS + 8 }, () => [newInk(), newInk(), newInk()]);
   const C = [0, 0, 0];
   /** Inks for a layer: stroke (branches, or the halo), leaf and accent. */
-  function inksFor(layer: number, take: RGB, k: number, d: Drive | undefined, halo: boolean, ink?: string) {
+  function inksFor(layer: number, take: RGB, k: number, d: Drive | undefined, halo: boolean, ink?: string, id?: string) {
     const pool = inkPool[Math.max(0, Math.min(inkPool.length - 1, layer))];
     setInk(pool[0], params, halo ? 'colHalo' : 'colBranch', take, k, t, d, ink);
     setInk(pool[1], params, 'colLeaf', take, k, t, d);
     setInk(pool[2], params, 'colAccent', take, k, t, d);
+    // Harmony: the colours move toward the one shared with the other voice (harmony.colour).
+    const hm = params.harmony, amount = (d?.harmony ?? 0) * clamp(hm.colour);
+    const other = amount > 0.003 && id ? colourOfId(harmony.partner(id)) : undefined;
+    if (other || (amount > 0.003 && hm.colourMode === 'colour')) {
+      const own = pool[0].mid;
+      const mix: RGB = hm.colourMode === 'colour' ? tinted(hexToRgb(hm.colourValue))
+        : hm.colourMode === 'mix' ? [0.5 * (own[0] + other![0]), 0.5 * (own[1] + other![1]), 0.5 * (own[2] + other![2])]
+          : other!;
+      const along = hm.colourMode === 'gradient' ? (halo ? 2 : 1) : 0;
+      pool.forEach((x, q) => {
+        x.mix = mix;
+        x.mixAlong = along;
+        x.mixK = amount * (q === 0 ? 1 : 0.5); // leaves and blossoms follow half way
+      });
+    }
     return { stroke: pool[0], leaf: pool[1], accent: pool[2] };
+  }
+  /** The colour a track's branches (or halo) have, for the voice in harmony with it. */
+  function colourOfId(id: string | null): RGB | undefined {
+    if (!id) return undefined;
+    const s = slots.find((x) => x.id === id);
+    if (s) return (params.colBranch.source === 'theme' ? branchRgb(s.theme) : undefined) ?? tinted(hexToRgb(s.colour));
+    const h = halos.find((x) => x.id === id);
+    return h ? tinted(hexToRgb(h.look.colour)) : undefined;
   }
 
   function pushTree(out: Instances, sk: Skeleton, vis: Float32Array, layer: number, ink: Ink,
@@ -649,12 +679,58 @@ function start() {
   }
   const strandOrder: number[] = [];
 
-  function pushRing(out: Instances, layer: number, ink: Ink, look: Look, alpha: number, unit: number, level: number) {
+  let dryKey = '', dryRgb: RGB = [0.54, 0.44, 0.27];
+  /** look.dryColour as RGB (cached). */
+  const dryRgbOf = () => {
+    if (params.look.dryColour !== dryKey) dryRgb = hexToRgb((dryKey = params.look.dryColour));
+    return dryRgb;
+  };
+  const pieceOf = new Map<number, number>();
+  const continued = new Set<number>();
+  /**
+   * Take over the segments of a tree that let go since the last frame (Plant.drops) into its twig
+   * pool, coloured and sized as pushTree drew them. The segments of one branch that let go
+   * together make one piece: it turns about its lowest node.
+   */
+  function takeDrops(tree: Plant, sk: Skeleton, ink: Ink, look: Look, alpha: number, sScale: number, natural?: RGB) {
+    const drops = tree.drops;
+    if (!drops.length) return;
+    if (alpha > 0.005) {
+      const bright = brighten(look);
+      // Each piece's pivot: the parent of its lowest node (nodes come parent first).
+      pieceOf.clear();
+      continued.clear();
+      for (let q = 0; q < drops.length; q += 3) {
+        const i = drops[q], b = tree.branchId[i] * 4096 + Math.round(drops[q + 2] * 1000) % 4096;
+        const low = pieceOf.get(b);
+        if (low === undefined || i < low) pieceOf.set(b, i);
+        continued.add(sk.parent[i]); // another dropped segment starts where this one ends
+      }
+      for (let q = 0; q < drops.length; q += 3) {
+        const i = drops[q], f = drops[q + 1], t0 = drops[q + 2], pa = sk.parent[i];
+        if (pa < 0) continue;
+        const na = tree.life[i];
+        if (na <= 0.02) continue;
+        const b = tree.branchId[i] * 4096 + Math.round(t0 * 1000) % 4096;
+        const low = pieceOf.get(b) ?? i, piv = sk.parent[low] >= 0 ? sk.parent[low] : low;
+        const c = inkAt(ink, sk.flex[i] * sScale, 0.5, C, natural);
+        const tn = tree.tone[i] ?? 1, k = bright * tn;
+        const wa = sk.w[pa] * look.width, wb = sk.w[i] * look.width * (0.4 + 0.6 * f);
+        const ax = sk.x[pa], ay = sk.y[pa], o = i * 4, bend = tree.bend;
+        tree.twigs.add(t0, sk.x[piv], sk.y[piv], hash1(b * 0.37 + 1.7), ax, ay, lerp(ax, sk.x[i], f), lerp(ay, sk.y[i], f), wa, wb,
+          sk.flex[pa], sk.flex[i], lerp(c[0], 1, look.shine) * k, lerp(c[1], 1, look.shine) * k, lerp(c[2], 1, look.shine) * k,
+          na, look.glow * tn * tn, tree.order[i], bend[o], bend[o + 1], bend[o + 2], bend[o + 3], continued.has(i) ? 2 : 1);
+      }
+    }
+    drops.length = 0;
+  }
+
+  function pushRing(out: Instances, layer: number, ink: Ink, look: Look, alpha: number, unit: number, level: number, braidMore = 0) {
     const h = params.halo;
     const N = 160;
     const w = (h.ringWidth * look.width * (1 + 0.6 * level)) / Math.max(1e-3, unit);
     // A clean circle: its oval / trefoil motion comes from the layer's ring mode (shaders/motion.glsl).
-    const braid = clamp(h.braid ?? 0, 0, 1);
+    const braid = Math.max(clamp(h.braid ?? 0, 0, 1), clamp(braidMore));
     for (let k = 0; k < N; k++) {
       const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU;
       const c = inkAt(ink, (k / N) * (ink.loop ? 1 : 2), 0.5, C);
@@ -692,6 +768,7 @@ function start() {
     return {
       theme, density, layer, leaf: inks.leaf, accent: inks.accent, sScale, alpha: alpha * fadeOf(look), glow: look.glow * params.look.decoGlow, unit, seed, effort: d.effort,
       bloom: look.bloom * params.look.blossoms, fall, downX, downY, intensity: brighten(look), time: t, pitch: d.pitch,
+      harmony: d.harmony,
     };
   }
 
@@ -719,7 +796,8 @@ function start() {
       vibRaw: f?.vibrato ?? 0, vib: d.vibrato, vibRate: (f?.vibratoRate ?? 0) / 10,
       flash: d.flash, voice: d.voice ? 1 : 0,
       held: Math.min(1, d.held / Math.max(0.1, 2 * params.look.blossomHold)), bloom: d.bloom, phraseOn: d.phraseOver(params) ? 0 : 0.9,
-      open: halo ? halo.open : g?.reveal ?? 0, wither: g?.wither ?? 0, alpha: halo ? 1 : g?.alpha ?? 0,
+      open: halo ? halo.open : g?.reveal ?? 0, wither: g?.wither ?? 0, alpha: halo ? 1 : (g?.alpha ?? 0) * (g?.dim ?? 1),
+      ending: Math.min(1, g?.end ?? 0), harmony: d.harmony,
     }, { phrase: d.newPhrase, onset: !!f?.onset, dip: d.pitchDip });
   }
 
@@ -762,6 +840,7 @@ function start() {
       ink.take = colour;
       ink.takeMix = 1;
       ink.tintK = 0;
+      ink.mixK = 0;
       ink.mid = [colour[0], colour[1], colour[2]];
     }
     return { stroke: pool[0], leaf: pool[1], accent: pool[2] };
@@ -809,10 +888,12 @@ function start() {
   }
 
   // ---- Simulation ------------------------------------------------------------------------------
+  const pauseWilt: Wilt = { action: 'keep', amount: 0 }, endWilt: Wilt = { action: 'keep', amount: 0 };
   function simulate(dt: number, realDt: number): FeatureFrame {
     t += dt;
     wind.update(dt, params);
     const ff = pickFrame(dt);
+    harmony.update(ff.layers, dt, params);
     // Fake singer: plant the live take every n seconds (watch the planting hands-free).
     if (params.fake.autoCommit > 0 && status.feed.startsWith('fake') && t - lastAutoCommit > params.fake.autoCommit) {
       lastAutoCommit = t;
@@ -856,6 +937,7 @@ function start() {
       const f = lives.length ? lives[k] : undefined;
       h.f = f;
       h.drive.update(f, dt, params);
+      h.drive.harmony = f ? harmony.amount(f.id) : 0;
       h.motion.update(h.drive, wind, dt, params, 0.6, true);
       h.vine.update(dt, h.drive, !!f?.onset, params);
       // Track colour if the tap asks for it; otherwise the live colour, hue-shifted for each extra
@@ -883,6 +965,7 @@ function start() {
     status.pitch = describePitch(first?.f);
     status.voice = first
       ? 'effort ' + first.drive.effort.toFixed(2) + ' · breath ' + first.drive.breath.toFixed(2) + ' · soft ' + first.drive.softness.toFixed(2)
+        + (first.drive.harmony > 0.5 ? ' · in harmony' : '')
       : '–';
 
     // Plants matched to takes by id: a take keeps its plant when others come and go.
@@ -926,6 +1009,11 @@ function start() {
       Object.assign(pl, { tierDir: tg.tierDir, kind: tg.kind, lengthMul: tg.lengthMul, sectorLo: tg.sectorLo, sectorHi: tg.sectorHi });
       const f = takes[k];
       s.drive.update(f, dt, params);
+      s.drive.harmony = harmony.amount(s.id);
+      // harmony.cross: lean toward the tree it harmonises with (the trees' edges interlace).
+      const mate = s.drive.harmony > 0.003 ? slots.find((x) => x.id === harmony.partner(s.id)) : undefined;
+      const toMate = mate ? Math.sign(Math.atan2(Math.sin(mate.place.angle - pl.angle), Math.cos(mate.place.angle - pl.angle))) : 0;
+      s.lean = lerp(s.lean ?? 0, toMate * 7 * deg * clamp(params.harmony.cross) * s.drive.harmony, 1 - Math.exp(-dt / 0.4));
       s.motion.update(s.drive, wind, dt, params, 1, false);
       const pending = !!s.commit && s.commit.stampedAt < 0;
       if (!pending) s.gens.update(s.drive, dt, params);
@@ -935,15 +1023,22 @@ function start() {
         // a frame (invisible) instead of making one long frame the growth then catches up on.
         if (!g.tree.built && newBuilds >= 1) continue;
         if (g.tree.ensureBuilt(tg, params, blocked, n)) newBuilds++;
-        // A replaced tree keeps its withered twigs while it fades (they no longer grow back).
+        // A replaced tree keeps its withered twigs while it ends (they no longer grow back).
         const stays = params.look.woodStays;
-        // The wood stays: pauses wither nothing (they shake leaves loose below instead).
-        g.tree.computeReveal(g.reveal, s.drive.pitch, params, stays ? 0 : g.wither, dt, g.die ?? 0);
+        // The wood stays: pauses and endings touch nothing (pauses shake leaves loose below instead).
+        if (stays) g.tree.computeReveal(g.reveal, s.drive.pitch, params, dt, t);
+        else {
+          pauseWilt.action = params.growth.onPause;
+          pauseWilt.amount = g.wither;
+          endWilt.action = g.endAction ?? 'keep';
+          endWilt.amount = g.end ?? 0;
+          g.tree.computeReveal(g.reveal, s.drive.pitch, params, dt, t, pauseWilt, endWilt);
+        }
         if (params.look.leafFall > 0) {
           // Leaves fall on their own: a trickle, much more while trembling (vibrato) and in pauses.
           const shake = params.motion.leafShake * clamp(s.drive.vibrato * 1.5, 0, 1.5);
           const pause = stays ? g.wither : 0;
-          g.tree.fallLeaves(dt, params.look.leafFall * (0.04 + 0.9 * shake + 0.5 * pause), params.look.leafRegrow);
+          g.tree.fallLeaves(dt, params.look.leafFall * (0.12 + 0.9 * shake + 0.5 * pause), params.look.leafRegrow);
         }
       }
       s.alpha = pending ? 0 : Math.min(1, s.alpha + realDt * 2);
@@ -1017,8 +1112,9 @@ function start() {
 
     const drawPlant = (s: Slot, alpha: number, look: Look, fall: number) => {
       const pl = s.place;
-      const angle = pl.angle + spin * pl.tierDir;
-      const inks = inksFor(layer, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false, s.ink);
+      const angle = pl.angle + spin * pl.tierDir + (s.lean ?? 0);
+      const weave = clamp(params.harmony.cross) * s.drive.harmony;
+      const inks = inksFor(layer, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false, s.ink, s.id);
       // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
       const base = inks.stroke.mid;
       const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
@@ -1026,7 +1122,7 @@ function start() {
       const slotL = layer;
       const take = hexToRgb(s.colour), kTake = Math.max(0, slots.indexOf(s));
       for (const g of s.gens.gens) {
-        let a = alpha * g.alpha, L = slotL, gInks = inks, ang = angle;
+        let a = alpha * g.alpha * (g.dim ?? 1), L = slotL, gInks = inks, ang = angle;
         const dry = g.dry ?? 0, gfall = g.fall ?? 0;
         if (g.bough && dry > 0 && layer < MAX_LAYERS - 5) {
           // An old bough (branch per phrase) in its own layer: it dries, droops about the point
@@ -1050,7 +1146,7 @@ function start() {
           }
           layerU.set(L, ox, oy, ang, pl.scale, s.motion);
           a *= 1 - smooth(gfall);
-          gInks = inksFor(L, take, kTake, s.drive, false, s.ink);
+          gInks = inksFor(L, take, kTake, s.drive, false, s.ink, s.id);
           const dryRgb = hexToRgb(params.look.dryColour);
           for (const ink of [gInks.stroke, gInks.leaf, gInks.accent]) {
             ink.tint = [lerp(ink.tint[0], dryRgb[0], dry), lerp(ink.tint[1], dryRgb[1], dry), lerp(ink.tint[2], dryRgb[2], dry)];
@@ -1059,17 +1155,22 @@ function start() {
         }
         const [dx, dy] = localDown(ang, pl.scale);
         const sScale = 1 / Math.max(1e-3, g.tree.maxFlex);
-        pushTree(back, g.tree.sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend, sScale,
+        // In harmony the branches weave across each other (harmony.cross).
+        const sk = g.tree.woven(weave, t);
+        pushTree(back, sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend, sScale,
           false, branchRgb(s.theme), {
             phase: g.tree.twistPhase, strands: params.plants.strands, depth: params.plants.twistDepth, elbow: g.tree.elbow,
             // Just after a planting the frond (one stroke) splits into strands under the flash.
             k: s.stampT !== undefined ? clamp((t - s.stampT) / 0.3, 0, 1) : 1,
           });
-        decorateTree(g.tree.sk, g.tree.vis, params,
+        // Pieces that broke off (fall away): taken over with the colours they had, then drawn falling.
+        takeDrops(g.tree, sk, gInks.stroke, look, a, sScale, branchRgb(s.theme));
+        g.tree.twigs.draw(back, L, a * fadeOf(look), dx, dy, t, dryRgbOf());
+        decorateTree(sk, g.tree.vis, params,
           styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), backDeco,
           { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend,
             leafState: g.tree.leafState, leafGone: params.look.leafFall > 0 ? g.tree.leafGone : undefined, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone,
-            shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry });
+            shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry, dropped: g.tree.dropped });
       }
     };
 
@@ -1081,7 +1182,7 @@ function start() {
       const pl = s.place;
       const since = s.stampT !== undefined ? t - s.stampT : Infinity;
       const imp = params.commit.impact;
-      layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir, pl.scale, s.motion);
+      layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir + (s.lean ?? 0), pl.scale, s.motion);
       slotLayer.set(s.id, layer);
       if (!(s.commit && s.commit.stampedAt < 0)) {
         let look = lookOf(s.drive);
@@ -1116,9 +1217,10 @@ function start() {
       // Squish and tilt are for the small resting halo only; the recording halo opens round.
       const idle = 1 - smooth(clamp(h.open));
       layerU.set(layer, h.cx, h.cy, Math.PI / 2 + hp.tilt * deg * idle, R, h.motion, 1 - clamp(hp.squish, 0, 0.95) * idle);
-      const inks = inksFor(layer, hexToRgb(h.look.colour), Math.max(0, halos.indexOf(h)), h.drive, true, h.look.ink);
+      const inks = inksFor(layer, hexToRgb(h.look.colour), Math.max(0, halos.indexOf(h)), h.drive, true, h.look.ink, h.id);
       const look = lookOf(h.drive);
-      pushRing(front, layer, inks.stroke, look, fade, R, h.drive.energy);
+      // In harmony the ring braids (harmony.cross): its two strands cross and recross.
+      pushRing(front, layer, inks.stroke, look, fade, R, h.drive.energy, clamp(params.harmony.cross) * h.drive.harmony);
       // More origins = more vine, so fewer leaves on each part of it.
       const origins = Math.max(1, Math.round(hp.origins));
       const style = styleOf(layer, inks, look, fade, R, h.vine.seed, h.drive, 0, 0, -1 / R, h.look.theme, h.look.density / origins);

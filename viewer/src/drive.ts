@@ -28,6 +28,8 @@ export class Drive {
   held = 0;
   /** 0..1 blossoms open: rises once a note is held longer than look.blossomHold, closes after it. */
   bloom = 0;
+  /** 0..1 in harmony with another track (set by the app from harmony.ts). */
+  harmony = 0;
   private noteRef = 0;
   /** A note started this frame. */
   onset = false;

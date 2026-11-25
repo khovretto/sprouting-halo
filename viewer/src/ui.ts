@@ -14,7 +14,7 @@ import { installTooltips, tip } from './tooltip';
 import { installSelectMenus } from './select-menu';
 import { GradientEditor } from './gradient-editor';
 import { allThemes } from './themes';
-import { setPath } from './presets';
+import { migrateGrowth, setPath } from './presets';
 import {
   applyPreset, BUILTINS, diffOf, getPath, isDirty, Kind, KIND_TITLES, kindOf, KINDS, loadStore, PATHS, presetValue, Preset,
   PresetStore, same, saveStore, slug, STORE_KEY, Values,
@@ -138,7 +138,19 @@ const RANGES: Record<string, Spec> = {
   'halo.twist': { min: 0, max: 1 },
   'glow.shadow': { min: 0, max: 1 },
   'glow.tintFlat': { min: 0, max: 1 },
-  'growth.ending': { options: { 'Wither away': 'wither', 'Fade away': 'fade', 'Both': 'both' } },
+  'growth.onPause': { options: { Keep: 'keep', Ungrow: 'ungrow', 'Fade, from the tips': 'fadeTips', 'Fade, all at once': 'fade', 'Fall away, from the tips': 'fallTips', 'Fall away, all at once': 'fall' } },
+  'growth.onPhraseEnd': { options: { Keep: 'keep', Ungrow: 'ungrow', 'Fade, from the tips': 'fadeTips', 'Fade, all at once': 'fade', 'Fall away, from the tips': 'fallTips', 'Fall away, all at once': 'fall' } },
+  'growth.onStop': { options: { Keep: 'keep', Ungrow: 'ungrow', 'Fade, from the tips': 'fadeTips', 'Fade, all at once': 'fade', 'Fall away, from the tips': 'fallTips', 'Fall away, all at once': 'fall' } },
+  'harmony.colour': { min: 0, max: 1 },
+  'harmony.colourMode': { options: { 'Gradient from one to the other': 'gradient', 'Mix of the two': 'mix', 'The harmony colour': 'colour' } },
+  'harmony.cross': { min: 0, max: 1 },
+  'harmony.blossoms': { min: 0, max: 1 },
+  'harmony.glow': { min: 0, max: 2 },
+  'harmony.minSeconds': { min: 0, max: 2 },
+  'harmony.attack': { min: 0.05, max: 3 },
+  'fake.voices': { options: { 'Independent (own phrases)': 'independent', 'Duet (trading phrases)': 'duet', 'Together (same phrases)': 'together' } },
+  'fake.harmony': { min: 0, max: 1 },
+  'fake.together': { min: 0, max: 1 },
   'growth.fadeSeconds': { min: 0.2, max: 10 },
   'response.release': { min: 0.1, max: 8 },
   'response.phraseGap': { min: 0.1, max: 2 },
@@ -312,6 +324,8 @@ export function migrate(v: unknown) {
   }
   const nt = o?.look?.naturalTint;
   if (o && typeof nt === 'number' && o.colLeaf?.takeMix === undefined) o.colLeaf = { ...(o.colLeaf ?? {}), takeMix: 1 - nt };
+  // growth.ending and growth.witherOnPause became one choice per length of silence.
+  migrateGrowth(o?.growth);
   const m = (v as { motion?: Record<string, unknown> } | null)?.motion;
   if (m) {
     if (typeof m.tremble === 'boolean' && m.shiver === undefined) m.shiver = m.tremble;
@@ -1102,6 +1116,12 @@ Shift-click: factory default ${fmt(d)}`));
     for (const k of ['branchesKept', 'branchWitherSeconds', 'branchDroopDeg', 'branchFallSeconds']) hide(`growth.${k}`, !p.growth.branchEachPhrase);
     for (const e of editors) e.ed.el.style.display = e.binding.hidden ? 'none' : '';
     hide('growth.witherDipSemitones', !p.growth.witherOnPitchDip);
+    hide('growth.witherDepth', p.growth.onPause === 'keep' && !p.growth.witherOnPitchDip);
+    hide('growth.fadeAfter', p.growth.onPhraseEnd === 'keep');
+    hide('harmony.colourMode', p.harmony.colour <= 0);
+    hide('harmony.colourValue', p.harmony.colour <= 0 || p.harmony.colourMode !== 'colour');
+    hide('fake.together', p.fake.voices !== 'duet');
+    hide('fake.harmony', p.fake.voices === 'together');
     hide('scene.scopeLayer', !p.scene.showScope);
     hide('scene.scopeSeconds', !p.scene.showScope);
     hide('commit.syncWindow', !p.commit.syncToOnset);

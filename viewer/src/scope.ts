@@ -87,6 +87,7 @@ export const LANES: Lane[] = [
       { key: 'phraseOn', label: 'in a phrase', colour: '#42a5f5', step: true },
       { key: 'held', label: 'note held (½ = blossom)', colour: '#ffd54f' },
       { key: 'bloom', label: 'blossoms open', colour: '#f48fb1' },
+      { key: 'harmony', label: 'in harmony', colour: '#ffe9a8' },
     ],
   },
   {
@@ -94,7 +95,8 @@ export const LANES: Lane[] = [
     min: 0, max: 1,
     series: [
       { key: 'open', label: 'open / reveal', colour: '#2fb84f' },
-      { key: 'wither', label: 'wither', colour: '#ff8a65' },
+      { key: 'wither', label: 'short pause (twigs)', colour: '#ff8a65' },
+      { key: 'ending', label: 'ending (whole tree)', colour: '#ef5350' },
       { key: 'alpha', label: 'tree brightness', colour: '#e0e0e0' },
     ],
   },
@@ -124,7 +126,7 @@ export const USED_BY: Record<string, { what: string; paths: string[] }> = {
   vibRate: { what: 'Vibrato rate (Hz ÷ 10); the shimmer follows it.', paths: ['detect.vibratoMinHz', 'detect.vibratoMaxHz', 'motion.shiver', 'motion.shiverDeg'] },
   flash: { what: 'Jumps to 1 on every note start, fades with a 0.25 s time constant.',
     paths: ['glow.onsetGain', 'response.brightness', 'motion.kickDeg', 'halo.sproutRate', 'commit.syncToOnset'] },
-  voice: { what: 'Singing right now: loudness above 0.05.', paths: ['growth.secondsToFull', 'growth.witherOnPause', 'response.phraseGap'] },
+  voice: { what: 'Singing right now: loudness above 0.05.', paths: ['growth.secondsToFull', 'growth.onPause', 'response.phraseGap'] },
   phraseOn: { what: 'Inside a phrase: until the silence is longer than “pause that ends a phrase”.',
     paths: ['response.phraseGap', 'growth.newTreeEachPhrase', 'growth.restBrightness', 'response.release'] },
   held: { what: 'How long the current note has been held, as a share of twice the “blossom after” time: crossing the middle line opens the blossoms. Counts while you stay within a semitone of the note; a jump, a new note start or a pause starts over.',
@@ -132,8 +134,12 @@ export const USED_BY: Record<string, { what: string; paths: string[] }> = {
   bloom: { what: 'How far the blossoms are open (rises ~0.25 s after the hold time, closes ~0.7 s after the note).', paths: ['look.blossomHold', 'look.blossoms'] },
   open: { what: 'How far the live halo has opened, or how much of this take\'s newest tree has grown.',
     paths: ['growth.secondsToFull', 'halo.openRadius', 'response.release'] },
-  wither: { what: 'How far the outer twigs have grown back in a pause or pitch dip.',
-    paths: ['growth.witherOnPause', 'growth.witherSeconds', 'growth.witherDepth', 'growth.twigFadeSeconds', 'growth.witherOnPitchDip'] },
+  wither: { what: 'How far a short pause (or a pitch dip) has acted on the outer twigs; it recedes when you sing again.',
+    paths: ['growth.onPause', 'growth.witherSeconds', 'growth.witherDepth', 'growth.twigFadeSeconds', 'growth.witherOnPitchDip'] },
+  ending: { what: 'How far the ending of the whole tree has come (the phrase end\'s, or the full stop\'s): 1 after “an ending takes”.',
+    paths: ['growth.onPhraseEnd', 'growth.fadeAfter', 'growth.onStop', 'growth.dieAfter', 'growth.fadeSeconds'] },
+  harmony: { what: 'In harmony with another track: both sing, a third, fourth, fifth or sixth apart in any octave (within half a semitone), for at least “counts after”. Found in the viewer from the pitches of all tracks.',
+    paths: ['harmony.colour', 'harmony.cross', 'harmony.blossoms', 'harmony.glow', 'harmony.minSeconds', 'harmony.attack', 'harmony.unison'] },
   alpha: { what: 'Brightness of this take\'s newest tree.', paths: ['growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds'] },
 };
 

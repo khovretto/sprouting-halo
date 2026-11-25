@@ -17,13 +17,23 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
 
 - **Take plants grow at phrase speed.** About 3.5 s of full voice grows a whole tree (grow time).
   With "new tree each phrase" on, each phrase grows a new tree on a new seed; the replaced tree
-  stays for "old tree stays" seconds, then ends. With "new branch each phrase" every phrase grows one
+  goes the way "phrase end: tree" says. With "new branch each phrase" every phrase grows one
   branch of the take's tree and the oldest dries, droops and falls once more than "branches kept"
   are there. Off: one tree keeps growing and rests dimmer between phrases.
-- **Endings** (Reaction → Singing & phrases): a silence longer than "silence that ends the tree"
-  (4 s) ends the whole tree, trunk and all, and the next phrase starts a new one. "How things end":
-  **wither** (it grows back into the root and the leaves fall), **fade**, or **both**; "ending takes"
-  sets how long. The same choice applies to old branches and to twigs withering in pauses.
+- **Pauses and endings** (Reaction → Pauses & endings): three lengths of silence, each with its
+  own action. A short pause (growth.onPause) acts on the outer twigs within witherDepth of the
+  tips; the phrase end (growth.onPhraseEnd, after response.phraseGap + growth.fadeAfter) and the
+  full stop (growth.onStop, after growth.dieAfter) on the whole tree, over growth.fadeSeconds.
+  Actions: keep, ungrow (grow back from the tips), fadeTips / fade (from the tips inward, or all
+  together), fallTips / fall (pieces break off and fall, from the tips inward or all at once;
+  `src/twigs.ts`). A tree that was not replaced takes a phrase end back when its take sings again.
+  With the defaults a pause runs straight on into the ending: nothing stalls half way.
+- **Harmony** (Reaction → Harmony, `src/harmony.ts`): the viewer compares the pitches of all
+  tracks; two voices a third, fourth, fifth or sixth apart (any octave, within half a semitone)
+  for harmony.minSeconds are in harmony. Effects, each with its own amount: colours move to a
+  shared colour (a gradient between the two, their mix, or one colour), branches weave across each
+  other and the trees lean together (the halo ring braids), blossoms open, extra glow. Theme parts
+  with opens "harmony" show only then.
 - **Tree shape (docs/fable-consult-2.md):** all take plants grow from one hub behind the neck
   and end on one shared, flattened canopy outline, so several takes read as one wide canopy that
   cradles the avatar. Each plant fills its own territory (an angular sector of the arc outside
@@ -45,14 +55,15 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
 - **Leaves come with finished branches:** a branch carries leaves once it has grown to its tip,
   so nothing rides along a growing twig. A finished branch that withers back keeps the leaves on
   what remains.
-- **Pauses and dips:** in a pause the outer twigs *grow back* toward their limbs (Reaction →
-  Pauses: withering), and with "leaves fall instead of shrinking" (on by default) their leaves and
-  petals let go and fall, turning toward the withered colour. Every visible tip keeps a leaf. They
-  regrow when singing resumes; pause withering never reaches the main limbs. Optional: pitch dips do
-  the same (wither on pitch dips). Depth and speeds: witherDepth, witherSeconds, twigFadeSeconds,
-  regrowSpeed.
-- **Seasonal leaves** (Look → Theme & leaves): "leaves fall" makes leaves let go on their own and
-  grow back after "leaves regrow (s)", in showers when the voice trembles (Reaction: "trembling
+- **Pauses and dips:** by default the outer twigs *grow back* toward their limbs in a pause, and
+  with "leaves let go when twigs go" (growth.shed, on by default) their leaves and petals let go
+  and fall, turning toward the withered colour; off, leaves go the way of their twig (shrink, fade,
+  or fall with it). Every visible tip keeps a leaf. They regrow when singing resumes; a short pause
+  never reaches the main limbs. Optional: pitch dips do the same (wither on pitch dips). Depth and
+  speeds: witherDepth, witherSeconds, twigFadeSeconds, regrowSpeed.
+- **Seasonal leaves** (Look → Theme & leaves): "leaves fall on their own" makes leaves let go
+  (they fall whatever growth.shed says) and grow back after "leaves regrow (s)", in showers when
+  the voice trembles (Reaction: "trembling
   shakes leaves loose"). "Wood stays" keeps one full-grown tree per take that never withers, fades
   or dies, so only the leaves come and go (the Autumn look).
 - **Twist** (Look → Tree shape, docs/fable-consult-7-twist.md): branches can wind like a corkscrew
@@ -250,8 +261,9 @@ your output size.
 | `src/growth/commit.ts` | The commit animation: wind-up, unfurl, plunge, impact. |
 | `src/features.ts` | `FeatureFrame`: the audio features per layer that drive everything. |
 | `src/drive.ts` | Per-layer phrase detection, halo open envelope, energy, flash, effort/softness. |
-| `src/growth/generations.ts` | Trees per layer: grow with the voice, new tree per phrase, fade the old. |
-| `src/sources/fake.ts` | Fake singer (phrases, soft/full notes, melody up to F6, vibrato, commit/delete tests). |
+| `src/growth/generations.ts` | Trees per layer: grow with the voice, new tree per phrase, pauses and endings per length of silence. |
+| `src/sources/fake.ts` | Fake singer: no audio, it invents the features. Each voice has its own phrases and notes (or they trade phrases as a duet, or sing together), soft/full notes, melody up to F6, vibrato, harmony to the first voice, commit/delete tests. |
+| `src/harmony.ts` | Harmony between tracks, from their pitches. |
 | `src/sources/live.ts` | Sprout.exe connection: tap → layer mapping, reconnect, dropout hold, viewer messages. |
 | `src/layout.ts` | Take territories: crown (1 take), wings (2), equal sectors (3+), two tiers (7+); the shared canopy outline. |
 | `src/growth/halo.ts` | Live halo vine (unit circle): runners + curling sprouts, revealed by the voice. |
@@ -259,6 +271,7 @@ your output size.
 | `src/growth/skeleton.ts` | Shared node tree. |
 | `src/deco.ts` | Theme decorations on branches and the halo ring (leaf ranks, presence, blossoms, shedding, pivots). |
 | `src/shed.ts` | Falling leaves and petals (one pool per plant). |
+| `src/twigs.ts` | Falling branch pieces (fall away). |
 | `src/themes.ts` | Built-in and user themes, textures, origins, natural colours. |
 | `src/theme-editor.ts` | The /themes page. |
 | `src/colour.ts`, `src/gradient.ts` | Colour roles and gradients (parse, bake, sample). |

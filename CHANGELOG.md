@@ -16,8 +16,13 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
   and tilted on the head when idle. Several live tracks nest.
 - **Take trees:** every take grows its own tree into a shared canopy round the avatar (hub,
   territories, forking limbs, ivy shoots in free space). Trees grow with each phrase; a new tree or
-  a new branch per phrase; outer twigs wither in pauses; a long silence ends the whole tree
-  (wither, fade or both).
+  a new branch per phrase.
+- **Pauses and endings:** a short pause, the end of a phrase and a full stop each have their own
+  choice of what the branches do: keep, ungrow, fade or fall away, from the tips inward or all at
+  once. Leaves let go and fall, or go the way of their twig.
+- **Harmony:** two tracks singing a third, fourth, fifth or sixth apart are in harmony: their
+  colours run into each other, their branches crisscross, blossoms open, the glow rises; theme
+  parts can open in harmony.
 - **Planting:** when a take is done, the halo winds up and unrolls along the new tree's limbs into
   its root. Deleted takes fade while their leaves fall.
 - **Voice:** loudness, note starts, pitch, vibrato, effort and breathiness each drive something:
@@ -28,13 +33,14 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
   gradient that can flow, run root to tip, scatter or follow the voice; per-look take palettes.
 - **Themes:** Leaves, Thorns, Christmas wreath, Briar, Branches, and your own from up to six
   parts and PNG pictures with an origin point (`/themes` editor, saved by Sprout.exe).
-- **Presets:** 12 Looks, 12 Reactions, 13 test setups, plus your own (export and import as files).
+- **Presets:** 12 Looks, 14 Reactions, 15 test setups, plus your own (export and import as files).
 - Leaves and petals fall instead of shrinking; Autumn's wood stays while its leaves fall and
   regrow.
 - Light, dark and split checker backdrops for the preview; an optional dark outline and flat
   glow so looks read over bright scenes.
 - Voice scope (rolling graphs of what the overlay hears), tooltips that say how each setting reads
-  the voice, hotkeys (`/` lists them), a fake singer for testing without a DAW.
+  the voice, hotkeys (`/` lists them), a fake singer for testing without a DAW (independent
+  voices, a duet trading phrases, or stacked takes).
 - Performance controls: frame-rate cap, idle and background rates, maximum picture size.
 
 ### Sprout.exe

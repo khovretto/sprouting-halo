@@ -34,15 +34,15 @@ export const PATHS: string[] = Object.entries(D).flatMap(([s, o]) => Object.keys
 /** Keys that respond to the voice (the reactivity kind). */
 const REACTIVE = new Set([
   'growth.newTreeEachPhrase', 'growth.secondsToFull', 'growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds',
-  'growth.ending', 'growth.dieAfter', 'plants.twistVoice', 'motion.leafShake',
-  'growth.witherOnPause', 'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
+  'growth.onPause', 'growth.onPhraseEnd', 'growth.onStop', 'growth.dieAfter', 'plants.twistVoice', 'motion.leafShake',
+  'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
   'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed', 'growth.shed', 'growth.branchEachPhrase',
   'growth.branchesKept', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
   'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine', 'glow.softGlow', 'glow.front',
   'halo.idleSpeed', 'halo.singSpeed', 'halo.sproutRate', 'halo.sproutGrow', 'halo.spawnSeconds',
   'plants.softDroop', 'plants.moodShaping', 'look.blossoms', 'look.blossomHold', 'look.thornEffort',
 ]);
-const REACTIVE_SECTIONS = new Set(['response', 'motion', 'commit', 'transitions']);
+const REACTIVE_SECTIONS = new Set(['response', 'motion', 'commit', 'transitions', 'harmony']);
 /** Preview keys a testing preset may set (never synced; other local keys stay as they are). */
 const TESTING = new Set([
   'scene.layers', 'scene.timeScale', 'scene.backdrop', 'scene.showAvatar', 'scene.showGuides', 'scene.showScope',
@@ -103,6 +103,22 @@ export function diffOf(p: Params | Values, kind: Kind): Values {
     if (v !== undefined && !same(v, getPath(D, path))) setPath(out, path, v);
   }
   return out;
+}
+
+/**
+ * Settings saved before growth.ending and growth.witherOnPause became one choice per length of
+ * silence (onPause, onPhraseEnd, onStop): the same behaviour in the new words. In place.
+ */
+export function migrateGrowth(gr: Record<string, unknown> | undefined) {
+  if (!gr || (typeof gr.ending !== 'string' && typeof gr.witherOnPause !== 'boolean')) return;
+  const fades = gr.ending === 'fade' || gr.ending === 'both';
+  const act = gr.ending === 'fade' ? 'fade' : gr.ending === 'both' ? 'fadeTips' : 'ungrow';
+  if (gr.onPause === undefined) gr.onPause = gr.witherOnPause === false ? 'keep' : fades ? 'fadeTips' : 'ungrow';
+  if (gr.onPhraseEnd === undefined) gr.onPhraseEnd = act;
+  if (gr.onStop === undefined) gr.onStop = act;
+  if (gr.fadeAfter === undefined) gr.fadeAfter = 3; // the default it was saved under
+  delete gr.ending;
+  delete gr.witherOnPause;
 }
 
 const built = (list: Preset[]) => list.map((p) => ({ ...p, builtin: true }));
@@ -276,7 +292,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'calm', name: 'Calm (ballad)', description: 'Slow and lingering. Each phrase grows one new branch; old ones dry, droop and fall. Gentle motion.',
       values: {
-        growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, ending: 'both', dieAfter: 7, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8,
+        growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, onPause: 'fadeTips', onPhraseEnd: 'fadeTips', onStop: 'fadeTips', dieAfter: 7, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8,
           branchEachPhrase: true, branchesKept: 4, branchWitherSeconds: 4, branchDroopDeg: 25, branchFallSeconds: 2 },
         response: { release: 3, brightness: 0.6, variety: 0.3 },
         look: { blossoms: 0.9, blossomHold: 2 },
@@ -302,7 +318,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'subtle', name: 'Subtle', description: 'Small reactions: little brightness change, light motion, few blossoms, the halo plants as a single quiet frond.',
       values: {
-        growth: { restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2, ending: 'fade', dieAfter: 5 },
+        growth: { restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2, onPause: 'fadeTips', onPhraseEnd: 'fade', onStop: 'fade', dieAfter: 5 },
         response: { brightness: 0.5, effortWidth: 0.5 },
         look: { blossoms: 0.4, blossomHold: 2.5 },
         halo: { sproutRate: 1.5 },
@@ -330,7 +346,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'bloom', name: 'Blossom ballad', description: 'One tree keeps growing through the song. Notes held for a second open the blossoms; their petals fall when the note ends.',
       values: {
-        growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5, ending: 'both', dieAfter: 6, fadeSeconds: 3.5 },
+        growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5, onPause: 'fadeTips', onPhraseEnd: 'keep', onStop: 'fadeTips', dieAfter: 6, fadeSeconds: 3.5 },
         look: { blossoms: 1, blossomHold: 1 },
         glow: { softGlow: 0.8 },
         motion: { shiverDeg: 5, shiverSensitivity: 1.5 },
@@ -340,20 +356,33 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       id: 'fall', name: 'Falling leaves', description: 'Pauses and pitch drops strip the outer twigs deep into the tree and the leaves rain down; it regrows fast when you sing.',
       values: {
         growth: { newTreeEachPhrase: false, witherOnPitchDip: true, witherDipSemitones: 2, witherDepth: 0.8, witherSeconds: 0.6, twigFadeSeconds: 1.2, regrowSpeed: 2,
-          ending: 'wither', dieAfter: 3.5, fadeSeconds: 3 },
+          onPhraseEnd: 'keep', dieAfter: 3.5, fadeSeconds: 3 },
+      },
+    },
+    {
+      id: 'fallaway', name: 'Falling away', description: 'Nothing grows back into the tree: in a pause the outer twigs break off piece by piece and fall, and when the phrase ends the whole tree comes down from the tips inward.',
+      values: {
+        growth: { onPause: 'fallTips', onPhraseEnd: 'fallTips', onStop: 'fall', shed: false, witherDepth: 0.5, witherSeconds: 1.0, fadeSeconds: 2.2, regrowSpeed: 1.6 },
+      },
+    },
+    {
+      id: 'duet', name: 'Duet (harmony)', description: 'Made for two voices: in harmony their colours run into each other, the branches crisscross, blossoms open and everything glows. Trees stay between phrases.',
+      values: {
+        growth: { newTreeEachPhrase: false, onPhraseEnd: 'keep', restBrightness: 0.7, dieAfter: 6, onStop: 'fadeTips', fadeSeconds: 3 },
+        harmony: { colour: 1, colourMode: 'gradient', cross: 1, blossoms: 1, glow: 0.8 },
       },
     },
     {
       id: 'steady', name: 'Steady (no withering)', description: 'Nothing retracts or falls: one tree grows and stays, blossoms open whenever you sing. For comparing.',
       values: {
-        growth: { newTreeEachPhrase: false, witherOnPause: false, shed: false, restBrightness: 0.8, dieAfter: 0, ending: 'fade' },
+        growth: { newTreeEachPhrase: false, onPause: 'keep', onPhraseEnd: 'keep', onStop: 'keep', shed: false, restBrightness: 0.8, dieAfter: 0 },
         look: { blossomHold: 0 },
       },
     },
     {
       id: 'nocturne', name: 'Nocturne', description: 'For dark, solid looks (Black briar): trees stay opaque when you are quiet and the voice shows in the rim glow instead; slow growth, stiff branches that only sway, thorns that grow when you push, roses on notes held a second.',
       values: {
-        growth: { secondsToFull: 4, restBrightness: 0.9, fadeAfter: 4, fadeSeconds: 3.5, ending: 'wither', dieAfter: 6,
+        growth: { secondsToFull: 4, restBrightness: 0.9, fadeAfter: 4, fadeSeconds: 3.5, dieAfter: 6,
           witherDepth: 0.5, witherSeconds: 1.2, twigFadeSeconds: 1.0, regrowSpeed: 1.0 },
         response: { brightness: 0.25, effortWidth: 1.1, release: 2.2 },
         look: { thornEffort: 0.9, blossoms: 0.6, blossomHold: 1.2 },
@@ -367,7 +396,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       id: 'writhe', name: 'Writhing', description: 'Slow and heavy: branches squirm on vibrato and stay solid when you sing quietly; full voice thickens them and grows the thorns; phrases with vibrato grow more twisted trees.',
       values: {
         growth: { secondsToFull: 4.5, regrowSpeed: 0.9, restBrightness: 0.8, fadeAfter: 5, fadeSeconds: 4,
-          witherDepth: 0.6, witherSeconds: 1.2, twigFadeSeconds: 1.4, ending: 'both', dieAfter: 6 },
+          witherDepth: 0.6, witherSeconds: 1.2, twigFadeSeconds: 1.4, onPhraseEnd: 'fadeTips', onStop: 'fadeTips', dieAfter: 6 },
         response: { brightness: 0.3, effortWidth: 1.4, pitchSteer: 0.3, variety: 0.8, release: 2.5 },
         look: { thornEffort: 2.2, blossoms: 0 },
         plants: { twistVoice: 1.6, softDroop: 1.5 },
@@ -381,7 +410,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'fade', name: 'Fade away (nothing dies)', description: 'Nothing withers back or falls: in pauses the outer twigs and their leaves fade, and after a long silence the whole tree fades out.',
       values: {
-        growth: { ending: 'fade', shed: false, witherOnPause: true, witherOnPitchDip: false, witherDepth: 0.5, witherSeconds: 1.2, dieAfter: 4, fadeAfter: 2, fadeSeconds: 3,
+        growth: { onPause: 'fadeTips', onPhraseEnd: 'fade', onStop: 'fade', shed: false, witherOnPitchDip: false, witherDepth: 0.5, witherSeconds: 1.2, dieAfter: 4, fadeAfter: 2, fadeSeconds: 3,
           branchEachPhrase: false, newTreeEachPhrase: true },
         response: { release: 2 },
       },
@@ -401,6 +430,14 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     { id: 'idle', name: 'Not recording', description: 'The live track is not recording: the small resting halo on the head.', values: { fake: { recording: false } } },
     { id: 'duet', name: 'Two live tracks', description: 'Two live tracks at once: nested halos.', values: { fake: { liveTracks: 2 } } },
     {
+      id: 'trade', name: 'Duet: trading phrases', description: 'The live voice and one take trade phrases: one sings alone, then the other, and about half the phrases together in harmony. Shows the harmony effects coming and going.',
+      values: { fake: { voices: 'duet', together: 0.5, harmony: 1 }, scene: { layers: 2 } },
+    },
+    {
+      id: 'unison', name: 'Stacked takes (same phrases)', description: 'Every voice sings every phrase together at a fixed interval, as it was before: stacked takes of one part.',
+      values: { fake: { voices: 'together' } },
+    },
+    {
       id: 'study', name: 'Slow-motion study', description: 'Quarter speed with the voice scope open, to study how the voice is read.',
       values: { scene: { timeScale: 0.25, showScope: true } },
     },
@@ -417,7 +454,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       values: { scene: { backdrop: 'checker-light' } },
     },
     {
-      id: 'stops', name: 'Full stops', description: 'Every second phrase ends with an 8 s full stop: the whole tree withers (or fades) away and a new one grows.',
+      id: 'stops', name: 'Full stops', description: 'Every second phrase ends with an 8 s full stop: shows what the tree does at a phrase end and at a full stop, then a new one grows.',
       values: { fake: { fullStopEvery: 2, fullStopSeconds: 8 } },
     },
     {
@@ -463,7 +500,11 @@ const empty = (): PresetStore => ({
 export function loadStore(): PresetStore {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    if (s && s.visual && s.reactivity && s.testing) return s;
+    if (s && s.visual && s.reactivity && s.testing) {
+      for (const pr of (s as PresetStore).reactivity.user ?? []) migrateGrowth(pr.values?.growth);
+      migrateGrowth((s as PresetStore).reactivity.stash?.growth);
+      return s;
+    }
     // v1 (one kind of preset): split each saved preset into a visual and a reactivity preset.
     const old = JSON.parse(localStorage.getItem(OLD_KEY) ?? 'null');
     const st = empty();

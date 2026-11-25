@@ -60,6 +60,8 @@ export interface DecoStyle {
   /** Sim time and the voice's pitch 0..1 (a theme's moving natural gradient). */
   time?: number;
   pitch?: number;
+  /** 0..1 in harmony with another track (theme parts that open "in harmony"). */
+  harmony?: number;
 }
 
 let tipScratch = new Uint8Array(0);
@@ -198,6 +200,9 @@ export interface TreeExtras {
   dry?: number;
   /** look.leafFall: per node, > 0 while its leaf has fallen and not grown back. */
   leafGone?: ArrayLike<number>;
+  /** Per node: 1 = its branch piece just broke off and fell (growth "fall away"): its leaf falls
+   *  too. Cleared here. */
+  dropped?: Uint8Array;
 }
 
 export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: DecoStyle, out: Instances, extras: TreeExtras = {}) {
@@ -220,7 +225,11 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   const dens = st.density;
   const variety = clamp(L.variety);
   const rank = extras.rank;
-  const shedOn = p.growth.shed && !!extras.shed && st.fall <= 0;
+  const canShed = !!extras.shed && st.fall <= 0;
+  // growth.shed: leaves let go when their twig goes. Off: they go the way of the twig.
+  const shedOn = p.growth.shed && canShed;
+  // In harmony, 0..1 eased (theme parts with opens: 'harmony').
+  const hmRaw = clamp(st.harmony ?? 0), hm = hmRaw * hmRaw * (3 - 2 * hmRaw);
   // Blossom sites: twig ends chosen by hash; they carry no leaf, nor does the node before them,
   // so a flower never sits on a leaf (consult 6, 5.2).
   if (bloomSite.length < sk.n) bloomSite = new Uint8Array(sk.n * 2);
@@ -242,7 +251,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (!bs) return want;
     let b = bs[i];
     if (b < 0) {
-      if (st.bloom < 0.02) b = 0; // petals fell: wait for the bloom to close before a new flower
+      if (want < 0.02) b = 0; // petals fell: wait for the bloom to close before a new flower
     } else if (want >= b) b = want; // opening follows the bloom
     else if (!shedOn || b <= 0.3) b = want; // old behaviour, and half-open ones just close
     else if (want < b * (0.35 + 0.6 * h3)) {
@@ -272,10 +281,11 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   const ls = extras.leafState;
   const dtL = extras.dt ?? 0;
   const ease = dtL > 0 ? 1 - Math.exp(-dtL / 0.2) : 1;
-  /** Ease node i's leaf presence toward `want`; returns its size factor (0 = gone). */
-  const presence = (i: number, want: boolean) => {
+  /** Ease node i's leaf presence toward `want`; returns its size factor (0 = gone). `falls`: it
+   *  lets go and falls whatever growth.shed says (it fell on its own, or its twig fell). */
+  const presence = (i: number, want: boolean, falls = false) => {
     if (!ls) return want ? 1 : 0;
-    if (shedOn && !want && ls[i] > 0.5) {
+    if ((shedOn || (falls && canShed)) && !want && ls[i] > 0.5) {
       // Let go at full size: the pool draws it falling from now on.
       ls[i] = 0;
       place.drop = extras.shed!;
@@ -308,10 +318,21 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     place.put(x, y, ang, base * shown, Shape.Blossom, pc, flex, h3, lerp(0.6, 1.4, open));
   };
   const gone = extras.leafGone;
+  const dropped = extras.dropped;
   const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns') && !custom;
   for (let i = 1; i < sk.n; i++) {
-    const f = vis[i];
+    let f = vis[i];
+    // Its branch piece just fell: the leaf is drawn once more, to let go at full size.
+    const letGo = !!dropped && dropped[i] === 1;
+    if (letGo) {
+      dropped![i] = 0;
+      f = 1;
+    }
     if (f <= 0.02) continue;
+    // A leaf that falls whatever growth.shed says: it fell on its own (look.leafFall) or with its twig.
+    const falls = letGo || !!(gone && gone[i] > 0);
+    // growth.shed: a leaf lets go of a fading twig once the twig is half gone.
+    const faded = shedOn && !!extras.alpha && extras.alpha[i] < 0.55;
     // Take plants: most nodes carry nothing; skip them before any per-node work.
     if (leafOnly && rank![i] > Math.min(1, dens * 1.3) && tipScratch[i] === 0 && !(ls && ls[i] > 0.003)) continue;
     if (sparse && rank && rank[i] > 1 && tipScratch[i] === 0 && bloomSite[i] !== 1 && !(ls && ls[i] > 0.003)) continue;
@@ -346,7 +367,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (custom) {
       // A user theme: its parts, placed by the same rules as the built-in themes.
       const bId = extras.branchId, bDone = extras.branchDone;
-      const allowed = !rank || (f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1));
+      const allowed = !rank || (!letGo && f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1));
       const visTip = !!rank && allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
       // Which spaced part owns this node (-1: none), and whether it is there now (one presence per node).
       let owner = -1, pres = 0;
@@ -361,9 +382,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
           const tip = visTip && dens > 0.1;
           // True twig ends, bare visible ends and leaves still fading out belong to the first part.
           if ((tip && (terminal || owner < 0)) || (owner < 0 && ls && ls[i] > 0.003)) owner = 0;
-          const has = owner >= 0 && allowed && !bloomSite[i] && !(gone && gone[i] > 0) && (key <= cuts[cuts.length - 1] || tip)
+          const has = owner >= 0 && allowed && !faded && !bloomSite[i] && !(gone && gone[i] > 0) && (key <= cuts[cuts.length - 1] || tip)
             && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
-          pres = owner >= 0 ? presence(i, has) : 0;
+          pres = owner >= 0 ? presence(i, has, falls) : 0;
         } else {
           if (owner < 0 && terminal && dens > 0.15) owner = 0;
           pres = owner >= 0 && !bloomSite[i] ? 1 : 0;
@@ -376,7 +397,10 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         const ink = part.role === 'accent' ? st.accent : st.leaf;
         const own = part.colour === 'own';
         const gl = part.glow ?? 1;
-        const eff = part.sizeFrom === 'effort' ? 0.6 + L.thornEffort * st.effort : 1;
+        const inHarmony = part.opens === 'harmony';
+        // A part that opens in harmony is not there otherwise (twig-end parts close to a bud, below).
+        if (inHarmony && part.place !== 'tips' && hm <= 0.01) continue;
+        const eff = (part.sizeFrom === 'effort' ? 0.6 + L.thornEffort * st.effort : 1) * (inHarmony && part.place !== 'tips' ? hm : 1);
         const amt = Math.max(0, part.amount);
         const colourFor = (s: number, h: number, natScale: number, gain: number) =>
           own ? ((tintA[0] = tintA[1] = tintA[2] = gain), tintA) : col(ink, natAt(part, st, s, h), s, h, natScale, gain);
@@ -396,9 +420,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
             const ang = dir + clamp(wrapPi(up - dir), -0.9, 0.9) * 0.6 + (h2 - 0.5) * 0.5;
             const base = size * 0.075 * part.size * eff * pop * (0.8 + 0.4 * h2);
             const c = colourFor(flex * st.sScale, h3, 1, st.intensity * 1.1);
-            const blooms = part.opens === 'bloom';
+            const blooms = part.opens === 'bloom' || inHarmony;
             const open = blooms
-              ? blossomOpen(i, (extras.dry ?? 0) > 0 ? 0 : st.bloom, h3, () => {
+              ? blossomOpen(i, (extras.dry ?? 0) > 0 ? 0 : inHarmony ? hm : st.bloom, h3, () => {
                 place.drop = extras.shed!;
                 place.put(x, y, ang, base * Math.max(0.02, bs ? bs[i] : 1), sid, c, flex, h3, gl);
               })
@@ -449,12 +473,12 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       // leaves riding along a growing tip. A finished branch that withers back keeps the leaves on
       // what is left (and buds where its shoots were).
       const bId = extras.branchId, bDone = extras.branchDone;
-      const allowed = f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1);
+      const allowed = !letGo && f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1);
       const visTip = allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
-      const has = allowed && !bloomSite[i] && !(gone && gone[i] > 0) && (rank[i] <= dens || (visTip && dens > 0.1)) && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
+      const has = allowed && !faded && !bloomSite[i] && !(gone && gone[i] > 0) && (rank[i] <= dens || (visTip && dens > 0.1)) && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
       const pxv = x, pyv = y;
       if (st.theme === 'leaves') {
-        const pres = presence(i, has);
+        const pres = presence(i, has, falls);
         if (pres > 0) {
           const x = pxv, y = pyv;
           const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * lerp(0.95, 0.5 + 0.8 * h2, variety);
@@ -474,7 +498,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         continue;
       }
       if (st.theme === 'thorns') {
-        const pres = presence(i, allowed && !terminal && rank[i] <= Math.min(1, dens * 1.3));
+        const pres = presence(i, allowed && !faded && !terminal && rank[i] <= Math.min(1, dens * 1.3), letGo);
         if (pres > 0) {
           const ang = dir + side * (0.95 + 0.25 * h2);
           const s = size * 0.034 * (0.6 + L.thornEffort * st.effort) * pop * pres * (0.7 + 0.6 * h1);
@@ -570,11 +594,12 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
     if (custom && ringPart) {
       const sid = shapeId(custom.id, ringPart.shape);
       place.pivot = pivotOf(ringPart);
-      if (sid >= 0 && h0 < dens * 0.8 * ringPart.amount) {
+      const hmR = ringPart.opens === 'harmony' ? clamp(st.harmony ?? 0) : 1;
+      if (sid >= 0 && hmR > 0.01 && h0 < dens * 0.8 * ringPart.amount) {
         const own = ringPart.colour === 'own';
         const c = own ? ((tintA[0] = tintA[1] = tintA[2] = st.intensity), tintA)
           : col(ringPart.role === 'accent' ? st.accent : st.leaf, natAt(ringPart, st, a / TAU2, h0), a / TAU2, h0, 1, st.intensity);
-        place.put(x, y, a + (alt > 0 ? 0 : Math.PI) + alt * (0.7 + 0.4 * h1), size * 0.045 * ringPart.size * pop * (0.7 + 0.6 * h1),
+        place.put(x, y, a + (alt > 0 ? 0 : Math.PI) + alt * (0.7 + 0.4 * h1), size * 0.045 * ringPart.size * hmR * pop * (0.7 + 0.6 * h1),
           sid, c, 0, h0, ringPart.glow ?? 1);
       }
       continue;

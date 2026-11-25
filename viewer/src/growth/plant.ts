@@ -21,6 +21,7 @@
 // a shape setting does.
 
 import { ShedPool } from '../shed';
+import { TwigPool } from '../twigs';
 import type { Params } from '../params';
 import { outlineOf, Placement, rOutAt, toLocal, toWorld } from '../layout';
 import { clamp, deg, hash1, lerp, noise1, rng, Rng } from '../math';
@@ -36,6 +37,14 @@ export interface Mood {
   vibrato: number;
 }
 export const NEUTRAL_MOOD: Mood = { effort: 0.5, pitch: 0.5, soft: 0, vibrato: 0 };
+
+/** What branches do in a pause or at an ending (growth.onPause, onPhraseEnd, onStop). */
+export type EndAction = 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall';
+/** One stage acting on a tree this frame: its action and how far it has come (0..1). */
+export interface Wilt {
+  action: EndAction;
+  amount: number;
+}
 
 interface PlantForm {
   /** World up in the local frame. */
@@ -116,10 +125,17 @@ export class Plant {
   leafState = new Float32Array(0);
   /** Per-node blossom open amount shown (deco.ts), -1 after its petals fell. */
   bloomState = new Float32Array(0);
-  /** A twig withered back in the last computeReveal. */
+  /** A twig withered back (or pieces are falling) in the last computeReveal. */
   retracting = false;
   /** Leaves and petals that let go (growth.shed). */
   shed = new ShedPool();
+  /** Branch pieces that broke off and fall ("fall away"). */
+  twigs = new TwigPool();
+  /** Segments that let go since the last drawn frame: node, how far it was grown, sim time
+   *  (3 numbers each). The draw takes them over into `twigs` with their colours. */
+  drops: number[] = [];
+  /** Per node: 1 = it just let go and its leaf has not been dropped yet (deco.ts clears it). */
+  dropped = new Uint8Array(0);
   /** Per-node: the lowest leaf density at which this node carries a leaf (2 = never). */
   leafRank = new Float32Array(0);
   private childVis = new Float32Array(0);
@@ -129,6 +145,8 @@ export class Plant {
   elbow = new Uint8Array(0);
   /** Per-node distance to the farthest tip below it, used for withering. */
   private witherH = new Float32Array(0);
+  /** Per-node distance to the farthest tip below it, as it is (endings reach the trunk). */
+  private tipH = new Float32Array(0);
   /** Distance from the root to the farthest tip (the whole tree's height, for dying back). */
   private maxH = 0;
   private target = new Float32Array(0);
@@ -197,12 +215,17 @@ export class Plant {
   /**
    * Per-node growth for this frame. `reveal` (0..1, only rises) says how much of the tree is
    * allowed; each segment then grows toward that at growth.regrowSpeed, and only once its parent
-   * segment is complete, so branches extend from their base. `wither` (0..1) fades the outer twigs
-   * within wither * growth.witherDepth of their tips (leaves first and further in); a twig that has
-   * fully faded is cleared and grows back from its stub once the wither recedes. `die` > 0: the
-   * whole tree withers back to the root (growth.ending), however deep growth.witherDepth is.
+   * segment is complete, so branches extend from their base.
+   *
+   * `pause` (a short pause or a pitch dip) acts on the outer twigs, within growth.witherDepth of
+   * their tips; `end` (the phrase ended, or a full stop) on the whole tree, trunk and all. Each
+   * has an action and an amount 0..1:
+   *  - ungrow: the twigs grow back from their tips, children before their parent
+   *  - fadeTips: they fade from the tips inward; fade: all of them fade together
+   *  - fallTips: pieces break off from the tips inward and fall; fall: all of them at once
+   * When a pause's amount recedes (singing again) the twigs regrow from their stubs.
    */
-  computeReveal(reveal: number, pitch: number, p: Params, wither = 0, dt = 0, die = 0) {
+  computeReveal(reveal: number, pitch: number, p: Params, dt = 0, now = 0, pause: Wilt | null = null, end: Wilt | null = null) {
     const sk = this.sk;
     const g = p.growth;
     const variety = clamp(p.response.variety);
@@ -221,39 +244,72 @@ export class Plant {
       this.target[i] = Math.max(this.target[i], clamp((level - t) / band));
     }
 
-    // Withering: the outer twigs within `reach` of their tips grow *back* (retract from the tip,
-    // their leaves shrinking with them), so a withered tree looks younger, never dead: no faded
-    // bare twigs. Children retract before their parent. When the wither recedes they regrow.
-    // growth.ending "fade": the outer twigs stay and fade instead; "both": they fade as they retract.
-    const ending = g.ending ?? 'wither';
-    const shrink = ending !== 'fade', dim = ending !== 'wither';
-    const reach = wither * Math.max(0.01, g.witherDepth);
-    const retract = (Math.max(0.05, g.witherDepth) / Math.max(0.05, g.twigFadeSeconds)) * dt; // units this frame
-    // Dying (a long silence, or a replaced tree): everything retracts, trunk and all, children
-    // first, so the whole tree is gone in growth.fadeSeconds.
-    const dying = die > 0 && shrink;
-    const dieStep = ((this.maxH * 1.05 + 0.02) / Math.max(0.05, g.fadeSeconds)) * dt;
     const n = sk.n;
-    this.retracting = false;
+    const P = pause && pause.action !== 'keep' && pause.amount > 0 ? pause : null;
+    const E = end && end.action !== 'keep' && end.amount > 0 ? end : null;
+    const depth = Math.max(0.01, g.witherDepth), full = this.maxH * 1.05 + 0.02;
+    const pAct = P?.action, eAct = E?.action;
+    // Pause: how far in from the tips it has reached (plant units).
+    const reach = P ? P.amount * depth : 0;
+    const retract = (Math.max(0.05, g.witherDepth) / Math.max(0.05, g.twigFadeSeconds)) * dt; // units this frame
+    // Ending by ungrowing: everything retracts, trunk and all, children first, so the whole tree
+    // is gone in growth.fadeSeconds.
+    const dying = eAct === 'ungrow';
+    const dieStep = (full / Math.max(0.05, g.fadeSeconds)) * dt;
+    const shrinkP = pAct === 'ungrow', fallP = pAct === 'fallTips' || pAct === 'fall';
+    const fallE = eAct === 'fallTips' || eAct === 'fall';
+    const eReach = E ? E.amount * full : 0;
+    // Pieces break off a chunk at a time, each branch at its own moments.
+    const CHUNK = 0.3;
+    const cut = (r: number, b: number) => {
+      const j = this.branchRand[b] * CHUNK;
+      return Math.floor((r + j) / CHUNK) * CHUNK - j;
+    };
+    this.retracting = fallP || fallE;
     if (this.childVis.length < n) this.childVis = new Float32Array(n * 2);
     const cv = this.childVis;
     cv.fill(0, 0, n);
+    const wh = this.witherH, th = this.tipH;
     for (let i = n - 1; i >= 0; i--) {
       const pa = sk.parent[i];
-      if (dt > 0 && cv[i] <= 0 && this.vis[i] > 0 && (dying || (shrink && this.witherH[i] < reach))) {
-        const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
-        this.vis[i] = Math.max(0, this.vis[i] - (dying ? Math.max(dieStep, retract) : retract) / seg);
-        this.retracting = true;
+      if (dt > 0 && cv[i] <= 0 && this.vis[i] > 0) {
+        const b = this.branchId[i];
+        const drop = (fallE && pa >= 0 && (eAct === 'fall' || th[i] < cut(eReach, b)))
+          || (fallP && wh[i] < depth && (pAct === 'fall' ? P!.amount > 0.2 : wh[i] < cut(reach, b)));
+        if (drop) {
+          // It lets go: drawn by the twig pool from now on (the draw picks it up from `drops`).
+          if (this.drops.length < 9000) this.drops.push(i, this.vis[i], now);
+          this.dropped[i] = 1;
+          this.vis[i] = 0;
+        } else if (dying || (shrinkP && wh[i] < reach)) {
+          const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
+          this.vis[i] = Math.max(0, this.vis[i] - (dying ? Math.max(dieStep, retract) : retract) / seg);
+          this.retracting = true;
+        }
       }
       if (pa >= 0 && this.vis[i] > cv[pa]) cv[pa] = this.vis[i];
     }
-    const fadeIn = Math.max(0.02, reach * 0.6);
+    // The root is a point: it goes with the last of the tree.
+    if (fallE && dt > 0 && n > 0 && cv[0] <= 0) this.vis[0] = 0;
+    const fadeP = pAct === 'fadeTips' ? Math.max(0.02, reach * 0.6) : 0.3 * depth;
+    const fadeE = Math.max(0.05, 0.25 * full), eFront = E ? E.amount * (full + fadeE) : 0;
     for (let i = 0; i < n; i++) {
-      // Fading twigs: the outer ones dim toward 10 % (leaves a little ahead of their twig).
-      const k = dim && reach > 0 && this.witherH[i] < reach ? clamp((reach - this.witherH[i]) / fadeIn) : 0;
-      this.life[i] = 1 - 0.9 * k;
-      this.leafLife[i] = 1 - 0.95 * clamp(k * 1.3);
-      if (dying || (shrink && this.witherH[i] < reach && dt > 0)) continue; // withering: no growth here
+      // Fading twigs: in a pause the outer ones dim toward 10 % (leaves a little ahead of their
+      // twig); an ending fades everything out, tips first.
+      let k = 0;
+      if (pAct === 'fadeTips') k = wh[i] < reach ? clamp((reach - wh[i]) / fadeP) : 0;
+      else if (pAct === 'fade') k = wh[i] < depth ? P!.amount * clamp((depth - wh[i]) / fadeP) : 0;
+      let life = 1 - 0.9 * k, leaf = 1 - 0.95 * clamp(k * 1.3);
+      if (eAct === 'fadeTips') {
+        const ke = clamp((eFront - th[i]) / fadeE);
+        life *= 1 - ke;
+        leaf *= 1 - clamp(ke * 1.3);
+      }
+      this.life[i] = life;
+      this.leafLife[i] = leaf;
+      // No growth where it is withering or falling.
+      const held = dying || fallE || ((shrinkP || fallP) && wh[i] < reach);
+      if (held && dt > 0) continue;
       // Growth toward the allowed amount, along each branch from its base.
       const pa = sk.parent[i];
       if (pa < 0) {
@@ -262,11 +318,11 @@ export class Plant {
         this.vis[i] = this.target[i] > 0 ? 1 : 0;
         continue;
       }
-      const ready = pa < 0 || this.vis[pa] >= 0.999;
+      const ready = this.vis[pa] >= 0.999;
       if (dt <= 0 || this.instant) {
-        if (this.instant || !shrink || this.witherH[i] >= reach) this.vis[i] = this.target[i]; // paused (or the wood stays): all at once
+        if (this.instant || !held) this.vis[i] = this.target[i]; // paused (or the wood stays): all at once
       } else if (ready && this.vis[i] < this.target[i]) {
-        const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
+        const seg = Math.max(1e-3, sk.flex[i] - sk.flex[pa]);
         this.vis[i] = Math.min(this.target[i], this.vis[i] + (dt * g.regrowSpeed * this.boost) / seg);
       }
     }
@@ -283,6 +339,57 @@ export class Plant {
       if (gone[i] > 0) gone[i] = Math.max(0, gone[i] - dt);
       else if (pr > 0 && ls[i] > 0.9 && Math.random() < pr) gone[i] = Math.max(0.3, regrow) * (0.6 + 0.8 * Math.random());
     }
+  }
+
+  private wx = new Float32Array(0);
+  private wy = new Float32Array(0);
+  private carry = new Float32Array(0);
+  private view: Skeleton | null = null;
+
+  /**
+   * The skeleton as drawn in harmony (harmony.cross): every limb swings from side to side about
+   * its own course, neighbouring limbs in opposite phase, so they cross and recross while the
+   * tree keeps its outline. A side branch starts where its parent now is. `amount` 0..1; 0 returns
+   * the skeleton itself.
+   */
+  woven(amount: number, time: number): Skeleton {
+    const sk = this.sk, n = sk.n;
+    if (amount <= 0.002 || n < 2) return sk;
+    if (this.wx.length < n) {
+      this.wx = new Float32Array(n);
+      this.wy = new Float32Array(n);
+    }
+    const nb = this.branchRand.length;
+    if (this.carry.length < nb * 3) this.carry = new Float32Array(nb * 3);
+    const wx = this.wx, wy = this.wy, carry = this.carry, bid = this.branchId;
+    const A = 0.05 * amount, turn = TAU / 0.55;
+    wx[0] = sk.x[0];
+    wy[0] = sk.y[0];
+    const b0 = bid[0] * 3;
+    carry[b0] = carry[b0 + 1] = carry[b0 + 2] = 0;
+    for (let i = 1; i < n; i++) {
+      const pa = sk.parent[i], b = bid[i], o = b * 3;
+      if (bid[pa] !== b) {
+        // First node of a branch: it leaves from where its parent has moved to.
+        carry[o] = wx[pa] - sk.x[pa];
+        carry[o + 1] = wy[pa] - sk.y[pa];
+        carry[o + 2] = sk.flex[pa];
+      }
+      const env = clamp((sk.flex[i] - carry[o + 2]) / 0.18);
+      let ox = 0, oy = 0;
+      if (this.order[i] > 0) {
+        const tx = sk.x[i] - sk.x[pa], ty = sk.y[i] - sk.y[pa], l = Math.hypot(tx, ty) || 1;
+        const off = A * env * Math.sin(sk.flex[i] * turn + (b & 1) * Math.PI + this.branchRand[b] * 1.3 + time * 1.1);
+        ox = (-ty / l) * off;
+        oy = (tx / l) * off;
+      }
+      wx[i] = sk.x[i] + ox + carry[o] * (1 - env);
+      wy[i] = sk.y[i] + oy + carry[o + 1] * (1 - env);
+    }
+    const view = (this.view ??= Object.create(sk) as Skeleton);
+    view.x = wx;
+    view.y = wy;
+    return view;
   }
 
   /** Mark branches that have grown to their tip (once; withering does not undo it). */
@@ -384,6 +491,9 @@ export class Plant {
     this.leafState = new Float32Array(n);
     this.leafGone = new Float32Array(n);
     this.bloomState = new Float32Array(n);
+    this.dropped = new Uint8Array(n);
+    this.drops.length = 0;
+    this.twigs.clear();
     this.shed.clear();
     return height;
   }
@@ -796,6 +906,7 @@ export class Plant {
     this.branchLast = Int32Array.from(limbs.map((l) => l.end ?? (l.last >= l.first ? l.last : l.attach)));
     const height = this.finish(limbs.length);
     this.branchDone = new Uint8Array(limbs.length);
+    this.tipH = Float32Array.from(height);
     this.bend = bendFrames(sk, this.order, new Float32Array(n * 4));
     // Pause withering never reaches the trunk (dying does: computeReveal); limbs hold a little longer than shoots.
     for (let i = 0; i < n; i++) this.witherH[i] = height[i] + (this.order[i] === 0 ? 99 : this.order[i] === 1 ? 0.12 : 0);
