@@ -53,7 +53,7 @@ void main() {
   vec2 d0 = vec2(cos(a_pos.z), sin(a_pos.z));
   float vane = clamp(1.5 * cross2(d0, Wl), -0.6, 0.6);
   float fl = 0.65 * vn(u_windT * (150.0 / 64.0) + off, seed) + 0.35 * vn(u_windT * (330.0 / 64.0) + off, seed + 1u);
-  float sh = 2.5 * C.x * shiverOf(lh, seed + 2u, B.w);
+  float sh = C.x * shiverOf(lh, seed + 2u, B.w); // motion.shiverDeg as it is: degrees about the stalk
   float la = a_pos.z + ang + leafy * (vane + C.y * fl + sh);
   vec2 dirL = vec2(cos(la), sin(la));
   float twist = 1.0 - 0.3 * leafy * clamp(C.y * 4.0, 0.0, 1.0)

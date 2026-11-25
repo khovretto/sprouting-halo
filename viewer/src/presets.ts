@@ -116,7 +116,6 @@ export function migrateGrowth(gr: Record<string, unknown> | undefined) {
   if (gr.onPause === undefined) gr.onPause = gr.witherOnPause === false ? 'keep' : fades ? 'fadeTips' : 'ungrow';
   if (gr.onPhraseEnd === undefined) gr.onPhraseEnd = act;
   if (gr.onStop === undefined) gr.onStop = act;
-  if (gr.fadeAfter === undefined) gr.fadeAfter = 3; // the default it was saved under
   delete gr.ending;
   delete gr.witherOnPause;
 }
@@ -298,7 +297,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         look: { blossoms: 0.9, blossomHold: 2 },
         halo: { idleSpeed: 5, singSpeed: 40, sproutRate: 2, sproutGrow: 1.0 },
         glow: { levelGain: 0.65, onsetGain: 0.5, softGlow: 0.8 },
-        motion: { swayDeg: 6, kickDeg: 4.5, springiness: 0.3, flutterDeg: 10, speed: 0.7 },
+        motion: { swayDeg: 6, springiness: 0.3, flutterDeg: 10, speed: 0.7 },
         commit: { duration: 1.5, impact: 0.5, shockRing: false, spinTurns: 0.5, plunge: 0.2, syncToOnset: false, limbs: 2 },
       },
     },
@@ -310,7 +309,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         look: { blossoms: 1, blossomHold: 0.8, thornEffort: 2 },
         halo: { idleSpeed: 20, singSpeed: 160, sproutRate: 8, sproutGrow: 0.3, spawnSeconds: 0.5 },
         glow: { levelGain: 1.6, onsetGain: 1.8, pitchShine: 1.0, front: 1.8 },
-        motion: { swayDeg: 12, kickDeg: 12, springiness: 0.7, speed: 1.4, shiverDeg: 5, writhe: 0.25, writheVoice: 'effort' },
+        motion: { swayDeg: 12, springiness: 0.7, speed: 1.4, shiverDeg: 1.7, writhe: 0.25, writheVoice: 'effort' },
         transitions: { liveEndSeconds: 0.4, pruneSeconds: 0.9 },
         commit: { duration: 0.65, impact: 1.8, burst: 70, spinTurns: 1.5, plunge: 0.4, syncToOnset: true, syncWindow: 0.15, limbs: 4 },
       },
@@ -323,7 +322,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         look: { blossoms: 0.4, blossomHold: 2.5 },
         halo: { sproutRate: 1.5 },
         glow: { levelGain: 0.5, onsetGain: 0.3, pitchShine: 0.2, front: 0.4 },
-        motion: { swayDeg: 4, kickDeg: 3, flutterDeg: 8, shiverDeg: 1.5 },
+        motion: { swayDeg: 4, flutterDeg: 8, shiverDeg: 0.5 },
         commit: { duration: 0.7, impact: 0.4, burst: 10, shockRing: false, spinTurns: 0.5, syncToOnset: false, limbs: 1 },
       },
     },
@@ -331,7 +330,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       id: 'vibrato', name: 'Vibrato-sensitive', description: 'Light vibrato already makes twigs and leaves shimmer; soft singing glows wider; blossoms after a 1 s hold.',
       values: {
         look: { blossomHold: 1 },
-        motion: { shiverDeg: 6, shiverSensitivity: 2, flutterDeg: 18, writhe: 0.35, writheVoice: 'vibrato' },
+        motion: { shiverDeg: 2, shiverSensitivity: 2, flutterDeg: 18, writhe: 0.35, writheVoice: 'vibrato' },
         plants: { twistVoice: 1.5 },
         glow: { softGlow: 0.8 },
       },
@@ -349,7 +348,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5, onPause: 'fadeTips', onPhraseEnd: 'keep', onStop: 'fadeTips', dieAfter: 6, fadeSeconds: 3.5 },
         look: { blossoms: 1, blossomHold: 1 },
         glow: { softGlow: 0.8 },
-        motion: { shiverDeg: 5, shiverSensitivity: 1.5 },
+        motion: { shiverDeg: 1.7, shiverSensitivity: 1.5 },
       },
     },
     {
@@ -362,7 +361,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'fallaway', name: 'Falling away', description: 'Nothing grows back into the tree: in a pause the outer twigs break off piece by piece and fall, and when the phrase ends the whole tree comes down from the tips inward.',
       values: {
-        growth: { onPause: 'fallTips', onPhraseEnd: 'fallTips', onStop: 'fall', shed: false, witherDepth: 0.5, witherSeconds: 1.0, fadeSeconds: 2.2, regrowSpeed: 1.6 },
+        growth: { onPause: 'fallTips', onPhraseEnd: 'fallTips', onStop: 'fall', shed: false, fadeAfter: 0, witherDepth: 0.5, witherSeconds: 1.0, fadeSeconds: 2.2, regrowSpeed: 1.6 },
       },
     },
     {
@@ -389,7 +388,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         plants: { twistVoice: 0.6 },
         halo: { idleSpeed: 5, singSpeed: 50, sproutRate: 3, sproutGrow: 0.8 },
         glow: { levelGain: 0.9, onsetGain: 0.9, pitchShine: 0.3, front: 1.2, softGlow: 0.5 },
-        motion: { writhe: 0, swayDeg: 5, idle: 0.4, speed: 0.7, kickDeg: 5, springiness: 0.4, twigs: 0.8, flutterDeg: 9, shiverDeg: 3 },
+        motion: { writhe: 0, swayDeg: 5, idle: 0.4, speed: 0.7, springiness: 0.4, twigs: 0.8, flutterDeg: 9, shiverDeg: 1 },
       },
     },
     {
@@ -402,8 +401,8 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         plants: { twistVoice: 1.6, softDroop: 1.5 },
         halo: { idleSpeed: 4, singSpeed: 55, sproutRate: 4, sproutGrow: 0.9 },
         glow: { levelGain: 0.5, onsetGain: 1.1, pitchShine: 0.2, front: 1.4, softGlow: 0.2 },
-        motion: { writhe: 0.7, writheVoice: 'vibrato', swayDeg: 5, idle: 0.5, speed: 0.6, kickDeg: 8, springiness: 0.75,
-          twigs: 1.6, flutterDeg: 6, shiverDeg: 5, shiverSensitivity: 1.5 },
+        motion: { writhe: 0.7, writheVoice: 'vibrato', swayDeg: 5, idle: 0.5, speed: 0.6, springiness: 0.75,
+          twigs: 1.6, flutterDeg: 6, shiverDeg: 1.7, shiverSensitivity: 1.5 },
         commit: { duration: 1.3, impact: 1.3, spinTurns: 1.25, burst: 20, limbs: 3 },
       },
     },

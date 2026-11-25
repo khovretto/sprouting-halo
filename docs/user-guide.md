@@ -236,11 +236,11 @@ DAW project.
 | Singing a phrase | The take's tree grows (about 3.5 s of full voice for a whole tree); the halo vine races round the ring. |
 | A new phrase | A new tree on a new seed (or, with "new branch each phrase", one new branch on the take's tree; the oldest dries, droops and falls). |
 | Short pause (a breath) | The outer twigs grow back into the tree ("ungrow"); their leaves fall. They regrow when you sing again. |
-| The phrase ends (1 s of silence) | The whole tree ungrows, trunk and all, while the next phrase grows a new one. |
+| The phrase ends (1 s of silence) | The tree stays whole until 3 s after you stopped singing, so it stands next to the tree the next phrase grows; then it ungrows, trunk and all. |
 | Full stop (4 s of silence) | Whatever is left of the tree goes the same way. The next phrase grows a new one. |
 | Two tracks in harmony | Their colours run into each other, their branches crisscross, everything glows a little more. |
 | Loudness | Brightness, glow, wind in the branches. |
-| Note starts | A flash and a push that swings back. |
+| Note starts | A flash of glow. They do not move the plants (an optional push that swings back is under Reaction → Note starts, advanced; off by default). |
 | Pitch | High notes grow the upper side first and can shift the colours. |
 | Effort (pressed, full voice) | Thicker branches, bigger thorns. Soft singing: thinner, drooping, a wider softer glow. |
 | Vibrato | Twigs and leaves shimmer at your vibrato rate. With "leaves fall" (Autumn) it shakes leaves loose. |
@@ -260,8 +260,9 @@ on the outer twigs, the **phrase end** and the **full stop** on the whole tree.
 | Fall away, from the tips | Pieces break off and fall, the tips first. |
 | Fall away, all at once | Everything lets go together. |
 
-- "Short pause reaches in" is how deep a breath goes; "wait after the phrase end" keeps the old
-  tree whole for a while before its ending starts (0 = a pause runs straight on into the ending);
+- "Short pause reaches in" is how deep a breath goes; "tree stays after singing" keeps a
+  tree whole for that long after its take stopped singing, so old and new trees overlap into a
+  fuller canopy (0 = its ending starts as soon as the phrase is over);
   "an ending takes" is how long the phrase end and the full stop take.
 - **Leaves let go when twigs go** (on by default): leaves and petals fall whenever their twig
   ungrows, fades or falls. Off: they go the way of the twig, so they shrink back with it, fade with

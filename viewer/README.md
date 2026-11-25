@@ -22,7 +22,8 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
   are there. Off: one tree keeps growing and rests dimmer between phrases.
 - **Pauses and endings** (Reaction → Pauses & endings): three lengths of silence, each with its
   own action. A short pause (growth.onPause) acts on the outer twigs within witherDepth of the
-  tips; the phrase end (growth.onPhraseEnd, after response.phraseGap + growth.fadeAfter) and the
+  tips; the phrase end (growth.onPhraseEnd, growth.fadeAfter seconds after the take stopped singing and
+  never before response.phraseGap, so a tree outlives the start of the next phrase) and the
   full stop (growth.onStop, after growth.dieAfter) on the whole tree, over growth.fadeSeconds.
   Actions: keep, ungrow (grow back from the tips), fadeTips / fade (from the tips inward, or all
   together), fallTips / fall (pieces break off and fall, from the tips inward or all at once;
@@ -80,8 +81,9 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
   like a wave. Wind is a vector in the world, so the whole canopy leans the same way instead of
   turning about its root; trunks are stiff, limbs flex, every shoot bends on its own about where it
   joins. Three springs per plant (limb, shoot, twig) give the response: loudness is the wind,
-  every note start is a push that swings back, a swelling note lifts the boughs and a fading one
-  lets them sag, soft singing damps the ringing. Vibrato makes twigs and leaves shimmer at the
+  a swelling note slowly lifts the boughs and a fading one lets them sag, soft singing damps the
+  ringing. Note starts only flash; a push on every note start that swings back is optional
+  (motion.kickDeg, 0 by default). Vibrato makes twigs and leaves shimmer at the
   sung rate. Leaves trail downwind, flutter and turn edge-on now and then. The halo ring goes
   slightly oval on a push instead of wobbling. Panel: Reaction → Loudness, Note starts, Held notes & vibrato.
 - **Halo size follows recording.** Small on top of the head while nothing is being recorded. When

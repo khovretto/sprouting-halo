@@ -551,8 +551,8 @@ function start() {
   let shown = new Uint8Array(0);
   /** Glow settings plus the leaf sheen, one object reused every frame. */
   const glowArgs = { ...params.glow, sheen: 0, sheenColour: '#ffffff' };
-  /** Rope limbs and elbows of a take tree (plants.strands, plants.twist). */
-  type Rope = { phase: ArrayLike<number>; strands: number; depth: number; k: number; elbow?: ArrayLike<number> };
+  /** Rope limbs of a take tree (plants.strands). */
+  type Rope = { phase: ArrayLike<number>; strands: number; depth: number; k: number };
   const smoothstep01 = (a: number, b: number, x: number) => {
     const t = clamp((x - a) / (b - a), 0, 1);
     return t * t * (3 - 2 * t);
@@ -613,7 +613,6 @@ function start() {
                     tone?: ArrayLike<number>, order?: ArrayLike<number>, bend?: ArrayLike<number>, sScale = 1, ring = false, natural?: RGB,
                     rope?: Rope) {
     const u = Math.max(1e-3, unit);
-    const elbow = rope?.elbow;
     const W0 = Math.max(1.6 * params.plants.tipWidth, 0.008);
     const S = rope ? Math.max(1, Math.min(3, Math.round(rope.strands))) : 1;
     if (alpha <= 0.005) return;
@@ -639,15 +638,20 @@ function start() {
       const wa = (sk.w[pa] * look.width) / u, wb = (sk.w[i] * look.width * (0.4 + 0.6 * f)) / u;
       const cr = lerp(c[0], 1, look.shine) * k, cg = lerp(c[1], 1, look.shine) * k, cb = lerp(c[2], 1, look.shine) * k;
       const a = alpha * na * fade, gl = (look.glow + (f < 1 ? frontGlow * (1 - f) : 0)) * tn * tn;
-      // Chain links tile: a flat start where the parent segment meets this one, and a flat end
-      // where a drawn child continues it (tips, growing ends and twist elbows stay round).
-      const join = sk.parent[pa] >= 0 ? (shown[i] && !(elbow && elbow[i]) ? 2 : 1) : 0;
+      // Chain links tile: a start on the parent segment's end plane, and a flat end where a drawn
+      // child continues it (tips and growing ends stay round).
+      const gp = sk.parent[pa];
+      const join = gp >= 0 ? (shown[i] ? 2 : 1) : 0;
       const ord = order ? order[i] : 1;
+      // The link knows the point before it when that point moves with it: both on limbs, or both
+      // in one shoot group. (The first link of a shoot starts square, inside its limb.) Its start
+      // then follows any bend without a notch (Instances.stroke, shaders/stroke.vert).
+      const chained = join > 0 && (!order || (order[pa] < 2) === (ord < 2));
       const px = bend ? bend[i * 4] : ax, py = bend ? bend[i * 4 + 1] : ay, pf = bend ? bend[i * 4 + 2] : sk.flex[pa], hd = bend ? bend[i * 4 + 3] : 0;
       if (S > 1 && rope && ord <= 1 && sk.w[pa] > W0) {
         // Rope (consult 7, 1.5): S thinner strands on a phase-shifted helix, back strand first and
         // dimmer. The outer edge stays at the branch width; strands grow out of the main one.
-        const ph = rope.phase, rho = S === 2 ? 0.62 : 0.52, gp = sk.parent[pa];
+        const ph = rope.phase, rho = S === 2 ? 0.62 : 0.52;
         let bx = sk.x[i] - ax, by = sk.y[i] - ay;
         const bl = Math.hypot(bx, by) || 1;
         bx /= bl;
@@ -657,6 +661,22 @@ function start() {
         qx /= ql;
         qy /= ql;
         const Ka = rope.k * smoothstep01(W0, 1.6 * W0, sk.w[pa]), Kb = rope.k * smoothstep01(W0, 1.6 * W0, sk.w[i]);
+        // Where each strand of the parent segment starts (the point before this strand's A): the
+        // parent's own offset, across the direction of the segment before it.
+        let hx = qx, hy = qy, og = 0;
+        if (chained) {
+          const gg = sk.parent[gp];
+          if (gg >= 0) {
+            hx = sk.x[gp] - sk.x[gg];
+            hy = sk.y[gp] - sk.y[gg];
+            const hl = Math.hypot(hx, hy) || 1;
+            hx /= hl;
+            hy /= hl;
+          }
+          // (0 if the parent segment was drawn as one stroke: its strands start at the node.)
+          const roped = (order ? order[pa] : 1) <= 1 && sk.w[gp] > W0;
+          og = roped ? ((sk.w[gp] * look.width) / u) * (1 - rho) * rope.k * smoothstep01(W0, 1.6 * W0, sk.w[gp]) : 0;
+        }
         const mid = 0.5 * (ph[pa] + ph[i]);
         strandOrder.length = 0;
         for (let j = 0; j < S; j++) strandOrder.push(j);
@@ -668,13 +688,16 @@ function start() {
           if (ra <= 0 && rb <= 0) continue;
           const sh = 1 - 0.4 * rope.depth * (0.5 - 0.5 * z) * Math.min(1, Ka + Kb);
           const Ax = ax - qy * oa, Ay = ay + qx * oa, Bx = sk.x[i] - by * ob, By = sk.y[i] + bx * ob;
+          const os = chained ? og * Math.sin(ph[gp] + o) : 0;
           out.stroke(Ax, Ay, lerp(Ax, Bx, f), lerp(Ay, By, f), ra, rb, sk.flex[pa], sk.flex[i],
-            cr * sh, cg * sh, cb * sh, a, gl, layer, join, ord, px, py, pf, hd);
+            cr * sh, cg * sh, cb * sh, a, gl, layer, join, ord, px, py, pf, hd,
+            chained, chained ? sk.x[gp] - hy * os : 0, chained ? sk.y[gp] + hx * os : 0, chained ? sk.flex[gp] : 0);
         }
         continue;
       }
       out.stroke(ax, ay, lerp(ax, sk.x[i], f), lerp(ay, sk.y[i], f), wa, wb, sk.flex[pa], sk.flex[i],
-        cr, cg, cb, a, gl, layer, join, ord, px, py, pf, hd);
+        cr, cg, cb, a, gl, layer, join, ord, px, py, pf, hd,
+        chained, chained ? sk.x[gp] : 0, chained ? sk.y[gp] : 0, chained ? sk.flex[gp] : 0);
     }
   }
   const strandOrder: number[] = [];
@@ -719,7 +742,7 @@ function start() {
         const ax = sk.x[pa], ay = sk.y[pa], o = i * 4, bend = tree.bend;
         tree.twigs.add(t0, sk.x[piv], sk.y[piv], hash1(b * 0.37 + 1.7), ax, ay, lerp(ax, sk.x[i], f), lerp(ay, sk.y[i], f), wa, wb,
           sk.flex[pa], sk.flex[i], lerp(c[0], 1, look.shine) * k, lerp(c[1], 1, look.shine) * k, lerp(c[2], 1, look.shine) * k,
-          na, look.glow * tn * tn, tree.order[i], bend[o], bend[o + 1], bend[o + 2], bend[o + 3], continued.has(i) ? 2 : 1);
+          na, look.glow * tn * tn, tree.swing[i], bend[o], bend[o + 1], bend[o + 2], bend[o + 3], continued.has(i) ? 2 : 1);
       }
     }
     drops.length = 0;
@@ -731,8 +754,10 @@ function start() {
     const w = (h.ringWidth * look.width * (1 + 0.6 * level)) / Math.max(1e-3, unit);
     // A clean circle: its oval / trefoil motion comes from the layer's ring mode (shaders/motion.glsl).
     const braid = Math.max(clamp(h.braid ?? 0, 0, 1), clamp(braidMore));
+    // The links tile (flat ends, each starting on the end plane of the one before): with round
+    // caps every joint of a see-through ring is drawn twice and the ring reads as a row of dots.
     for (let k = 0; k < N; k++) {
-      const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU;
+      const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU, ap = ((k - 1) / N) * TAU;
       const c = inkAt(ink, (k / N) * (ink.loop ? 1 : 2), 0.5, C);
       const s = look.shine, i = brighten(look);
       if (braid > 0) {
@@ -743,14 +768,18 @@ function start() {
         for (const j of js) {
           const r0 = 1 + 0.028 * braid * Math.sin(12 * a0 + j * Math.PI), r1 = 1 + 0.028 * braid * Math.sin(12 * a1 + j * Math.PI);
           const z = Math.cos(12 * am + j * Math.PI), sh = i * (1 - 0.4 * params.plants.twistDepth * (0.5 - 0.5 * z));
-          const ws = w * lerp(1, 0.7, braid);
-          out.stroke(r0 * Math.cos(a0), r0 * Math.sin(a0), r1 * Math.cos(a1), r1 * Math.sin(a1), ws, ws, 0, 0,
-            lerp(c[0], 1, s) * sh, lerp(c[1], 1, s) * sh, lerp(c[2], 1, s) * sh, alpha * fadeOf(look), look.glow, layer);
+          const ws = w * lerp(1, 0.7, braid), rp = 1 + 0.028 * braid * Math.sin(12 * ap + j * Math.PI);
+          const x0 = r0 * Math.cos(a0), y0 = r0 * Math.sin(a0);
+          out.stroke(x0, y0, r1 * Math.cos(a1), r1 * Math.sin(a1), ws, ws, 0, 0,
+            lerp(c[0], 1, s) * sh, lerp(c[1], 1, s) * sh, lerp(c[2], 1, s) * sh, alpha * fadeOf(look), look.glow, layer,
+            2, 1, x0, y0, 0, 0, true, rp * Math.cos(ap), rp * Math.sin(ap), 0);
         }
         continue;
       }
-      out.stroke(Math.cos(a0), Math.sin(a0), Math.cos(a1), Math.sin(a1), w, w, 0, 0,
-        lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * fadeOf(look), look.glow, layer);
+      const x0 = Math.cos(a0), y0 = Math.sin(a0);
+      out.stroke(x0, y0, Math.cos(a1), Math.sin(a1), w, w, 0, 0,
+        lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * fadeOf(look), look.glow, layer,
+        2, 1, x0, y0, 0, 0, true, Math.cos(ap), Math.sin(ap), 0);
     }
   }
 
@@ -1157,9 +1186,9 @@ function start() {
         const sScale = 1 / Math.max(1e-3, g.tree.maxFlex);
         // In harmony the branches weave across each other (harmony.cross).
         const sk = g.tree.woven(weave, t);
-        pushTree(back, sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.order, g.tree.bend, sScale,
+        pushTree(back, sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.swing, g.tree.bend, sScale,
           false, branchRgb(s.theme), {
-            phase: g.tree.twistPhase, strands: params.plants.strands, depth: params.plants.twistDepth, elbow: g.tree.elbow,
+            phase: g.tree.twistPhase, strands: params.plants.strands, depth: params.plants.twistDepth,
             // Just after a planting the frond (one stroke) splits into strands under the flash.
             k: s.stampT !== undefined ? clamp((t - s.stampT) / 0.3, 0, 1) : 1,
           });
@@ -1168,7 +1197,7 @@ function start() {
         g.tree.twigs.draw(back, L, a * fadeOf(look), dx, dy, t, dryRgbOf());
         decorateTree(sk, g.tree.vis, params,
           styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), backDeco,
-          { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.order, bend: g.tree.bend,
+          { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.swing, bend: g.tree.bend,
             leafState: g.tree.leafState, leafGone: params.look.leafFall > 0 ? g.tree.leafGone : undefined, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone,
             shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry, dropped: g.tree.dropped });
       }
@@ -1389,6 +1418,7 @@ function start() {
     advance,
     action: (name: string) => runAction(name, true),
     slots: () => slots,
+    halos: () => halos,
     commits: () => commits,
     view: () => lastView,
     /** Shape checks for each take's newest tree (docs/fable-consult.md, A7). */

@@ -51,6 +51,9 @@ const STEP = 0.014;
 /** Leaves on the vine start this far behind the growing tip (radians) and fade in over the next LEAF_FADE. */
 const LEAF_GAP = 0.06;
 const LEAF_FADE = 0.3;
+/** A runner thins to this share of its width at the growing tip, over the last TIP_TAPER radians. */
+const TIP_WIDTH = 0.3;
+const TIP_TAPER = 0.1;
 
 export class HaloVine {
   sk = new Skeleton(4096);
@@ -161,7 +164,8 @@ export class HaloVine {
   }
 
   private sprout(tip: Tip, d: Drive, h: Params['halo']) {
-    const anchor = tip.node;
+    // From the last finished link (the newest one is still growing out).
+    const anchor = tip.node.parent ?? tip.node;
     const th = Math.atan2(anchor.y, anchor.x);
     // High notes grow outward, low notes inward.
     const outward = this.r() < 0.35 + 0.5 * d.pitch;
@@ -195,17 +199,25 @@ export class HaloVine {
     const tail = Math.max(0.1, h.tailDeg * deg);
     const fadeStart = tail * (1 - clamp(h.tailFade, 0.01, 1));
     const grow = Math.max(0.05, h.sproutGrow);
+    const ss = (x: number) => x * x * (3 - 2 * x);
     for (let i = 0; i < n; i++) {
       const v = this.nodes[i];
       // Cut the link to a dropped parent: otherwise the whole vine ever grown stays in memory.
       if (v.parent && v.parent.dead) v.parent = null;
       const pi = v.parent ? v.parent.index : -1;
-      const j = sk.add(v.x, v.y, pi, v.flex, v.w, v.kind);
+      const tip = this.tips[v.runner];
+      const behind = tip.arc - v.arcAt;
+      // The runner's newest link grows out over its step instead of appearing whole (at idle
+      // speed that showed as a line growing dot by dot), and the runner thins toward its tip.
+      // `lead` is the arc the visible tip has reached, so widths move with it without a jump.
+      const runner = v.kind === NodeKind.Runner;
+      const newest = runner && v === tip.node && !!v.parent;
+      const lead = tip.arc - STEP + tip.budget;
+      const w = runner ? v.w * (TIP_WIDTH + (1 - TIP_WIDTH) * ss(clamp((lead - v.arcAt) / TIP_TAPER))) : v.w;
+      const j = sk.add(v.x, v.y, pi, v.flex, w, v.kind);
       v.index = j;
       this.ids[j] = v.id;
-      this.vis[j] = v.kind === NodeKind.Sprout ? clamp((((this.t - v.growStart) / grow) * 1.15 - v.pos) / 0.15) : 1;
-      const behind = this.tips[v.runner].arc - v.arcAt;
-      const ss = (x: number) => x * x * (3 - 2 * x);
+      this.vis[j] = !runner ? clamp((((this.t - v.growStart) / grow) * 1.15 - v.pos) / 0.15) : newest ? clamp(tip.budget / STEP) : 1;
       this.leaf[j] = v.kind === NodeKind.Sprout
         ? ss(clamp((this.t - v.growStart - grow) / 0.35)) // after the whole shoot has grown
         : ss(clamp((behind - LEAF_GAP) / LEAF_FADE)); // a little behind the tip

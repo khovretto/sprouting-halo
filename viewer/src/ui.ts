@@ -223,7 +223,7 @@ const RANGES: Record<string, Spec> = {
   'motion.springiness': { min: 0, max: 1 },
   'motion.twigs': { min: 0, max: 2.5 },
   'motion.flutterDeg': { min: 0, max: 40 },
-  'motion.shiverDeg': { min: 0, max: 12 },
+  'motion.shiverDeg': { min: 0, max: 6 },
   'motion.shiverSensitivity': { min: 0, max: 4 },
   'halo.squish': { min: 0, max: 0.85 },
   'halo.restX': { min: -1, max: 1 },

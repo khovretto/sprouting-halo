@@ -4,7 +4,8 @@
 // grown) and brightness. The newest one grows while the take sings and never shrinks.
 //
 // - newTreeEachPhrase on: a new phrase starts a new tree on a new seed. The older tree goes the
-//   way growth.onPhraseEnd says, from growth.fadeAfter seconds after its phrase ended.
+//   way growth.onPhraseEnd says, from growth.fadeAfter seconds after it stopped growing, so a tree
+//   outlives the start of the next phrase.
 // - off: one tree keeps growing phrase after phrase and rests at growth.restBrightness between.
 //
 // Three lengths of silence act on a tree, each with its own action (plant.ts, EndAction):
@@ -141,8 +142,10 @@ export class Generations<T extends Structure> {
         }
 
     const fade = Math.max(0.05, g.fadeSeconds);
-    // The phrase is over for a tree once it has not grown for this long.
-    const phraseOver = Math.max(0, p.response.phraseGap) + Math.max(0, g.fadeAfter);
+    // The phrase end acts on a tree growth.fadeAfter seconds after it last grew (its take stopped
+    // singing), and never before the phrase is over. Until then it stays whole, so with a new tree
+    // per phrase the old one stands next to the new one for a while.
+    const phraseOver = Math.max(0, p.response.phraseGap, g.fadeAfter);
     const boughsFade = g.onPhraseEnd === 'fade';
     const dropping = this.gens.filter((x) => x.bough && x.retired && !x.ending).length;
     for (const gen of this.gens) {

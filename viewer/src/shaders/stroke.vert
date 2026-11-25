@@ -8,6 +8,7 @@ layout(location = 1) in vec4 a_rf;    // rA, rB, flexA, flexB (flex = distance a
 layout(location = 2) in vec4 a_col;   // rgb, alpha
 layout(location = 3) in vec4 a_misc;  // glow, layer index, joins (1 = flat start, 2 = both flat), branch order
 layout(location = 4) in vec4 a_bend;  // pivot.xy (local), pivot flex, heading (shoot's own bend; limbs: own point)
+layout(location = 5) in vec4 a_prev;  // the chain's point before A: xy (local), flex, 1 = given
 
 const int MAX_LAYERS = 32;
 uniform vec4 u_org[MAX_LAYERS];     // origin.xy
@@ -22,6 +23,7 @@ flat out vec2 v_r;
 flat out vec4 v_col;
 flat out float v_glow;
 flat out float v_join;
+flat out vec2 v_u; // direction of the previous link where it ends at A (this link starts on that plane)
 
 vec2 toWorld(vec2 l, int i) {
   vec4 m = u_mat[i];
@@ -53,7 +55,18 @@ void main() {
   // The quad covers only what the fragment shader keeps: a flat (joined) end is cut exactly at
   // the end point, so it needs no cap there; elsewhere the radius plus one pixel for the edge.
   float pad = max(rA, rB) + u_px;
-  float padA = a_misc.z > 0.5 ? 0.5 * u_px : pad; // join 1 or 2: flat start
+  // A link that knows the point before it starts on the previous link's end plane, with its round
+  // start beyond that plane: at a bend the wedge on the outside is filled, and nothing is drawn
+  // twice. The previous point moves with this segment (same limb system, or same shoot group).
+  vec2 u = t;
+  bool chained = a_misc.z > 0.5 && a_prev.w > 0.5;
+  if (chained) {
+    float ab;
+    vec2 Q = toWorld(shapeOf(bendPoint(a_prev.xy, a_prev.z, a_bend, br, layer, ab), layer), layer);
+    float lq = length(A - Q);
+    if (lq > 1e-7) u = (A - Q) / lq;
+  }
+  float padA = a_misc.z > 0.5 && !chained ? 0.5 * u_px : pad; // join 1 or 2, not chained: flat start
   float padB = a_misc.z > 1.5 ? 0.5 * u_px : pad; // join 2: flat end too
 
   float sx = (gl_VertexID & 1) == 0 ? -1.0 : 1.0;
@@ -67,5 +80,6 @@ void main() {
   v_col = a_col;
   v_glow = a_misc.x;
   v_join = a_misc.z;
+  v_u = u;
   gl_Position = vec4((P - u_view.zw) * u_view.xy, 0.0, 1.0);
 }

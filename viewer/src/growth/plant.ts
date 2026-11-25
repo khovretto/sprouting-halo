@@ -141,8 +141,10 @@ export class Plant {
   private childVis = new Float32Array(0);
   /** Per-node strand phase (plants.strands: rope limbs, drawn in pushTree). */
   twistPhase = new Float32Array(0);
-  /** Per node: the branch turns sharply here (twist elbows): its segment keeps a round end. */
-  elbow = new Uint8Array(0);
+  /** Per node: the branch order it moves by (shaders/motion.glsl). A shoot and everything that
+   *  grows from it turn as one about the shoot's base, so all of them carry the shoot's order:
+   *  with its own order a sub-shoot would turn further than the shoot it sits on and come off it. */
+  swing = new Uint8Array(0);
   /** Per-node distance to the farthest tip below it, used for withering. */
   private witherH = new Float32Array(0);
   /** Per-node distance to the farthest tip below it, as it is (endings reach the trunk). */
@@ -785,7 +787,6 @@ export class Plant {
     const tw = clamp(pp.twist * (1 + pp.twistVoice * (0.6 * mood.vibrato + 0.5 * (mood.effort - 0.5))), 0, 1.5);
     const gn = clamp(pp.gnarl), n0 = sk.n;
     this.twistPhase = new Float32Array(pp.maxNodes + 1);
-    this.elbow = new Uint8Array(pp.maxNodes + 1);
     const depthOf = new Float32Array(pp.maxNodes + 1);
     const rt = rng(this.seed * 977 + 11);
     if (tw > 0 || pp.knots > 0 || pp.strands > 1) {
@@ -852,13 +853,6 @@ export class Plant {
             sk.w[lb.attach] *= 1 + 0.5 * pp.knots;
             if (sk.parent[lb.attach] > 0) sk.w[sk.parent[lb.attach]] *= 1 + 0.25 * pp.knots;
           }
-      // Elbows: in and out directions differ by more than 0.3 rad.
-      for (let i = 1; i < n0 - 1; i++) {
-        const pa = sk.parent[i], c = i + 1;
-        if (pa < 0 || sk.parent[c] !== i) continue;
-        const a = Math.atan2(sk.x[i] - sk.x[pa], sk.y[i] - sk.y[pa]), b = Math.atan2(sk.x[c] - sk.x[i], sk.y[c] - sk.y[i]);
-        if (Math.abs(wrap(b - a)) > 0.3) this.elbow[i] = 1;
-      }
     }
 
     // 4c. Curling tips: a shrinking spiral appended to limb tips and some twig ends (new nodes at
@@ -908,6 +902,11 @@ export class Plant {
     this.branchDone = new Uint8Array(limbs.length);
     this.tipH = Float32Array.from(height);
     this.bend = bendFrames(sk, this.order, new Float32Array(n * 4));
+    this.swing = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const pa = sk.parent[i];
+      this.swing[i] = this.order[i] < 2 || pa < 0 || this.order[pa] < 2 ? this.order[i] : this.swing[pa];
+    }
     // Pause withering never reaches the trunk (dying does: computeReveal); limbs hold a little longer than shoots.
     for (let i = 0; i < n; i++) this.witherH[i] = height[i] + (this.order[i] === 0 ? 99 : this.order[i] === 1 ? 0.12 : 0);
 

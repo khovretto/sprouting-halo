@@ -7,7 +7,8 @@ flat in vec2 v_b;
 flat in vec2 v_r;
 flat in vec4 v_col;
 flat in float v_glow;
-flat in float v_join; // 1 = a link in a chain: flat start, flat end
+flat in float v_join; // 1 = a link in a chain: flat start; 2 = flat end too
+flat in vec2 v_u;     // direction of the previous link at A (the link's own direction if unknown)
 uniform float u_px;
 
 uniform float u_glowFlat; // glow.tintFlat: dark ink glows in the tint colour too
@@ -38,11 +39,20 @@ float sdTaper(vec2 p, vec2 pa, vec2 pb, float ra, float rb) {
 void main() {
   float d = sdTaper(v_p, v_a, v_b, v_r.x, v_r.y);
   // Links of a chain tile instead of overlapping: with round caps on both ends every joint is
-  // drawn twice, which shows as a bead wherever the branch is see-through. A link keeps only the
-  // part between its ends; the previous link's end meets it there. Tips keep their round end.
+  // drawn twice, which shows as a bead wherever the branch is see-through. A link ends flat where
+  // the next one continues it, and starts on the previous link's end plane (v_u): everything
+  // behind that plane belongs to the previous link. At a bend its round start reaches past the
+  // plane on the outside and fills the wedge the two flat cuts would leave open. Tips keep their
+  // round end.
   vec2 ab0 = v_b - v_a;
-  float s0 = dot(v_p - v_a, ab0) / max(dot(ab0, ab0), 1e-12);
-  if (v_join > 0.0 && (s0 < 0.0 || (v_join > 1.5 && s0 > 1.0))) discard;
+  vec2 ap = v_p - v_a;
+  float s0 = dot(ap, ab0) / max(dot(ab0, ab0), 1e-12);
+  if (v_join > 0.0) {
+    if (v_join > 1.5 && s0 > 1.0) discard;
+    // Behind the plane: the start cap always goes; the body only where the previous link covers
+    // it (a sharp turn back runs alongside that link).
+    if (dot(ap, v_u) < 0.0 && (s0 < 0.0 || abs(cross2(v_u, ap)) < v_r.x - 0.5 * u_px)) discard;
+  }
   float cov = clamp(0.5 - d / u_px, 0.0, 1.0) * v_col.a;
   if (cov <= 0.0) discard;
   // Shaded edge (docs/fable-consult-2.md, R7): a stroke wider than a few pixels is darker at its
@@ -53,6 +63,7 @@ void main() {
   float L2 = max(dot(ab, ab), 1e-12);
   float s = clamp(dot(v_p - v_a, ab) / L2, 0.0, 1.0);
   float perp = abs(ab.x * (v_p.y - v_a.y) - ab.y * (v_p.x - v_a.x)) / sqrt(L2);
+  if (v_join > 0.0 && s0 < 0.0) perp = length(ap); // the round join at a bend: its rim is an edge
   float inside = clamp((mix(v_r.x, v_r.y, s) - perp) / u_px, 0.0, 3.0); // pixels in from the edge
   // Only clearly wide strokes: on thin ones every joint between short segments would show.
   float wide = smoothstep(2.5, 4.0, max(v_r.x, v_r.y) / u_px);

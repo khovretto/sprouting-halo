@@ -69,9 +69,10 @@ export const defaults = {
      *  fadeTips / fade: they fade, from the tips inward or all together. fallTips / fall: pieces
      *  break off and fall, from the tips inward or all at once. */
     onPause: 'ungrow' as 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall',
-    /** What the whole tree does once its phrase has ended (a pause longer than response.phraseGap,
-     *  plus fadeAfter). Same choices; it acts on the whole tree, trunk and all, and takes
-     *  fadeSeconds. A tree that was not replaced comes back when its take sings again. */
+    /** What the whole tree does once its phrase has ended (fadeAfter seconds after its take stopped
+     *  singing, and never before response.phraseGap). Same choices; it acts on the whole tree,
+     *  trunk and all, and takes fadeSeconds. A tree that was not replaced comes back when its take
+     *  sings again. */
     onPhraseEnd: 'ungrow' as 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall',
     /** What the whole tree does at a full stop (a silence of dieAfter seconds); the next phrase
      *  then starts a new tree. Same choices. */
@@ -79,8 +80,10 @@ export const defaults = {
     /** A silence this long is a full stop (s): onStop acts on every tree and the next phrase starts
      *  a new one. 0 = never. */
     dieAfter: 4,
-    /** A tree waits this many seconds after its phrase ended before onPhraseEnd acts on it. */
-    fadeAfter: 0,
+    /** A tree stays whole this many seconds after its take stopped singing before onPhraseEnd acts
+     *  on it, so it outlives the start of the next phrase and the trees overlap. Never shorter than
+     *  response.phraseGap: 0 = as soon as the phrase is over. */
+    fadeAfter: 3,
     /** Seconds an ending takes (the phrase end's or the full stop's). */
     fadeSeconds: 2.5,
     /** A drop in pitch (a dip of witherDipSemitones or more) also withers the outer twigs. */
@@ -406,8 +409,9 @@ export const defaults = {
     idle: 0.35,
     /** Wind tempo: how quickly gusts, sway and flutter change. */
     speed: 1,
-    /** Push from every note start, degrees at the tips (scaled by effort and loudness). */
-    kickDeg: 6,
+    /** Push from every note start, degrees at the tips (scaled by effort and loudness). 0 = note
+     *  starts only flash (glow.onsetGain) and never move anything. */
+    kickDeg: 0,
     /** After a push: 0 settles at once, 1 swings back and forth for a while. */
     springiness: 0.5,
     /** How much thin shoots move on their own compared with the limbs. */
@@ -416,7 +420,8 @@ export const defaults = {
     flutterDeg: 14,
     /** Shimmer of twigs and leaves on vibrato. */
     shiver: true,
-    shiverDeg: 3,
+    /** Degrees at full vibrato, for twigs and for leaves about their stalk. */
+    shiverDeg: 1,
     /** How strongly vibrato is read: higher = even light vibrato makes it tremble fully. */
     shiverSensitivity: 1,
   },

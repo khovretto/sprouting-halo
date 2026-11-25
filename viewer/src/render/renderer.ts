@@ -12,9 +12,9 @@ import { hexToRgb } from '../math';
 import { textureLayers, textureRevision } from '../themes';
 
 export const MAX_LAYERS = 32;
-export const FLOATS_PER_INSTANCE = 20;
+export const FLOATS_PER_INSTANCE = 24;
 
-/** Growable instance buffer. Strokes and sprites share the 20-float layout. */
+/** Growable instance buffer. Strokes and sprites share the 24-float layout (sprites use 20). */
 export class Instances {
   data = new Float32Array(FLOATS_PER_INSTANCE * 4096);
   count = 0;
@@ -42,6 +42,10 @@ export class Instances {
     join = 0,
     /** Motion: branch order (< 2 = limb), and the shoot's pivot x, y, flex and heading. */
     order = 1, px = ax, py = ay, pf = fa, heading = 0,
+    /** A chain link (join 1 or 2) that knows the point before A (x, y, flex), moving with this
+     *  segment: it starts on the previous link's end plane with a round join, so a bend leaves no
+     *  notch on its outside (shaders/stroke.vert). Without it the start is cut square. */
+    chained = false, qx = 0, qy = 0, qf = 0,
   ) {
     const d = this.data;
     let o = this.slot();
@@ -50,6 +54,7 @@ export class Instances {
     d[o++] = r; d[o++] = g; d[o++] = b; d[o++] = a;
     d[o++] = glow; d[o++] = layer; d[o++] = join; d[o++] = order;
     d[o++] = px; d[o++] = py; d[o++] = pf; d[o++] = heading;
+    d[o++] = qx; d[o++] = qy; d[o++] = qf; d[o++] = chained ? 1 : 0;
   }
 
   /** A decoration at (x, y) pointing along `angle`, `size` long (local units). pivY / pivX: where
