@@ -18,7 +18,7 @@ import { LayerMotion, Wind } from './motion';
 import { CommitAnimation, CommitHooks, CommitTarget, HaloSnapshot } from './growth/commit';
 import { FakeSource } from './sources/fake';
 import { bakeGradient, parseGradient } from './gradient';
-import { addHotkeys, installHotkeys, toggleSheet } from './hotkeys';
+import { addHotkeys, digitIndex, installHotkeys, mods, toggleSheet } from './hotkeys';
 import { LiveSource, ViewerMessage } from './sources/live';
 import { HaloVine } from './growth/halo';
 import type { ShedPool } from './shed';
@@ -31,7 +31,7 @@ import { Drive } from './drive';
 import { HarmonyTracker } from './harmony';
 import { decorateRing, decorateTree, DecoStyle, drawShed, RingLetGo } from './deco';
 import { layoutTakes, outlineOf, Placement, plantArc, toWorld } from './layout';
-import { angleLerp, clamp, deg, hash1, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
+import { angleLerp, carried, clamp, deg, hash1, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
 
 /** The settings sections a tree keeps while a look change takes it away (main.ts withLook). */
 const LOOK_SECTIONS = ['look', 'plants', 'colBranch', 'colLeaf', 'colAccent', 'colHalo', 'palette', 'colours', 'leaves3d', 'falling', 'halo'] as const;
@@ -80,6 +80,17 @@ interface Dying {
 /** Where a layer's harmony waves run: a tree (its length, root to tip, in world units) or a halo
  *  (its radius, the ring angles they start from, and how far they have run before the ring). */
 type WaveGeo = { scale: number } | { R: number; starts: number[]; offset: number };
+
+/** An old bough's (or one half's) way down, kept from frame to frame (growth.fallDirection can
+ *  change on the way): the way it goes, where it was at the change and how fast it went, and its
+ *  last two poses (for that speed). */
+interface BoughFlight {
+  away?: boolean;
+  from?: { t: number; x: number; y: number; delta: number; fs: number; gfall: number };
+  v: [number, number];
+  t: number; x: number; y: number; delta: number;
+  tPrev: number; xPrev: number; yPrev: number;
+}
 
 /** One live track's halo. Several live tracks nest concentrically (first = outermost). */
 interface LiveHalo {
@@ -457,22 +468,41 @@ function start() {
     saveParams(params);
     ui?.refresh();
   };
+  const VIEW = 'Panels and view', SING = 'Fake singer and takes', PRESETS = 'Presets';
   addHotkeys([
-    { key: 'H', label: 'Hide / show the settings panels', run: () => {
+    { key: 'H', label: 'Hide / show the settings panels', group: VIEW, run: () => {
       const hide = panel.style.display !== 'none';
       for (const el of [panel, document.getElementById('theme-panel')]) if (el) el.style.display = hide ? 'none' : '';
     } },
   ]);
-  if (!obs) addHotkeys([
-    { key: 'G', label: 'Voice scope', run: () => setLocal(() => (params.scene.showScope = !params.scene.showScope)) },
-    { key: 'F', label: 'Fake singer ⇄ live taps', run: () => toggleFake() },
-    { key: 'R', label: 'Restart growth', run: () => runAction('restart', true) },
-    { key: 'T', label: 'Halo → tree (commit the live take)', run: () => runAction('commit', true) },
-    { key: 'D', label: 'Delete the last take', run: () => runAction('delete', true) },
-    { key: 'E', label: 'End the phrase (fake singer full stop)', run: () => runAction('phraseEnd', true) },
-    { key: 'P', label: 'Pause / play', run: () => setLocal(() => (params.scene.paused = !params.scene.paused)) },
-  ]);
-  addHotkeys([{ key: '/', label: 'This list', run: () => toggleSheet() }]);
+  if (!obs) {
+    addHotkeys([
+      { key: 'G', label: 'Voice scope', group: VIEW, run: () => setLocal(() => (params.scene.showScope = !params.scene.showScope)) },
+      { key: 'P', label: 'Pause / play', group: VIEW, run: () => setLocal(() => (params.scene.paused = !params.scene.paused)) },
+      { key: 'F', label: 'Fake singer ⇄ live taps', group: SING, run: () => toggleFake() },
+      { key: 'R', label: 'Restart growth', group: SING, run: () => runAction('restart', true) },
+      { key: 'T', label: 'Halo → tree (commit the live take)', group: SING, run: () => runAction('commit', true) },
+      { key: 'D', label: 'Delete the last take', group: SING, run: () => runAction('delete', true) },
+      { key: 'E', label: 'End the phrase (fake singer full stop)', group: SING, run: () => runAction('phraseEnd', true) },
+    ]);
+    // "fake takes + 1" (scene.layers): one more or one fewer.
+    const layers = (d: number) => setLocal(() => (params.scene.layers = Math.max(1, Math.min(17, Math.round(params.scene.layers) + d))));
+    addHotkeys([
+      { key: 'Ctrl + .', label: 'One more fake take', group: SING, match: (e) => e.code === 'Period' && mods(e, true, false, false), run: () => layers(1) },
+      { key: 'Ctrl + ,', label: 'One fewer fake take', group: SING, match: (e) => e.code === 'Comma' && mods(e, true, false, false), run: () => layers(-1) },
+    ]);
+    // Presets by their number in the lists (the number keys above the letters).
+    const pick = (k: 'visual' | 'reactivity' | 'testing') => (e: KeyboardEvent) => ui?.pickPreset(k, digitIndex(e));
+    addHotkeys([
+      { key: '1 … 9, 0', label: 'Look preset 1 to 10 (numbered in its list)', group: PRESETS,
+        match: (e) => digitIndex(e) >= 0 && mods(e, false, false, false), run: pick('visual') },
+      { key: 'Ctrl + 1 … 0 / Shift + 1 … 0', label: 'Reaction preset 1 to 10 (Shift: where the browser keeps Ctrl + number for its tabs)', group: PRESETS,
+        match: (e) => digitIndex(e) >= 0 && (mods(e, true, false, false) || mods(e, false, false, true)), run: pick('reactivity') },
+      { key: 'Alt + 1 … 0', label: 'Setup preset 1 to 10', group: PRESETS,
+        match: (e) => digitIndex(e) >= 0 && mods(e, false, true, false), run: pick('testing') },
+    ]);
+  }
+  addHotkeys([{ key: '/', label: 'This list', group: VIEW, run: () => toggleSheet() }]);
   installHotkeys();
 
   // ---- Helpers ---------------------------------------------------------------------------------
@@ -643,6 +673,9 @@ function start() {
   };
   /** Push a skeleton's visible segments. */
   // Colour inks: one per layer and role (branch or halo, leaf, accent), refilled every frame.
+  // Old boughs on their way down (main loop, drawPlant), and per-half scratch.
+  const boughFlights = new WeakMap<object, BoughFlight[]>();
+  const partBufs: Float32Array[] = [];
   const inkPool: Ink[][] = Array.from({ length: MAX_LAYERS + 8 }, () => [newInk(), newInk(), newInk()]);
   const C = [0, 0, 0];
   /** Inks for a layer: stroke (branches, or the halo), leaf and accent. `geo`: where harmony waves
@@ -1454,6 +1487,69 @@ function start() {
     frontDeco.reset();
     let layer = 0;
 
+    /**
+     * Where an old bough (or one half of a mirrored pair) is as it dries and falls: turned about its
+     * pivot (px, py: where it leaves the hub) by delta, and moved by (x, y). Down: it droops toward
+     * the ground while it dries (growth.branchDroopDeg), lets go and falls, turning on. Away: no
+     * gravity; it drifts straight out along itself. When growth.fallDirection changes on the way
+     * (a preset), it carries on from where it is, with the speed it had: drag takes that away
+     * while it starts the new way (a drooped bough keeps its turn when gravity goes; one that
+     * drifted starts to droop when it comes back).
+     */
+    const boughPose = (fl: BoughFlight, px: number, py: number, tx: number, ty: number, dry: number, gfall: number) => {
+      const away = params.growth.fallDirection === 'away';
+      if (fl.away === undefined) {
+        fl.away = away;
+        fl.v = [0, 0];
+        fl.t = fl.tPrev = t;
+        fl.x = fl.y = fl.xPrev = fl.yPrev = fl.delta = 0;
+      } else if (fl.away !== away) {
+        const dt = fl.t - fl.tPrev;
+        fl.v = dt > 1e-4 ? [(fl.x - fl.xPrev) / dt, (fl.y - fl.yPrev) / dt] : [0, 0];
+        fl.from = { t, x: fl.x, y: fl.y, delta: fl.delta, fs: gfall * params.growth.branchFallSeconds, gfall };
+        fl.away = away;
+      }
+      const f0 = fl.from, tau = f0 ? t - f0.t : 0;
+      const dirA = Math.atan2(ty - py, tx - px);
+      let toT = Math.atan2(Math.sin(-Math.PI / 2 - dirA), Math.cos(-Math.PI / 2 - dirA));
+      // Pointing straight up: turn outward, away from the head.
+      if (Math.abs(toT) > 2.8) toT = Math.abs(toT) * (tx >= params.avatar.headX ? -1 : 1);
+      const fs = gfall * params.growth.branchFallSeconds; // seconds falling
+      const fs1 = Math.max(0, fs - (f0?.fs ?? 0)); // since the change
+      const cx = f0 ? f0.x + fl.v[0] * carried(1.5, tau) : 0, cy = f0 ? f0.y + fl.v[1] * carried(1.5, tau) : 0;
+      let delta: number, x: number, y: number;
+      if (!away) {
+        const droop = Math.min(Math.abs(toT), params.growth.branchDroopDeg * deg);
+        const e = dry * dry; // slow start
+        const full = Math.sign(toT) * (droop * (0.85 * e + 0.15 * gfall) + (Math.abs(toT) - droop) * 0.6 * smooth(gfall));
+        delta = f0 ? lerp(f0.delta, full, smooth(Math.min(1, tau / 0.8))) : full;
+        x = cx + 0.06 * Math.sign(tx - px) * Math.max(0, gfall - (f0?.gfall ?? 0));
+        y = cy - 0.5 * 1.8 * fs1 * fs1; // gravity 1.8 units / s²
+      } else {
+        delta = f0 ? f0.delta : 0;
+        const out = 0.25 * fs1 + 0.25 * fs1 * fs1, u = dirA + delta;
+        x = cx + Math.cos(u) * out;
+        y = cy + Math.sin(u) * out;
+      }
+      if (t !== fl.t) {
+        fl.tPrev = fl.t;
+        fl.xPrev = fl.x;
+        fl.yPrev = fl.y;
+      }
+      fl.t = t;
+      fl.x = x;
+      fl.y = y;
+      fl.delta = delta;
+      return { delta, x, y };
+    };
+    /** Per node, `src` where the node is in part k, else 0 (scratch, one per half). */
+    const partOf = (tree: Plant, src: Float32Array, k: number) => {
+      const n = tree.sk.n;
+      let buf = partBufs[k];
+      if (!buf || buf.length < n) buf = partBufs[k] = new Float32Array(n * 2);
+      for (let i = 0; i < n; i++) buf[i] = tree.limbPart[i] === k ? src[i] : 0;
+      return buf;
+    };
     const drawPlant = (s: Slot, alpha: number, look: Look, fall: number) => {
       const pl = s.place;
       const angle = pl.angle + spin * pl.tierDir;
@@ -1468,75 +1564,68 @@ function start() {
         const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
         const look = { ...look0, glow: look0.glow * clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4) };
         const take = hexToRgb(s.colour), kTake = Math.max(0, slots.indexOf(s));
-        let a = alpha * g.alpha * (g.dim ?? 1), L = slotL, gInks = inks, ang = angle;
+        const a0 = alpha * g.alpha * (g.dim ?? 1);
         const dry = g.dry ?? 0, gfall = g.fall ?? 0;
+        /** Draw it in layer L, turned to ang; part >= 0: only that half of an old mirrored bough. */
+        const paint = (L: number, ang: number, a: number, gInks: ReturnType<typeof inksFor>, part: number) => {
+          const [dx, dy] = localDown(ang, pl.scale);
+          const sScale = 1 / Math.max(1e-3, g.tree.maxFlex);
+          // In harmony the branches weave across each other (harmony.cross).
+          const sk = g.tree.woven(weave);
+          const life = part < 0 ? g.tree.life : partOf(g.tree, g.tree.life, part);
+          pushTree(back, sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, life, g.tree.tone, g.tree.swing, g.tree.bend, sScale,
+            false, branchRgb(s.theme), {
+              phase: g.tree.twistPhase, strands: params.plants.strands, depth: params.plants.twistDepth,
+              // Just after a planting the frond (one stroke) splits into strands under the flash.
+              k: s.stampT !== undefined ? clamp((t - s.stampT) / 0.3, 0, 1) : 1,
+            });
+          // Pieces that broke off (fall away): taken over with the colours they had, then drawn
+          // falling (with the first half of a pair).
+          const [hx, hy] = g.tree.originLocal();
+          if (part <= 0) {
+            takeDrops(g.tree, sk, gInks.stroke, look, a, sScale, branchRgb(s.theme));
+            g.tree.twigs.draw(back, L, a * fadeOf(look), dx, dy, t, dryRgbOf(), params.growth.fallDirection === 'away', hx, hy);
+          }
+          decorateTree(sk, g.tree.vis, params,
+            { ...styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), originX: hx, originY: hy }, backDeco,
+            { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.swing, bend: g.tree.bend,
+              leafState: g.tree.leafState, leafGone: params.look.leafFall > 0 ? g.tree.leafGone : undefined, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone, branchFront: g.tree.branchFront,
+              shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry, dropped: g.tree.dropped,
+              only: part >= 0 ? { part: g.tree.limbPart, k: part } : undefined });
+        };
         if (g.bough && dry > 0 && layer < MAX_LAYERS - 5) {
           // An old bough (branch per phrase) in its own layer: it dries, droops about the point
-          // where it starts (leaves the hub), then drops and fades (consult 6, 3.4).
-          L = ++layer;
+          // where it starts (leaves the hub), then drops and fades (consult 6, 3.4). A mirrored
+          // pair (growth.branchSymmetry): each half in its own layer, drooping and falling (or
+          // drifting out) its own way; the hub between them is the living tree's.
           const spinA = spin * pl.tierDir;
-          const path = g.tree.limbPaths[0];
-          let ox = pl.ox, oy = pl.oy;
-          if (path) {
-            const q0 = g.tree.limbAt(0, path.base);
-            const [px, py] = toWorld(q0.x, q0.y, pl, spinA);
-            // A mirrored pair (growth.branchSymmetry): one half on each side, so it cannot droop by
-            // turning about the hub; it dries where it is, then falls (or drifts out between them).
-            const pair = g.tree.limbPaths.length > 1;
-            let tx = 0, ty = 0;
-            for (let k = 0; k < (pair ? 2 : 1); k++) {
-              const q1 = g.tree.limbAt(k, g.tree.limbPaths[k].length);
-              const [wx, wy] = toWorld(q1.x, q1.y, pl, spinA);
-              tx += wx / (pair ? 2 : 1);
-              ty += wy / (pair ? 2 : 1);
+          const tree = g.tree;
+          const pair = tree.limbPaths.length > 1 && tree.limbPart.length >= tree.sk.n;
+          const flights = boughFlights.get(g) ?? [];
+          boughFlights.set(g, flights);
+          for (let k = 0; k < (pair ? 2 : 1) && layer < MAX_LAYERS - 5; k++) {
+            const L = ++layer;
+            const path = tree.limbPaths[k];
+            let ox = pl.ox, oy = pl.oy, ang = angle;
+            if (path) {
+              const q0 = tree.limbAt(k, path.base), q1 = tree.limbAt(k, path.length);
+              const [px, py] = toWorld(q0.x, q0.y, pl, spinA), [tx, ty] = toWorld(q1.x, q1.y, pl, spinA);
+              const pose = boughPose((flights[k] ??= {} as BoughFlight), px, py, tx, ty, dry, gfall);
+              const c = Math.cos(pose.delta), s2 = Math.sin(pose.delta);
+              ox = px + c * (pl.ox - px) - s2 * (pl.oy - py) + pose.x;
+              oy = py + s2 * (pl.ox - px) + c * (pl.oy - py) + pose.y;
+              ang = angle + pose.delta;
             }
-            // Down: it droops toward the ground while it dries, then lets go and keeps turning that
-            // way as it falls. Away (growth.fallDirection): no gravity, no droop; it drifts straight
-            // out, away from the point it grew from.
-            const away = params.growth.fallDirection === 'away';
-            const dirA = Math.atan2(ty - py, tx - px);
-            let toT = Math.atan2(Math.sin(-Math.PI / 2 - dirA), Math.cos(-Math.PI / 2 - dirA));
-            // Pointing straight up: turn outward, away from the head.
-            if (Math.abs(toT) > 2.8) toT = Math.abs(toT) * (tx >= params.avatar.headX ? -1 : 1);
-            const droop = away || pair ? 0 : Math.min(Math.abs(toT), params.growth.branchDroopDeg * deg);
-            const e = dry * dry; // slow start
-            const delta = away || pair ? 0 : Math.sign(toT) * (droop * (0.85 * e + 0.15 * gfall) + (Math.abs(toT) - droop) * 0.6 * smooth(gfall));
-            const c = Math.cos(delta), s2 = Math.sin(delta);
-            const fs = gfall * params.growth.branchFallSeconds; // seconds falling
-            const ux = Math.cos(dirA), uy = Math.sin(dirA); // along the bough: away from where it grew
-            const out = 0.25 * fs + 0.25 * fs * fs;
-            ox = px + c * (pl.ox - px) - s2 * (pl.oy - py) + (away ? ux * out : 0.06 * Math.sign(tx - px) * gfall);
-            oy = py + s2 * (pl.ox - px) + c * (pl.oy - py) + (away ? uy * out : -0.5 * 1.8 * fs * fs); // gravity 1.8 units / s²
-            ang = angle + delta;
+            layerU.set(L, ox, oy, ang, pl.scale, s.motion);
+            const gInks = inksFor(L, take, kTake, s.drive, false, s.ink, s.id, geo);
+            const dryRgb = hexToRgb(params.look.dryColour);
+            for (const ink of [gInks.stroke, gInks.leaf, gInks.accent]) {
+              ink.tint = [lerp(ink.tint[0], dryRgb[0], dry), lerp(ink.tint[1], dryRgb[1], dry), lerp(ink.tint[2], dryRgb[2], dry)];
+              ink.tintK = lerp(ink.tintK, 0.75, dry);
+            }
+            paint(L, ang, a0 * (1 - smooth(gfall)), gInks, pair ? k : -1);
           }
-          layerU.set(L, ox, oy, ang, pl.scale, s.motion);
-          a *= 1 - smooth(gfall);
-          gInks = inksFor(L, take, kTake, s.drive, false, s.ink, s.id, geo);
-          const dryRgb = hexToRgb(params.look.dryColour);
-          for (const ink of [gInks.stroke, gInks.leaf, gInks.accent]) {
-            ink.tint = [lerp(ink.tint[0], dryRgb[0], dry), lerp(ink.tint[1], dryRgb[1], dry), lerp(ink.tint[2], dryRgb[2], dry)];
-            ink.tintK = lerp(ink.tintK, 0.75, dry);
-          }
-        }
-        const [dx, dy] = localDown(ang, pl.scale);
-        const sScale = 1 / Math.max(1e-3, g.tree.maxFlex);
-        // In harmony the branches weave across each other (harmony.cross).
-        const sk = g.tree.woven(weave);
-        pushTree(back, sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.swing, g.tree.bend, sScale,
-          false, branchRgb(s.theme), {
-            phase: g.tree.twistPhase, strands: params.plants.strands, depth: params.plants.twistDepth,
-            // Just after a planting the frond (one stroke) splits into strands under the flash.
-            k: s.stampT !== undefined ? clamp((t - s.stampT) / 0.3, 0, 1) : 1,
-          });
-        // Pieces that broke off (fall away): taken over with the colours they had, then drawn falling.
-        takeDrops(g.tree, sk, gInks.stroke, look, a, sScale, branchRgb(s.theme));
-        const [hx, hy] = g.tree.originLocal();
-        g.tree.twigs.draw(back, L, a * fadeOf(look), dx, dy, t, dryRgbOf(), params.growth.fallDirection === 'away', hx, hy);
-        decorateTree(sk, g.tree.vis, params,
-          { ...styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), originX: hx, originY: hy }, backDeco,
-          { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.swing, bend: g.tree.bend,
-            leafState: g.tree.leafState, leafGone: params.look.leafFall > 0 ? g.tree.leafGone : undefined, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone, branchFront: g.tree.branchFront,
-            shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry, dropped: g.tree.dropped });
+        } else paint(slotL, angle, a0, inks, -1);
       };
       for (const g of s.gens.gens) {
         const tl = g.look as TreeLook | undefined;

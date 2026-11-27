@@ -21,7 +21,8 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
 - **Pauses and endings:** one withering effect (ungrow, fade or fall away, from the tips inward or
   all at once) and a switch for each length of silence: a short pause, the end of a phrase, a full
   stop. A look change lets the old trees wither the same way while new ones grow back, and sweeps
-  round the live halo as a wave. Leaves let go and fall, or go the way of their twig, on the trees
+  round the live halo as a wave. Leaves let go and fall (a straight drop first, then the sway, at
+  a different moment for each leaf), or go the way of their twig, on the trees
   and on the live halo.
 - **Harmony:** two tracks singing a third, fourth, fifth or sixth apart are in harmony: waves of
   both colours run through them (the higher or lower voice leading, then both in step; on the halo
@@ -47,7 +48,9 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
 - Light, dark and split checker backdrops for the preview; an optional dark outline and flat
   glow so looks read over bright scenes.
 - Voice scope (rolling graphs of what the overlay hears), tooltips that say how each setting reads
-  the voice, hotkeys (`/` lists them), a fake singer for testing without a DAW (stacked takes,
+  the voice, hotkeys (`/` lists them by group; number keys pick presets: 1 … 0 Look, Ctrl or
+  Shift + number Reaction, Alt + number Setup; Ctrl + . and , add or remove a fake take), a Next
+  preset button on every preset tab, a fake singer for testing without a DAW (stacked takes,
   independent voices, or a duet trading phrases).
 - Performance controls: frame-rate cap, idle and background rates, maximum picture size.
 

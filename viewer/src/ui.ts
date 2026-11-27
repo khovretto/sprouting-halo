@@ -163,6 +163,9 @@ const RANGES: Record<string, Spec> = {
   'falling.spin': { min: 0, max: 2 },
   'falling.flutter': { min: 0, max: 1.5 },
   'falling.time': { min: 0.3, max: 3 },
+  'falling.dropSeconds': { min: 0, max: 1.5 },
+  'falling.dropVariety': { min: 0, max: 1 },
+  'falling.dropSpeed': { min: 1, max: 3 },
   'harmony.colour': { min: 0, max: 1 },
   'harmony.colourMode': { options: { 'Waves of both colours': 'waves', 'Gradient from one to the other': 'gradient', 'Mix of the two': 'mix', 'The harmony colour': 'colour' } },
   'harmony.colourMix': { options: { 'Even (OKLab)': 'oklab', 'Straight (RGB)': 'rgb', 'As light (brighter)': 'light', 'Round the colour wheel': 'hue', "Painter's wheel (yellow + blue = green)": 'paint', 'Hard cut': 'hard' } },
@@ -442,6 +445,10 @@ export interface UI {
   reveal(path: string): void;
   /** The user themes changed (rebuild the theme list). */
   themesChanged(): void;
+  /** Switch a kind to the i-th preset of its list (0-based, as numbered there; keys 1..9, 0). */
+  pickPreset(k: Kind, i: number): void;
+  /** Switch a kind to the next (step 1) or previous (-1) preset of its list, round and round. */
+  cyclePreset(k: Kind, step: number): void;
 }
 
 // ---- Tooltips from the doc comments in params.ts ------------------------------------------------
@@ -689,12 +696,28 @@ Key: ${key}`);
     suppress: boolean;
   }
   const sections = {} as Record<Kind, Section>;
+  /** The quick movement buttons of each colour role (shown only with a gradient). */
+  const moveBars = new Map<string, HTMLDivElement>();
+  /** A kind's presets in list order: built-in first, then your own by name. */
+  const presetOrder = (k: Kind) => [...BUILTINS[k], ...[...store[k].user].sort((a, b) => a.name.localeCompare(b.name))];
+  /** The first ten carry the number key that picks them (1..9, 0). */
+  const keyNum = (i: number) => (i < 10 ? `${(i + 1) % 10}   ` : '     ');
   const listOptions = (k: Kind) => [
     ...(active[k] ? [] : [{ text: '(custom)', value: CUSTOM }]),
-    ...BUILTINS[k].map((x) => ({ text: x.name, value: x.id })),
-    ...[...store[k].user].sort((a, b) => a.name.localeCompare(b.name)).map((x) => ({ text: '· ' + x.name, value: x.id })),
+    ...presetOrder(k).map((x, i) => ({ text: keyNum(i) + (x.id.startsWith('user:') ? '· ' : '') + x.name, value: x.id })),
     ...(store[k].stash ? [{ text: 'Unsaved tweaks', value: STASH }] : []),
   ];
+  const pickPreset = (k: Kind, i: number) => {
+    const pr = presetOrder(k)[i];
+    if (pr) choose(k, pr.id);
+  };
+  const cyclePreset = (k: Kind, step: number) => {
+    const list = presetOrder(k), n = list.length;
+    if (!n) return;
+    const at = list.findIndex((x) => x.id === active[k]);
+    const i = at < 0 ? (step > 0 ? 0 : n - 1) : (((at + step) % n) + n) % n;
+    choose(k, list[i].id);
+  };
   /** (Re)create a kind's preset list (its options change after save / delete / import). */
   const makeList = (sec: Section, index?: number) => {
     const list = sec.page.addBlade({ view: 'list', label: 'preset', options: listOptions(sec.k), value: active[sec.k] ?? CUSTOM, index }) as ListBladeApi<string>;
@@ -814,6 +837,12 @@ Key: ${key}`);
     sections[k] = sec;
     sec.list = makeList(sec);
     const what = KIND_TITLES[k].toLowerCase();
+    const nextBtn = page.addButton({ title: 'Next preset ▸' });
+    const mod = k === 'visual' ? '' : k === 'reactivity' ? 'Ctrl + ' : 'Alt + ';
+    btnTip(nextBtn, `Switch to the next ${what} preset in the list, round and round (Shift-click: the one before). Keys: ${mod}1 to 9 and 0 pick the first ten (numbered in the list).`);
+    let back = false;
+    nextBtn.element.addEventListener('pointerdown', (e) => (back = e.shiftKey), true);
+    nextBtn.on('click', () => cyclePreset(k, back ? -1 : 1));
     sec.saveBtn = page.addButton({ title: 'Save' });
     btnTip(sec.saveBtn, `Overwrite this saved ${what} preset with the current values.`);
     sec.nameObj = { name: 'Mine' };
@@ -1013,6 +1042,7 @@ Key: ${key}`);
         // Quick "movement" buttons: they set the role to a gradient and its movers.
         const bar = document.createElement('div');
         bar.className = 'sprout-moves';
+        moveBars.set(sub.id, bar);
         for (const mv of MOVEMENTS) {
           const btn = document.createElement('button');
           btn.textContent = mv.label;
@@ -1130,6 +1160,8 @@ Shift-click: factory default ${fmt(d)}`));
       for (const k of ['gradient', 'along', 'speed', 'voice', 'voiceAmount', 'perTake', 'scatter']) hide(`${r}.${k}`, !grad);
       hide(`${r}.voiceAmount`, !grad || role.voice === 'none');
       hide(`${r}.takeMix`, role.source === 'take' || role.source === 'branches');
+      const bar = moveBars.get(r);
+      if (bar) bar.style.display = grad ? '' : 'none';
     }
     hide('glow.tint', false);
     // Look palette: its list and pick only when the look brings its own colours.
@@ -1268,5 +1300,5 @@ Shift-click: factory default ${fmt(d)}`));
     themeRowAt = undefined;
     updateMarks();
   }
-  return { refresh, reveal, themesChanged };
+  return { refresh, reveal, themesChanged, pickPreset, cyclePreset };
 }

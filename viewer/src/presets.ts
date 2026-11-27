@@ -249,7 +249,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         growth: { branching: 0.775, spread: 1.2 },
         look: { theme: 'leaves', density: 0.7, decoSize: 1.6, variety: 0.7, buds: 0.35, dryColour: '#c9a0a8', leaf3d: 0.6 },
         plants: { lift: -0.1, wildness: 0.55, twist: 0.2, gnarl: 0.4, curl: 0.2, trunk: 0.5 },
-        falling: { speed: 0.7, sway: 0.9, spin: 0.6, time: 1.4 },
+        falling: { speed: 0.7, sway: 0.9, spin: 0.6, time: 1.4, dropSeconds: 0.12, dropVariety: 1, dropSpeed: 1.3 },
         halo: { alwaysLeaves: 0.55, sproutCurl: 1.2 },
         glow: { strength: 1.5, tint: '#ffc4de', tintAmount: 0.45 },
         palette: { from: 'list', list: 'step;0:ff9ccb,0.25:ffc4de,0.5:f47fb0,0.75:ffe3ef', pick: 'order' },
@@ -265,7 +265,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         growth: { branching: 0.67 },
         look: { theme: 'leaves', density: 0.75, variety: 0.8, dryColour: '#6b4a2b', blossoms: 0, buds: 0, woodStays: true, leafFall: 0.6, leafRegrow: 2.5, leaf3d: 0.8 },
         plants: { lift: 0.05, trunk: 0.6 },
-        falling: { sway: 0.8, spin: 0.8, flutter: 0.6, time: 1.3 },
+        falling: { sway: 0.8, spin: 0.8, flutter: 0.6, time: 1.3, dropSeconds: 0.45, dropVariety: 1, dropSpeed: 1.8 },
         halo: { alwaysLeaves: 0.46 },
         glow: { tint: '#ffb060', tintAmount: 0.4 },
         palette: { from: 'list', list: 'step;0:d9541e,0.25:f2a51e,0.5:7a1f0e,0.75:f7dc6f', pick: 'random' },
@@ -316,6 +316,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'calm', name: 'Calm (ballad)', description: 'Slow and lingering. Each phrase grows one new branch; old ones dry, droop and fall. Gentle motion.',
       values: {
+        harmony: { waveSpeed: 0.7, waveLength: 1 },
         growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, witherEffect: 'fade', dieAfter: 7, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8,
           branchEachPhrase: true, branchesKept: 4, branchWitherSeconds: 4, branchDroopDeg: 25, branchFallSeconds: 2 },
         response: { release: 3, brightness: 0.6, variety: 0.3 },
@@ -329,6 +330,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'stage', name: 'Punchy (stage)', description: 'Fast and hard: trees shoot up and clear quickly, pitch drops throw leaves, short holds bloom, big planting.',
       values: {
+        harmony: { colour: 1, colourMix: 'hue', waveSpeed: 2, waveLength: 0.5, glow: 0.6 },
         growth: { secondsToFull: 1.8, fadeAfter: 1.5, fadeSeconds: 1.2, dieAfter: 2.5, restBrightness: 0.4, witherOnPitchDip: true, witherDepth: 0.7, witherSeconds: 0.4, regrowSpeed: 2.5 },
         response: { phraseGap: 0.6, release: 0.7, brightness: 1, effortWidth: 1.5, pitchSteer: 0.8, variety: 0.8 },
         look: { blossoms: 1, blossomHold: 0.8, thornEffort: 2 },
@@ -342,6 +344,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'subtle', name: 'Subtle', description: 'Small reactions: little brightness change, light motion, few blossoms, the halo plants as a single quiet frond.',
       values: {
+        harmony: { colour: 0.4, waveSpeed: 0.8, glow: 0.2 },
         growth: { restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2, witherEffect: 'fade', witherFromTips: false, dieAfter: 5 },
         response: { brightness: 0.5, effortWidth: 0.5 },
         look: { blossoms: 0.4, blossomHold: 2.5 },
@@ -399,7 +402,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       id: 'duet', name: 'Duet (harmony)', description: 'Made for two voices: in harmony waves of both colours run through them, the branches crisscross, blossoms open and everything glows. Trees stay between phrases.',
       values: {
         growth: { newTreeEachPhrase: false, onPhraseEnd: false, restBrightness: 0.7, dieAfter: 6, fadeSeconds: 3 },
-        harmony: { colour: 1, colourMode: 'waves', cross: 1, blossoms: 1, glow: 0.8 },
+        harmony: { colour: 1, colourMode: 'waves', colourMix: 'hue', waveLead: 'higher', cross: 1, blossoms: 1, glow: 0.8 },
       },
     },
     {
@@ -412,6 +415,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'nocturne', name: 'Nocturne', description: 'For dark, solid looks (Black briar): trees stay opaque when you are quiet and the voice shows in the rim glow instead; slow growth, stiff branches that only sway, thorns that grow when you push, roses on notes held a second.',
       values: {
+        harmony: { waveSpeed: 0.6, waveLength: 1.2 },
         growth: { secondsToFull: 4, restBrightness: 0.9, fadeAfter: 4, fadeSeconds: 3.5, dieAfter: 6,
           witherDepth: 0.5, witherSeconds: 1.2, twigFadeSeconds: 1.0, regrowSpeed: 1.0 },
         response: { brightness: 0.25, effortWidth: 1.1, release: 2.2 },
@@ -425,6 +429,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'writhe', name: 'Writhing', description: 'Slow and heavy: branches squirm on vibrato and stay solid when you sing quietly; full voice thickens them and grows the thorns; phrases with vibrato grow more twisted trees.',
       values: {
+        harmony: { waveSpeed: 0.6, waveLength: 1 },
         growth: { secondsToFull: 4.5, regrowSpeed: 0.9, restBrightness: 0.8, fadeAfter: 5, fadeSeconds: 4,
           witherDepth: 0.6, witherSeconds: 1.2, twigFadeSeconds: 1.4, witherEffect: 'fade', onPause: false, dieAfter: 6 },
         response: { brightness: 0.3, effortWidth: 1.4, pitchSteer: 0.3, variety: 0.8, release: 2.5 },
@@ -465,7 +470,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     },
     {
       id: 'independent', name: 'Independent voices', description: 'Every voice has its own phrases, pauses and notes, so the takes grow and end at different times and come in and out of harmony.',
-      values: { fake: { voices: 'independent' } },
+      values: { fake: { voices: 'independent', harmony: 0.15 } },
     },
     {
       id: 'study', name: 'Slow-motion study', description: 'Quarter speed with the voice scope open, to study how the voice is read.',

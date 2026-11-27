@@ -196,6 +196,9 @@ export class Plant {
   /** Per primary limb: the path from the root through the hub along it; `base` = arc length where
    *  the limb leaves the hub (its start), `clear` = where it leaves the avatar. */
   limbPaths: { idx: Int32Array; cum: Float32Array; length: number; clear: number; base: number }[] = [];
+  /** Per node: the primary limb (index into limbPaths) it belongs to, -1 for the root, trunk and
+   *  hub (a mirrored bough's two halves dry, droop and fall each on its own). */
+  limbPart = new Int8Array(0);
   /** The spine (Part B commit): root -> hub -> the territory's middle primary limb. */
   private spine = new Int32Array(0);
   private spineCum = new Float32Array(0);
@@ -1046,6 +1049,12 @@ export class Plant {
           }
         return { idx: Int32Array.from(pth), cum, length: cum[pth.length - 1], clear, base: cum[trunk.length - 1] };
       });
+      const prims = limbs.filter((lb) => lb.prim >= 0 && lb.last >= lb.first).sort((a, b) => a.prim - b.prim);
+      const part = new Int8Array(sk.n).fill(-1);
+      prims.forEach((lb, k) => part.fill(Math.min(127, k), lb.first, lb.last + 1));
+      // Side branches belong to the limb they grow from (nodes come after their parents).
+      for (let i = 1; i < sk.n; i++) if (part[i] < 0 && sk.parent[i] >= 0) part[i] = part[sk.parent[i]];
+      this.limbPart = part;
       this.spine = Int32Array.from(path);
       this.spineCum = new Float32Array(path.length);
       for (let k = 1; k < path.length; k++)

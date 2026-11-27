@@ -5,8 +5,22 @@ export interface Hotkey {
   key: string;
   /** What it does, shown in the sheet. */
   label: string;
-  run(): void;
+  /** The heading it is listed under in the sheet. */
+  group?: string;
+  /** Keys with Ctrl / Alt / Shift, or several keys in one row: whether this event is one of them
+   *  (otherwise: `key` pressed on its own). */
+  match?: (e: KeyboardEvent) => boolean;
+  run(e: KeyboardEvent): void;
 }
+
+/** The number keys above the letters (not the numpad): 1..9 → 0..8, 0 → 9; -1 for any other key. */
+export const digitIndex = (e: KeyboardEvent) => {
+  const m = /^Digit(\d)$/.exec(e.code);
+  return m ? (Number(m[1]) + 9) % 10 : -1;
+};
+/** Exactly these modifiers held (ctrl: Ctrl, or Cmd on a Mac). */
+export const mods = (e: KeyboardEvent, ctrl: boolean, alt: boolean, shift: boolean) =>
+  (e.ctrlKey || e.metaKey) === ctrl && e.altKey === alt && e.shiftKey === shift;
 
 const keys: Hotkey[] = [];
 let sheet: HTMLDivElement | null = null;
@@ -32,10 +46,19 @@ export function toggleSheet(show = !sheet || sheet.style.display === 'none') {
     document.body.appendChild(sheet);
   }
   if (show) {
-    const rows = keys.map((k) =>
-      `<tr><td style="padding-right:14px"><kbd style="display:inline-block;min-width:18px;text-align:center;padding:0 5px;border:1px solid #666;border-radius:4px;background:#2a2d35;font:12px monospace">${k.key}</kbd></td><td>${k.label}</td></tr>`).join('');
-    sheet.innerHTML = `<div style="font-weight:600;margin-bottom:6px">Keyboard shortcuts</div><table>${rows}</table>` +
-      `<div style="margin-top:8px;color:#9aa0aa;font-size:12px">/ or Esc closes this</div>`;
+    // One table per group, in the order the groups first appear.
+    const groups: string[] = [];
+    for (const k of keys) if (!groups.includes(k.group ?? '')) groups.push(k.group ?? '');
+    const kbd = (s: string) =>
+      `<kbd style="display:inline-block;min-width:18px;text-align:center;padding:0 5px;border:1px solid #666;border-radius:4px;background:#2a2d35;font:12px monospace;white-space:nowrap">${s}</kbd>`;
+    // One table, so the columns line up across the groups.
+    const html = groups.map((g) => {
+      const rows = keys.filter((k) => (k.group ?? '') === g).map((k) =>
+        `<tr><td style="padding-right:14px;vertical-align:top">${k.key.split(' / ').map(kbd).join(' ')}</td><td>${k.label}</td></tr>`).join('');
+      return (g ? `<tr><td colspan="2" style="font-weight:600;color:#8fd0ff;padding:10px 0 2px">${g}</td></tr>` : '') + rows;
+    }).join('');
+    sheet.innerHTML = `<div style="font-weight:600;margin-bottom:2px">Keyboard shortcuts</div><table>${html}</table>` +
+      `<div style="margin-top:10px;color:#9aa0aa;font-size:12px">/ or Esc closes this</div>`;
   }
   sheet.style.display = show ? 'block' : 'none';
 }
@@ -45,6 +68,12 @@ export function installHotkeys() {
   window.addEventListener('keydown', (e) => {
     const el = e.target as HTMLElement | null;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+    const custom = keys.find((x) => x.match?.(e));
+    if (custom) {
+      e.preventDefault();
+      custom.run(e);
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === '/' || e.key === '?') {
       e.preventDefault();
@@ -55,10 +84,10 @@ export function installHotkeys() {
       toggleSheet(false);
       return;
     }
-    const k = keys.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
+    const k = keys.find((x) => !x.match && x.key.toLowerCase() === e.key.toLowerCase());
     if (k) {
       e.preventDefault();
-      k.run();
+      k.run(e);
     }
   });
 }

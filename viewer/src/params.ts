@@ -489,6 +489,14 @@ export const defaults = {
     flutter: 0.4,
     /** How long they fall before they are gone (1 = about 1.1 to 1.7 s). */
     time: 1,
+    /** First a straight drop, then the sway: about this many seconds of falling straight down
+     *  before a leaf starts to swing from side to side (0 = they all sway at once). */
+    dropSeconds: 0.35,
+    /** How much the drop differs from leaf to leaf: 0 = all alike, 1 = some sway at once, others
+     *  drop twice as long. */
+    dropVariety: 0.8,
+    /** How much faster a leaf falls during the drop than once it sways (1 = the same). */
+    dropSpeed: 1.6,
   },
   glow: {
     /** A soft dark outline round everything, so light colours and glow stay readable on a bright

@@ -217,6 +217,8 @@ export interface TreeExtras {
   /** Per node: 1 = its branch piece just broke off and fell (growth "fall away"): its leaf falls
    *  too. Cleared here. */
   dropped?: Uint8Array;
+  /** Only the nodes of this part (one half of a mirrored bough, drawn in its own layer): part[i]. */
+  only?: { part: Int8Array; k: number };
   /** Halo vine (growth.shed): ids of nodes whose leaves have let go; a node's leaves let go once
    *  letGoAlpha (its tail fade) times letGoAll (the whole halo's fade) falls below one half. */
   letGone?: Set<number>;
@@ -343,7 +345,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   const gone = extras.leafGone;
   const dropped = extras.dropped;
   const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns') && !custom;
+  const only = extras.only;
   for (let i = 1; i < sk.n; i++) {
+    if (only && only.part[i] !== only.k) continue;
     let f = vis[i];
     // Its branch piece just fell: the leaf is drawn once more, to let go at full size.
     const letGo = !!dropped && dropped[i] === 1;

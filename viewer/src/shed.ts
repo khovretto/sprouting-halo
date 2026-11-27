@@ -3,10 +3,10 @@
 // falls. One pool per plant, in the plant's local frame, so they fade and die with it.
 
 import type { Instances } from './render/renderer';
-import { fallDir, lerp, RGB } from './math';
+import { carried, clamp, fallDir, flightDist, flightSpeed, lerp, RGB } from './math';
 
 const MAX = 512; // room for showers (look.leafFall)
-const N = 26; // floats per particle
+const N = 37; // floats per particle
 
 /** What the pool needs from the decoration style of the frame it is drawn in. */
 export interface ShedStyle {
@@ -16,8 +16,9 @@ export interface ShedStyle {
   /** World down in the layer's frame (per world unit). */
   downX: number;
   downY: number;
-  /** How they fall (params.falling): speed, side-to-side sway, turning, wind flutter, time. */
-  drop?: { speed: number; sway: number; spin: number; flutter: number; time: number };
+  /** How they fall (params.falling): speed, side-to-side sway, turning, wind flutter, time; and the
+   *  straight drop before they sway (seconds, how much leaves differ, how much faster). */
+  drop?: { speed: number; sway: number; spin: number; flutter: number; time: number; dropSeconds?: number; dropVariety?: number; dropSpeed?: number };
   /** growth.fallDirection "away": they drift straight out from (originX, originY), no gravity. */
   fallAway?: boolean;
   originX?: number;
@@ -25,6 +26,17 @@ export interface ShedStyle {
 }
 
 const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+const fract = (x: number) => x - Math.floor(x);
+
+/** The drop: `a` (seconds) until te, then nothing more, eased over w either side; and its slope. */
+function dropPart(a: number, te: number): [number, number] {
+  if (te <= 0) return [0, 0];
+  const w = Math.min(0.15, te);
+  if (a <= te - w) return [a, 1];
+  if (a >= te + w) return [te, 0];
+  const x = a - te + w;
+  return [a - (x * x) / (4 * w), 1 - x / (2 * w)];
+}
 
 export class ShedPool {
   private d = new Float32Array(MAX * N);
@@ -58,6 +70,10 @@ export class ShedPool {
     const dp = look?.drop;
     d[o++] = dp ? dp.speed : NaN; d[o++] = dp ? dp.sway : 1; d[o++] = dp ? dp.spin : 1; d[o++] = dp ? dp.flutter : 1;
     d[o++] = dp ? dp.time : 1; d[o++] = look ? look.glow : NaN;
+    d[o++] = dp ? dp.dropSeconds ?? 0 : NaN; d[o++] = dp ? dp.dropVariety ?? 0 : 0; d[o++] = dp ? dp.dropSpeed ?? 1 : 1;
+    // Its flight so far (set when first drawn; again when growth.fallDirection changes in flight):
+    // which way (-1 not yet), from what age, where it was, the speed it carried, the way it went.
+    d[o++] = -1; d[o++] = 0; d[o++] = x; d[o++] = y; d[o++] = 0; d[o++] = 0; d[o++] = NaN; d[o++] = NaN;
     this.head = (this.head + 1) % MAX;
     this.count = Math.min(MAX, this.count + 1);
     this.lastAdd = now;
@@ -78,21 +94,45 @@ export class ShedPool {
       const h = d[o + 10];
       // Its own falling settings (NaN: none kept, those of the frame it is drawn in).
       const own = !Number.isNaN(d[o + 20]);
-      const dp = own ? { speed: d[o + 20], sway: d[o + 21], spin: d[o + 22], flutter: d[o + 23], time: d[o + 24] }
-        : st.drop ?? { speed: 1, sway: 1, spin: 1, flutter: 1, time: 1 };
+      const sd = st.drop;
+      const dp = own ? { speed: d[o + 20], sway: d[o + 21], spin: d[o + 22], flutter: d[o + 23], time: d[o + 24], dropSeconds: d[o + 26], dropVariety: d[o + 27], dropSpeed: d[o + 28] }
+        : { speed: sd?.speed ?? 1, sway: sd?.sway ?? 1, spin: sd?.spin ?? 1, flutter: sd?.flutter ?? 1, time: sd?.time ?? 1,
+          dropSeconds: sd?.dropSeconds ?? 0, dropVariety: sd?.dropVariety ?? 0, dropSpeed: sd?.dropSpeed ?? 1 };
       const glow = Number.isNaN(d[o + 25]) ? st.glow : d[o + 25];
       const life = (1.1 + 0.6 * h) * Math.max(0.1, dp.time);
       if (age < 0 || age >= life) continue;
       alive++;
       const blossom = d[o + 5] === 5, away = !!st.fallAway;
-      // terminal speed (world units / s), how fast it is reached
-      const vT = (away ? (blossom ? 0.25 : 0.35) : blossom ? 0.35 : 0.55) * Math.max(0, dp.speed), kk = away ? 2 : 3;
-      const fallD = vT * (age - (1 - Math.exp(-kk * age)) / kk); // closed form: any frame rate places it alike
-      const sway = 0.05 * dp.sway * Math.sin(age * (5 + 3 * h) + h * 6.28) * Math.min(1, age * 2);
-      const [Dx, Dy] = fallDir(st.downX, st.downY, away, d[o + 1], d[o + 2], st.originX, st.originY);
-      const x = d[o + 1] + Dx * fallD - Dy * sway;
-      const y = d[o + 2] + Dy * fallD + Dx * sway;
-      const ang = d[o + 3] + dp.spin * ((h - 0.5) * 6 * age + 0.6 * (Math.sin(age * 4 + h * 9) - Math.sin(h * 9)));
+      // The straight drop (falling.dropSeconds): first it falls (dropSpeed times) faster without
+      // swaying, then it slows and sways like a leaf. How long differs from leaf to leaf
+      // (dropVariety: 0 all alike, 1 from at once to twice as long).
+      const tDrop = Math.max(0, dp.dropSeconds) * lerp(1, 2 * fract(Math.sin(h * 91.7 + 3.1) * 43758.5), clamp(dp.dropVariety));
+      const boost = Math.max(1, dp.dropSpeed) - 1;
+      const warp = (a: number) => a + boost * dropPart(a, tDrop)[0];
+      // Which way it falls changed in flight (a preset): it carries on from where it is, with the
+      // speed it had, drag taking that away while it speeds up the new way.
+      if (d[o + 29] !== (away ? 1 : 0)) {
+        if (d[o + 29] >= 0) {
+          const f = this.flight(o, age, d[o + 29] === 1, st, blossom, dp.speed, warp, tDrop, boost);
+          d[o + 31] = f[0]; d[o + 32] = f[1]; d[o + 33] = f[2]; d[o + 34] = f[3]; d[o + 35] = f[4]; d[o + 36] = f[5];
+          d[o + 30] = age;
+        }
+        d[o + 29] = away ? 1 : 0;
+      }
+      const f = this.flight(o, age, away, st, blossom, dp.speed, warp, tDrop, boost);
+      // Side to side once the drop is over, across the way it falls (turning to the new way over
+      // 0.6 s after a change).
+      const sw = clamp((age - tDrop) * 2);
+      const sway = 0.05 * dp.sway * Math.sin(age * (5 + 3 * h) + h * 6.28) * sw;
+      let Px = -f[5], Py = f[4];
+      if (!Number.isNaN(d[o + 35])) {
+        const b = smooth((age - d[o + 30]) / 0.6);
+        Px = lerp(-d[o + 36], Px, b);
+        Py = lerp(d[o + 35], Py, b);
+      }
+      const x = f[0] + Px * sway;
+      const y = f[1] + Py * sway;
+      const ang = d[o + 3] + dp.spin * ((h - 0.5) * 6 * age + 0.6 * sw * (Math.sin(age * 4 + h * 9) - Math.sin(h * 9)));
       const u = age / life;
       const a = d[o + 12] * st.alpha * (u < 0.5 ? 1 : 1 - smooth((u - 0.5) * 2));
       if (a <= 0.01) continue;
@@ -108,5 +148,19 @@ export class ShedPool {
         a, glow * d[o + 11], st.layer, d[o + 13], px, py, d[o + 16], d[o + 17], d[o + 18], d[o + 19], Math.max(0, dp.flutter));
     }
     if (!alive) this.count = this.head = 0;
+  }
+
+  /** Where particle o is at `age` in its current flight (no sway), its velocity, and the way it
+   *  falls: [x, y, vx, vy, Dx, Dy]. */
+  private flight(o: number, age: number, away: boolean, st: ShedStyle, blossom: boolean, speed: number,
+                 warp: (a: number) => number, tDrop: number, boost: number) {
+    const d = this.d;
+    // terminal speed (world units / s), how fast it is reached
+    const vT = (away ? (blossom ? 0.25 : 0.35) : blossom ? 0.35 : 0.55) * Math.max(0, speed), kk = away ? 2 : 3;
+    const ts = d[o + 30], sx = d[o + 31], sy = d[o + 32], tau = age - ts;
+    const [Dx, Dy] = fallDir(st.downX, st.downY, away, sx, sy, st.originX, st.originY);
+    const w = warp(age) - warp(ts), along = flightDist(vT, kk, w), sp = flightSpeed(vT, kk, w) * (1 + boost * dropPart(age, tDrop)[1]);
+    const c = carried(kk, tau), keep = Math.exp(-kk * Math.max(0, tau));
+    return [sx + Dx * along + d[o + 33] * c, sy + Dy * along + d[o + 34] * c, Dx * sp + d[o + 33] * keep, Dy * sp + d[o + 34] * keep, Dx, Dy];
   }
 }

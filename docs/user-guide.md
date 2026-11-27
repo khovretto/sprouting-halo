@@ -154,6 +154,12 @@ The panel has three tabs. Each has a preset of its own at the top.
 
 The three kinds are picked independently: any Look works with any Reaction.
 
+**Switching quickly:** each tab has a **Next preset ▸** button under its list (Shift-click goes
+back), and the first ten presets of each list are numbered for the keys above the letters (not
+the numpad): **1 … 9, 0** for Look, **Ctrl + number** for Reaction (or **Shift + number**: a
+browser tab keeps Ctrl + 1 … 9 for switching its own tabs), **Alt + number** for Setup.
+**Ctrl + .** and **Ctrl + ,** add or remove a fake take. Press **/** for the full list, grouped.
+
 **Look presets:** Sprout, Lush ivy, Winter branches, Festive wreath, Red bramble, Minimal, Neon
 stage, Rainbow, Cherry blossom, Autumn, Dark & twisted, Black briar.
 
@@ -180,7 +186,7 @@ Look → Colours has a sub-folder for branches, leaves, blossoms & berries, and 
 its colour from the take colour, the theme's own colours, or a **gradient**. A gradient can stay
 still, run from root to tip, flow with time, follow your voice (pitch, loudness, effort, airiness,
 vibrato, note starts) or scatter per leaf; the buttons Still, Root→tip, Flow, Sparkle and Sing it
-set these in one click.
+set these in one click (they show while the colour comes from a gradient).
 
 The gradient picker: click the bar to open it and again to fold it (or Fold, or Esc). Click the
 strip under the bar to add a colour stop, drag a stop to move it, drag it down or right-click to
@@ -262,7 +268,10 @@ and the **full stop** on the whole tree. A switch that is off keeps the tree as 
 
 Look → Theme & leaves has two sub-folders: **3D leaves** (how far leaves fold, turn and tilt, where
 the light comes from, how dark the shade and how bright the glint) and **Falling leaves** (how fast
-leaves fall, sway, turn and flutter, and how long they last).
+leaves fall, sway, turn and flutter, and how long they last). A leaf that lets go first drops
+straight down for a moment ("straight drop first", faster by "drop speed"), then slows and starts
+to sway like a real leaf catching the air; "drop differs per leaf" keeps them from all swaying at
+the same moment.
 
 The same effect takes away a tree that is replaced, and the trees after a **look change**: when a
 Look preset (or a tree-shape setting) changes, the trees are not rebuilt on the spot. Once the
@@ -289,7 +298,11 @@ once.
 - **Falling pieces go** down with gravity (they turn so their loose end hangs down as they fall),
   or **away from the origin**: no gravity, they drift straight out from the point the tree grows
   from. It covers branch pieces, old branches (new branch each phrase), and the leaves and petals
-  that let go with them.
+  that let go with them. An old branch grown as a mirrored pair droops and falls (or drifts out)
+  each half its own way. Switching between the two on the way (a reaction preset, say) does not
+  jump: what is in the air carries on from where it is, with the speed it had, and turns the new
+  way; an old branch that was drifting starts to droop ("how far an old branch droops") once
+  gravity is back.
 - "Leaves fall on their own" (Look → Theme & leaves) is something else: a steady trickle of
   falling leaves that grow back, whatever the branches do.
 

@@ -16,6 +16,15 @@ export function fallDir(downX: number, downY: number, away: boolean, x: number, 
   return [(dx / r) * g, (dy / r) * g];
 }
 
+/**
+ * Something let go, in closed form (any frame rate places it alike): from rest it speeds up toward
+ * terminal speed vT at rate k. Distance after t seconds, and speed then.
+ */
+export const flightDist = (vT: number, k: number, t: number) => (t <= 0 ? 0 : vT * (t - (1 - Math.exp(-k * t)) / k));
+export const flightSpeed = (vT: number, k: number, t: number) => (t <= 0 ? 0 : vT * (1 - Math.exp(-k * t)));
+/** How far a speed it already had carries it after t seconds while drag (rate k) takes it away (× that speed). */
+export const carried = (k: number, t: number) => (t <= 0 ? 0 : (1 - Math.exp(-k * t)) / k);
+
 /** Frame-rate independent exponential approach. */
 export const damp = (current: number, target: number, rate: number, dt: number) =>
   lerp(current, target, 1 - Math.exp(-rate * dt));
