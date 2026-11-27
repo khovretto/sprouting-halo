@@ -87,7 +87,15 @@ export const LANES: Lane[] = [
       { key: 'phraseOn', label: 'in a phrase', colour: '#42a5f5', step: true },
       { key: 'held', label: 'note held (½ = blossom)', colour: '#ffd54f' },
       { key: 'bloom', label: 'blossoms open', colour: '#f48fb1' },
+    ],
+  },
+  {
+    title: 'Harmony',
+    min: 0, max: 1,
+    series: [
       { key: 'harmony', label: 'in harmony', colour: '#ffe9a8' },
+      { key: 'harmonyLead', label: 'leads the waves', colour: '#90caf9', step: true },
+      { key: 'harmonyWave', label: 'colour wave (start)', colour: '#ce93d8' },
     ],
   },
   {
@@ -140,6 +148,10 @@ export const USED_BY: Record<string, { what: string; paths: string[] }> = {
     paths: ['growth.onPhraseEnd', 'growth.fadeAfter', 'growth.onStop', 'growth.dieAfter', 'growth.fadeSeconds'] },
   harmony: { what: 'In harmony with another track: both sing, a third, fourth, fifth or sixth apart in any octave (within half a semitone), for at least “counts after”. Found in the viewer from the pitches of all tracks.',
     paths: ['harmony.colour', 'harmony.cross', 'harmony.blossoms', 'harmony.glow', 'harmony.minSeconds', 'harmony.attack', 'harmony.unison'] },
+  harmonyLead: { what: 'This voice leads the colour waves: its colour runs into the other voice first, then both carry the same bands. Decided when the harmony starts (higher or lower voice, as set). 0 while each voice takes the other colour, or not in harmony.',
+    paths: ['harmony.waveLead'] },
+  harmonyWave: { what: 'The colour wave where it starts on this layer (a tree: its root; the halo: its start point): 0 = its own colour, up to how far the colours come together = the other voice\'s. Bands start here and run outward.',
+    paths: ['harmony.colourMode', 'harmony.waveLength', 'harmony.waveSpeed', 'harmony.waveFrom', 'harmony.colourMix'] },
   alpha: { what: 'Brightness of this take\'s newest tree.', paths: ['growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds'] },
 };
 
@@ -289,8 +301,11 @@ export class Scope {
     const { canvas, ctx } = this;
     const dpr = window.devicePixelRatio || 1;
     const cssW = Math.max(320, Math.min(980, window.innerWidth - 340));
-    const laneH = 58, header = 28;
-    const cssH = header + LANES.length * laneH + 6;
+    // Each lane as tall as its readouts (one row of 12 px per value) need, at least 58 px.
+    const header = 28;
+    const laneHs = LANES.map((l) => Math.max(58, 12 * l.series.length + 14));
+    const tops = laneHs.map((_, i) => header + laneHs.slice(0, i).reduce((a, b) => a + b, 0));
+    const cssH = header + laneHs.reduce((a, b) => a + b, 0) + 6;
     canvas.style.width = cssW + 'px';
     canvas.style.height = cssH + 'px';
     if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
@@ -376,7 +391,7 @@ export class Scope {
 
     this.readouts = [];
     LANES.forEach((lane, li) => {
-      const top = header + li * laneH, bot = top + laneH - 8;
+      const top = tops[li], bot = top + laneHs[li] - 8;
       const Y = (v: number) => bot - ((v - lane.min) / (lane.max - lane.min)) * (bot - top);
       ctx.fillStyle = 'rgba(255,255,255,0.03)';
       ctx.fillRect(x0, top, x1 - x0, bot - top);

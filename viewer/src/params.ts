@@ -186,7 +186,7 @@ export const defaults = {
     /** mine: your own take colours. list: this look's colours below. */
     from: 'mine' as 'mine' | 'list',
     /** The look's colours: the stops of this gradient, in order. */
-    list: 'step;0:b5e61d,0.143:3d4fd6,0.286:00dd88,0.429:ff7ac8,0.571:ffb347,0.714:a77bff,0.857:4fd1ff',
+    list: 'step;0:b5e61d,0.143:ff7ac8,0.286:00dd88,0.429:3d4fd6,0.571:ffb347,0.714:a77bff,0.857:4fd1ff',
     /** order: the first free colour. random: a free colour chosen by the take's id. spread: any
      *  gradient, sampled at well-spaced positions. */
     pick: 'order' as 'order' | 'random' | 'spread',
@@ -199,9 +199,9 @@ export const defaults = {
     lock: false,
     live: '#2fb84f',
     take1: '#b5e61d',
-    take2: '#3d4fd6',
+    take2: '#ff7ac8',
     take3: '#00dd88',
-    take4: '#ff7ac8',
+    take4: '#3d4fd6',
     take5: '#ffb347',
     take6: '#a77bff',
     take7: '#4fd1ff',
@@ -531,13 +531,29 @@ export const defaults = {
     unison: false,
     /** How far each voice's colours move toward the shared colour (0 = not at all). */
     colour: 0.7,
-    /** The shared colour. gradient: each voice's branches run from its own colour at the root to
-     *  the other's at the tips. mix: both turn into the mix of the two. colour: the colour below. */
-    colourMode: 'gradient' as 'gradient' | 'mix' | 'colour',
+    /** The shared colour. waves: bands of the other voice's colour run out along the branches
+     *  (from the root) and round the halo, a sine between the two colours. gradient: each voice's
+     *  branches run from its own colour at the root to the other's at the tips. mix: both turn
+     *  into the mix of the two. colour: the colour below. */
+    colourMode: 'waves' as 'waves' | 'gradient' | 'mix' | 'colour',
     colourValue: '#ffe9a8',
-    /** Branches weave from side to side across each other, and the trees of the two voices lean
-     *  into one another; every branch keeps its course and the tree its outline. A moving wave, so
-     *  off (0) unless a look or reaction wants it (the Duet preset). */
+    /** How the two colours blend: oklab (even, perceptual), rgb (straight), light (as light adds
+     *  up, brighter), hue (round the colour wheel), paint (the painter's wheel: yellow and blue
+     *  make green), hard (a hard cut, no blend). */
+    colourMix: 'oklab' as 'oklab' | 'rgb' | 'light' | 'hue' | 'paint' | 'hard',
+    /** waves: higher / lower: that voice leads; its colour runs into the other first, then both
+     *  carry the same bands in step. each: each voice takes the other's colour at once. */
+    waveLead: 'higher' as 'higher' | 'lower' | 'each',
+    /** waves on the halo start from: partner = the point of the ring facing the tree it is in
+     *  harmony with; origins = the halo's growing points (halo.origins, halo.startAngle). */
+    waveFrom: 'partner' as 'partner' | 'origins',
+    /** waves: from one band of a colour to the next (world units; the open halo's radius is 1.05). */
+    waveLength: 0.7,
+    /** waves: how fast the bands run out (world units per second). */
+    waveSpeed: 1.2,
+    /** Branches turn wavy, neighbours the opposite way, so they cross each other; every branch
+     *  keeps its course and the tree its outline. It does not move; off (0) unless a look or
+     *  reaction wants it (the Duet preset). */
     cross: 0,
     /** Blossoms (and theme parts that open "on long held notes") also open in harmony. */
     blossoms: 0,

@@ -23,9 +23,12 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
   stop. A look change lets the old trees wither the same way while new ones grow back, and sweeps
   round the live halo as a wave. Leaves let go and fall, or go the way of their twig, on the trees
   and on the live halo.
-- **Harmony:** two tracks singing a third, fourth, fifth or sixth apart are in harmony: their
-  colours run into each other, the glow rises, and (optionally) their branches crisscross and
-  blossoms open; theme parts can open in harmony.
+- **Harmony:** two tracks singing a third, fourth, fifth or sixth apart are in harmony: waves of
+  both colours run through them (the higher or lower voice leading, then both in step; on the halo
+  from the side facing the other voice, or from its growing points), blended the way you choose
+  (OKLab, RGB, light, colour wheel, painter's wheel, hard cut), the glow rises, and (optionally)
+  their branches turn wavy and crisscross (without moving) and blossoms open; theme parts can
+  open in harmony.
 - **Planting:** when a take is done, the halo curls up like a fern frond, moves to where the new
   tree starts and unrolls along its limbs into the fully grown tree, in the tree's own colours; it
   then rests and ends like any tree whose phrase is over. Deleted takes fade while their leaves fall.

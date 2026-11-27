@@ -25,6 +25,11 @@ interface Voice {
   amount: number;
   partner: string | null;
   seen: boolean;
+  /** Seconds since its harmony colours started (-1: not in harmony). Two voices in harmony with
+   *  each other share it, so their colour waves run in step. */
+  age: number;
+  /** It leads the colour wave (harmony.waveLead): its colour goes out first. */
+  lead: boolean;
 }
 
 /** How far `semitones` is from the nearest interval that counts (0 = pure). */
@@ -49,6 +54,12 @@ export class HarmonyTracker {
     return this.voices.get(id)?.partner ?? null;
   }
 
+  /** Its colour wave: seconds since it started (shared with the partner) and whether it leads. */
+  wave(id: string): { age: number; lead: boolean } | null {
+    const v = this.voices.get(id);
+    return v && v.age >= 0 ? { age: v.age, lead: v.lead } : null;
+  }
+
   update(layers: LayerFeatures[], dt: number, p: Params) {
     const h = p.harmony;
     for (const v of this.voices.values()) v.seen = false;
@@ -56,7 +67,7 @@ export class HarmonyTracker {
     for (const f of layers) {
       if (f.role === 'instrument') continue;
       let v = this.voices.get(f.id);
-      if (!v) this.voices.set(f.id, (v = { pitch: 0, since: 0, lost: 9, amount: 0, partner: null, seen: true }));
+      if (!v) this.voices.set(f.id, (v = { pitch: 0, since: 0, lost: 9, amount: 0, partner: null, seen: true, age: -1, lead: false }));
       v.seen = true;
       if (f.level > 0.05 && f.pitch > 0) {
         // A new note (a jump) starts the smoothing over.
@@ -82,7 +93,7 @@ export class HarmonyTracker {
       if (who) found.set(a.v, who);
     }
     const attack = Math.max(0.02, h.attack);
-    for (const v of this.voices.values()) {
+    for (const [id, v] of this.voices) {
       const who = found.get(v);
       if (who) {
         v.partner = who;
@@ -97,6 +108,20 @@ export class HarmonyTracker {
       if (v.amount < 0.002) {
         v.amount = 0;
         if (!who) v.partner = null;
+      }
+      // The colour wave: starts as the harmony comes in, in step with the partner's if it already
+      // runs (the partner leads unless it follows). Otherwise the higher voice leads (a tie: by id).
+      if (v.amount <= 0) v.age = -1;
+      else if (v.age >= 0) v.age += dt;
+      else {
+        const pv = v.partner ? this.voices.get(v.partner) : undefined;
+        if (pv && pv.age >= 0 && pv.partner === id) {
+          v.age = pv.age;
+          v.lead = !pv.lead;
+        } else {
+          v.age = 0;
+          v.lead = !pv || v.pitch > pv.pitch + 0.01 || (Math.abs(v.pitch - pv.pitch) <= 0.01 && id > v.partner!);
+        }
       }
     }
   }

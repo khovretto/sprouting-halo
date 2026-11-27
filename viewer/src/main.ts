@@ -11,7 +11,7 @@ import { Overlay, GuidePlant } from './overlay';
 import { Scope } from './scope';
 import { branchNatural, loadThemes, onThemesChanged, themeDef } from './themes';
 import { buildThemeEditor } from './theme-editor';
-import { Ink, inkAt, newInk, ringS, setInk } from './colour';
+import { Ink, InkWave, inkAt, inkPt, MixWay, newInk, ringS, setInk, waveAt } from './colour';
 import { LABELS } from './panel-layout';
 import { clearAvatarImage, loadAvatarImage, pickAvatarImage } from './avatar-image';
 import { LayerMotion, Wind } from './motion';
@@ -55,8 +55,6 @@ interface Slot {
   /** Sim time of the commit impact (flash, quiver, growth burst). */
   stampT?: number;
   motion: LayerMotion;
-  /** Harmony (harmony.cross): radians this tree leans toward the voice it harmonises with. */
-  lean?: number;
   /** growth.fillSpace: 1 = here; falls to 0 once the take has had no tree and been silent for a
    *  while (its neighbours' new trees then take over its space). Seconds it has been away. */
   presence?: number;
@@ -78,6 +76,10 @@ interface Dying {
   slot: Slot;
   t0: number;
 }
+
+/** Where a layer's harmony waves run: a tree (its length, root to tip, in world units) or a halo
+ *  (its radius, the ring angles they start from, and how far they have run before the ring). */
+type WaveGeo = { scale: number } | { R: number; starts: number[]; offset: number };
 
 /** One live track's halo. Several live tracks nest concentrically (first = outermost). */
 interface LiveHalo {
@@ -643,16 +645,23 @@ function start() {
   // Colour inks: one per layer and role (branch or halo, leaf, accent), refilled every frame.
   const inkPool: Ink[][] = Array.from({ length: MAX_LAYERS + 8 }, () => [newInk(), newInk(), newInk()]);
   const C = [0, 0, 0];
-  /** Inks for a layer: stroke (branches, or the halo), leaf and accent. */
-  function inksFor(layer: number, take: RGB, k: number, d: Drive | undefined, halo: boolean, ink?: string, id?: string) {
+  /** Inks for a layer: stroke (branches, or the halo), leaf and accent. `geo`: where harmony waves
+   *  run (a tree: its length from root to tip in world units; a halo: its radius and the angles
+   *  they start from). */
+  function inksFor(layer: number, take: RGB, k: number, d: Drive | undefined, halo: boolean, ink?: string, id?: string, geo?: WaveGeo) {
     const pool = inkPool[Math.max(0, Math.min(inkPool.length - 1, layer))];
     setInk(pool[0], params, halo ? 'colHalo' : 'colBranch', take, k, t, d, ink);
     setInk(pool[1], params, 'colLeaf', take, k, t, d);
     setInk(pool[2], params, 'colAccent', take, k, t, d);
     // Harmony: the colours move toward the one shared with the other voice (harmony.colour).
     const hm = params.harmony, amount = (d?.harmony ?? 0) * clamp(hm.colour);
+    const way = (hm.colourMix ?? 'oklab') as MixWay;
+    for (const x of pool) x.mixWay = way;
     const other = amount > 0.003 && id ? colourOfId(harmony.partner(id)) : undefined;
-    if (other || (amount > 0.003 && hm.colourMode === 'colour')) {
+    if (hm.colourMode === 'waves') {
+      const w = other && id ? waveSpec(id, other, amount, geo) : null;
+      if (w) pool.forEach((x, q) => (x.wave = q === 0 ? w : { ...w, k: w.k * 0.5 })); // leaves and blossoms follow half way
+    } else if (other || (amount > 0.003 && hm.colourMode === 'colour')) {
       const own = pool[0].mid;
       const mix: RGB = hm.colourMode === 'colour' ? tinted(hexToRgb(hm.colourValue))
         : hm.colourMode === 'mix' ? [0.5 * (own[0] + other![0]), 0.5 * (own[1] + other![1]), 0.5 * (own[2] + other![2])]
@@ -665,6 +674,43 @@ function start() {
       });
     }
     return { stroke: pool[0], leaf: pool[1], accent: pool[2] };
+  }
+  /** harmony.colourMode 'waves': the waves on one voice (null: none). */
+  function waveSpec(id: string, other: RGB, k: number, geo?: WaveGeo): InkWave | null {
+    const wv = harmony.wave(id);
+    if (!wv) return null;
+    const hm = params.harmony;
+    const length = Math.max(0.05, hm.waveLength), speed = Math.max(0.05, hm.waveSpeed);
+    // In step (harmony.waveLead): the one that leads takes the other's colour half a wave later,
+    // the wave the other way up, so both carry the same bands.
+    const leads = hm.waveLead !== 'each' && (hm.waveLead === 'lower' ? !wv.lead : wv.lead);
+    return {
+      other, k, age: wv.age, delay: leads ? (0.5 * length) / speed : 0, invert: leads, length, speed,
+      ring: !!geo && 'starts' in geo, scale: !geo ? 1 : 'starts' in geo ? geo.R : geo.scale, starts: geo && 'starts' in geo ? geo.starts : [],
+      offset: geo && 'starts' in geo ? geo.offset : 0,
+    };
+  }
+  /** Where a halo's harmony waves start (harmony.waveFrom), in its ring's own angles; offset: how
+   *  far they have run before (from the partner tree's root to that point of the ring, so the
+   *  bands coming out through the tree carry on round the ring). */
+  function haloWaveStarts(h: LiveHalo, turn: number, R: number): { starts: number[]; offset: number } {
+    const hp = params.halo;
+    if (params.harmony.waveFrom === 'partner') {
+      // The point of the ring facing the tree it is in harmony with: the middle of where its
+      // branches grow (world angles round the head; a tree from a hub inside the head grows out
+      // through the ring there). Another halo: toward its centre.
+      const pid = harmony.partner(h.id);
+      const s = pid ? slots.find((x) => x.id === pid) : undefined;
+      if (s) {
+        const [lo, hi] = s.fanNow ?? [s.place.growLo ?? s.place.sectorLo, s.place.growHi ?? s.place.sectorHi];
+        const a = 0.5 * (lo + hi);
+        return { starts: [a - turn], offset: Math.hypot(h.cx + R * Math.cos(a) - s.place.ox, h.cy + R * Math.sin(a) - s.place.oy) };
+      }
+      const o = pid ? halos.find((x) => x.id === pid) : undefined;
+      if (o && Math.hypot(o.cx - h.cx, o.cy - h.cy) > 1e-3) return { starts: [Math.atan2(o.cy - h.cy, o.cx - h.cx) - turn], offset: 0 };
+    }
+    const n = Math.max(1, Math.round(hp.origins));
+    return { starts: Array.from({ length: n }, (_, k) => hp.startAngle * deg + (k * TAU) / n), offset: 0 };
   }
   /** The colour a track's branches (or halo) have, for the voice in harmony with it. */
   function colourOfId(id: string | null): RGB | undefined {
@@ -699,6 +745,10 @@ function start() {
       const na = nodeAlpha ? nodeAlpha[i] : 1;
       if (na <= 0.005) continue;
       const ax = sk.x[pa], ay = sk.y[pa];
+      if (ring) {
+        inkPt.x = sk.x[i];
+        inkPt.y = sk.y[i];
+      }
       const c = inkAt(ink, ring ? ringS(sk.x[i], sk.y[i], ink.loop) : sk.flex[i] * sScale, 0.5, C, natural);
       const tn = tone ? tone[i] : 1;
       const k = bright * tn;
@@ -861,7 +911,9 @@ function start() {
       const mk = mask ? mask(am) : 1;
       if (mk <= 0.003) continue;
       // Colour by the same ring position as the vine on it (ringS), so they agree.
-      const c = inkAt(ink, ringS(Math.cos(am), Math.sin(am), ink.loop), 0.5, C);
+      inkPt.x = Math.cos(am);
+      inkPt.y = Math.sin(am);
+      const c = inkAt(ink, ringS(inkPt.x, inkPt.y, ink.loop), 0.5, C);
       const s = look.shine, i = brighten(look);
       if (braid > 0) {
         // halo.braid (consult 7, 1.8): two strands round each other, 12 crossings (whole: it closes),
@@ -903,6 +955,17 @@ function start() {
     };
   }
 
+  /** Scope, harmony lane: whether it leads the colour wave and the wave where it starts. */
+  function harmonyScope(id: string | undefined, d: Drive) {
+    const wv = id ? harmony.wave(id) : null;
+    if (!id || !wv) return { harmonyLead: 0, harmonyWave: 0 };
+    const hm = params.harmony;
+    const lead = hm.waveLead === 'each' ? 0 : (hm.waveLead === 'lower' ? !wv.lead : wv.lead) ? 1 : 0;
+    const other = colourOfId(harmony.partner(id));
+    const w = hm.colourMode === 'waves' && other ? waveSpec(id, other, d.harmony * clamp(hm.colour)) : null;
+    return { harmonyLead: lead * 0.9, harmonyWave: w ? waveAt({ ...w, ring: false, scale: 0, offset: 0 }, 0) * w.k : 0 };
+  }
+
   /** One scope sample for the followed layer: raw tap values next to what the drive makes of them. */
   function sampleScope(takes: LayerFeatures[]) {
     const k = Math.round(params.scene.scopeLayer);
@@ -928,7 +991,7 @@ function start() {
       flash: d.flash, voice: d.voice ? 1 : 0,
       held: Math.min(1, d.held / Math.max(0.1, 2 * params.look.blossomHold)), bloom: d.bloom, phraseOn: d.phraseOver(params) ? 0 : 0.9,
       open: halo ? halo.open : g?.reveal ?? 0, wither: g?.wither ?? 0, alpha: halo ? 1 : (g?.alpha ?? 0) * (g?.dim ?? 1),
-      ending: Math.min(1, g?.end ?? 0), harmony: d.harmony,
+      ending: Math.min(1, g?.end ?? 0), harmony: d.harmony, ...harmonyScope(slot?.id ?? halo?.id, d),
     }, { phrase: d.newPhrase, onset: !!f?.onset, dip: d.pitchDip });
   }
 
@@ -1249,10 +1312,6 @@ function start() {
       const f = takes[k];
       s.drive.update(f, dt, params);
       s.drive.harmony = harmony.amount(s.id);
-      // harmony.cross: lean toward the tree it harmonises with (the trees' edges interlace).
-      const mate = s.drive.harmony > 0.003 ? slots.find((x) => x.id === harmony.partner(s.id)) : undefined;
-      const toMate = mate ? Math.sign(Math.atan2(Math.sin(mate.place.angle - pl.angle), Math.cos(mate.place.angle - pl.angle))) : 0;
-      s.lean = lerp(s.lean ?? 0, toMate * 7 * deg * clamp(params.harmony.cross) * s.drive.harmony, 1 - Math.exp(-dt / 0.4));
       s.motion.update(s.drive, wind, dt, params, 1, false);
       const pending = !!s.commit && s.commit.stampedAt < 0;
       // A change to the trees' shape (a Look preset, a slider, the layout): a tree that has shown is
@@ -1397,12 +1456,13 @@ function start() {
 
     const drawPlant = (s: Slot, alpha: number, look: Look, fall: number) => {
       const pl = s.place;
-      const angle = pl.angle + spin * pl.tierDir + (s.lean ?? 0);
+      const angle = pl.angle + spin * pl.tierDir;
       const weave = clamp(params.harmony.cross) * s.drive.harmony;
       const slotL = layer, look0 = look;
       const drawGen = (g: (typeof s.gens.gens)[number]) => {
         // Inks per tree: a tree that keeps an older look has its own colours (drawn with them swapped in).
-        const inks = inksFor(slotL, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false, s.ink, s.id);
+        const geo = { scale: pl.scale * Math.max(1e-3, g.tree.maxFlex) };
+        const inks = inksFor(slotL, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false, s.ink, s.id, geo);
         // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
         const base = inks.stroke.mid;
         const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
@@ -1451,7 +1511,7 @@ function start() {
           }
           layerU.set(L, ox, oy, ang, pl.scale, s.motion);
           a *= 1 - smooth(gfall);
-          gInks = inksFor(L, take, kTake, s.drive, false, s.ink, s.id);
+          gInks = inksFor(L, take, kTake, s.drive, false, s.ink, s.id, geo);
           const dryRgb = hexToRgb(params.look.dryColour);
           for (const ink of [gInks.stroke, gInks.leaf, gInks.accent]) {
             ink.tint = [lerp(ink.tint[0], dryRgb[0], dry), lerp(ink.tint[1], dryRgb[1], dry), lerp(ink.tint[2], dryRgb[2], dry)];
@@ -1461,7 +1521,7 @@ function start() {
         const [dx, dy] = localDown(ang, pl.scale);
         const sScale = 1 / Math.max(1e-3, g.tree.maxFlex);
         // In harmony the branches weave across each other (harmony.cross).
-        const sk = g.tree.woven(weave, t);
+        const sk = g.tree.woven(weave);
         pushTree(back, sk, g.tree.vis, L, gInks.stroke, look, a, 1, params.glow.front, g.tree.life, g.tree.tone, g.tree.swing, g.tree.bend, sScale,
           false, branchRgb(s.theme), {
             phase: g.tree.twistPhase, strands: params.plants.strands, depth: params.plants.twistDepth,
@@ -1515,7 +1575,7 @@ function start() {
     slots.forEach((s) => {
       if (layer >= MAX_LAYERS) return;
       const pl = s.place;
-      layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir + (s.lean ?? 0), pl.scale, s.motion);
+      layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir, pl.scale, s.motion);
       slotLayer.set(s.id, layer);
       if (!(s.commit && s.commit.stampedAt < 0)) drawPlant(s, s.alpha, lookOf(s.drive), 0);
       layer++;
@@ -1617,7 +1677,9 @@ function start() {
     /** A halo's decoration style in the current look. */
     const haloStyle = (h: LiveHalo, fade: number, R: number, vine: HaloVine) => {
       const hp = params.halo;
-      const inks = inksFor(layer, hexToRgb(h.look.colour), Math.max(0, halos.indexOf(h)), h.drive, true, h.look.ink, h.id);
+      const idle = 1 - smooth(clamp(h.open));
+      const geo = { R, ...haloWaveStarts(h, hp.tilt * deg * idle, R) };
+      const inks = inksFor(layer, hexToRgb(h.look.colour), Math.max(0, halos.indexOf(h)), h.drive, true, h.look.ink, h.id, geo);
       const look = lookOf(h.drive);
       // More origins = more vine, so fewer leaves on each part of it.
       const origins = Math.max(1, Math.round(hp.origins));

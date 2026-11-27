@@ -388,12 +388,12 @@ export class Plant {
   private view: Skeleton | null = null;
 
   /**
-   * The skeleton as drawn in harmony (harmony.cross): every limb swings from side to side about
-   * its own course, neighbouring limbs in opposite phase, so they cross and recross while the
-   * tree keeps its outline. A side branch starts where its parent now is. `amount` 0..1; 0 returns
-   * the skeleton itself.
+   * The skeleton as drawn in harmony (harmony.cross): every limb wavy about its own course,
+   * neighbouring limbs in opposite phase, so they cross and recross while the tree keeps its
+   * outline. It stands still (only the amount eases in and out). A side branch starts where its
+   * parent now is. `amount` 0..1; 0 returns the skeleton itself.
    */
-  woven(amount: number, time: number): Skeleton {
+  woven(amount: number): Skeleton {
     const sk = this.sk, n = sk.n;
     if (amount <= 0.002 || n < 2) return sk;
     if (this.wx.length < n) {
@@ -420,7 +420,7 @@ export class Plant {
       let ox = 0, oy = 0;
       if (this.order[i] > 0) {
         const tx = sk.x[i] - sk.x[pa], ty = sk.y[i] - sk.y[pa], l = Math.hypot(tx, ty) || 1;
-        const off = A * env * Math.sin(sk.flex[i] * turn + (b & 1) * Math.PI + this.branchRand[b] * 1.3 + time * 1.1);
+        const off = A * env * Math.sin(sk.flex[i] * turn + (b & 1) * Math.PI + this.branchRand[b] * 1.3);
         ox = (-ty / l) * off;
         oy = (tx / l) * off;
       }

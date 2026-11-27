@@ -164,7 +164,12 @@ const RANGES: Record<string, Spec> = {
   'falling.flutter': { min: 0, max: 1.5 },
   'falling.time': { min: 0.3, max: 3 },
   'harmony.colour': { min: 0, max: 1 },
-  'harmony.colourMode': { options: { 'Gradient from one to the other': 'gradient', 'Mix of the two': 'mix', 'The harmony colour': 'colour' } },
+  'harmony.colourMode': { options: { 'Waves of both colours': 'waves', 'Gradient from one to the other': 'gradient', 'Mix of the two': 'mix', 'The harmony colour': 'colour' } },
+  'harmony.colourMix': { options: { 'Even (OKLab)': 'oklab', 'Straight (RGB)': 'rgb', 'As light (brighter)': 'light', 'Round the colour wheel': 'hue', "Painter's wheel (yellow + blue = green)": 'paint', 'Hard cut': 'hard' } },
+  'harmony.waveLead': { options: { 'Higher voice leads, then in step': 'higher', 'Lower voice leads, then in step': 'lower', 'Each takes the other colour': 'each' } },
+  'harmony.waveFrom': { options: { 'Side facing the other voice': 'partner', "The halo's growing points": 'origins' } },
+  'harmony.waveLength': { min: 0.1, max: 3 },
+  'harmony.waveSpeed': { min: 0.1, max: 5 },
   'harmony.cross': { min: 0, max: 1 },
   'harmony.blossoms': { min: 0, max: 1 },
   'harmony.glow': { min: 0, max: 2 },
@@ -1143,6 +1148,8 @@ Shift-click: factory default ${fmt(d)}`));
     hide('plants.trunkLean', !(p.plants.trunk > 0));
     hide('harmony.colourMode', p.harmony.colour <= 0);
     hide('harmony.colourValue', p.harmony.colour <= 0 || p.harmony.colourMode !== 'colour');
+    hide('harmony.colourMix', p.harmony.colour <= 0 || p.harmony.colourMode === 'colour');
+    for (const k of ['waveLead', 'waveFrom', 'waveLength', 'waveSpeed']) hide('harmony.' + k, p.harmony.colour <= 0 || p.harmony.colourMode !== 'waves');
     hide('fake.together', p.fake.voices !== 'duet');
     hide('fake.harmony', p.fake.voices === 'together');
     hide('scene.scopeLayer', !p.scene.showScope);

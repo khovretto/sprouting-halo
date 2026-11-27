@@ -8,7 +8,7 @@ import type { Theme } from './features';
 import type { Instances } from './render/renderer';
 import type { Skeleton } from './growth/skeleton';
 import { clamp, fallDir, hash1, lerp, RGB } from './math';
-import { Ink, inkAt } from './colour';
+import { Ink, inkAt, inkPt } from './colour';
 import { customDef, MOVES, pivotOf, shapeId, SHAPE_PIVOT, ThemeDef, ThemePart } from './themes';
 import { bakeGradient } from './gradient';
 import type { ShedPool } from './shed';
@@ -404,6 +404,8 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (lg <= 0.003) continue;
     const pop = (rank ? unfurl(clamp(f)) : easeOutBack(clamp(f))) * lg;
     const x = sk.x[i], y = sk.y[i], flex = sk.flex[i];
+    inkPt.x = x;
+    inkPt.y = y;
     const side = h1 < 0.5 ? -1 : 1;
     const tone = extras.tone ? extras.tone[i] : 1;
 
@@ -690,6 +692,8 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
     if (v <= 0.02) continue;
     const pop = easeOutBack(clamp(v));
     const x = Math.cos(a), y = Math.sin(a);
+    inkPt.x = x;
+    inkPt.y = y;
     const tangent = a + Math.PI / 2;
     const alt = Math.floor(k / nR) % 2 ? 1 : -1; // not k % 2: with two parts every thorn would point inward
     const ringPart = ringParts[k % nR];

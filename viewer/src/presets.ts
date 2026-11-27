@@ -396,10 +396,10 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       },
     },
     {
-      id: 'duet', name: 'Duet (harmony)', description: 'Made for two voices: in harmony their colours run into each other, the branches crisscross, blossoms open and everything glows. Trees stay between phrases.',
+      id: 'duet', name: 'Duet (harmony)', description: 'Made for two voices: in harmony waves of both colours run through them, the branches crisscross, blossoms open and everything glows. Trees stay between phrases.',
       values: {
         growth: { newTreeEachPhrase: false, onPhraseEnd: false, restBrightness: 0.7, dieAfter: 6, fadeSeconds: 3 },
-        harmony: { colour: 1, colourMode: 'gradient', cross: 1, blossoms: 1, glow: 0.8 },
+        harmony: { colour: 1, colourMode: 'waves', cross: 1, blossoms: 1, glow: 0.8 },
       },
     },
     {

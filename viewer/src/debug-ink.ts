@@ -100,7 +100,7 @@ export function inkMetrics(inp: InkInput) {
       ux /= ul;
       uy /= ul;
       const cx = px + ux * size * 0.5, cy = py + uy * size * 0.5;
-      const ra = Math.max(CELL * 0.5, size * 0.5), rb = Math.max(CELL * 0.5, size * 0.34);
+      const ra = Math.max(CELL * 0.5, size * 0.5), rb = Math.max(CELL * 0.5, size * 0.25); // leaf half-width (sprite.frag)
       stamp(cx - ra, cy - ra, cx + ra, cy + ra, (x, y) => {
         const lx = (x - cx) * ux + (y - cy) * uy, ly = -(x - cx) * uy + (y - cy) * ux;
         return (lx / ra) ** 2 + (ly / rb) ** 2 <= 1;

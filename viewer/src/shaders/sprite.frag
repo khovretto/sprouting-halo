@@ -30,7 +30,7 @@ float outsideSpan(float y) { return max(-y, y - 1.0); }
 
 /** The flat outline of a leaf (0) or holly leaf (4) at (x across, y along). */
 float leafD(int shape, float x, float y) {
-  float w = shape == 0 ? 0.34 * pow(max(sin(PI * clamp(y, 0.0, 1.0)), 0.0), 0.7)
+  float w = shape == 0 ? 0.25 * pow(max(sin(PI * clamp(y, 0.0, 1.0)), 0.0), 0.7)
     : 0.4 * pow(max(sin(PI * clamp(y, 0.0, 1.0)), 0.0), 0.85) * (0.78 + 0.22 * cos(y * 2.0 * PI * 3.0));
   return max(abs(x) - w, outsideSpan(y));
 }
@@ -102,8 +102,8 @@ void main() {
   }
 
   if (shape == 0) {
-    // Leaf: almond outline with a darker midrib.
-    float w = 0.34 * pow(max(sin(PI * clamp(y, 0.0, 1.0)), 0.0), 0.7);
+    // Leaf: a slender almond outline (half as wide as it is long) with a darker midrib.
+    float w = 0.25 * pow(max(sin(PI * clamp(y, 0.0, 1.0)), 0.0), 0.7);
     d = max(abs(x) - w, outsideSpan(y));
     float rib = 1.0 - smoothstep(0.0, 0.035, abs(x));
     col *= 1.0 - 0.5 * rib * step(0.04, y) * step(y, 0.92);
@@ -144,7 +144,7 @@ void main() {
     // and arched; its normal turned by the leaf's roll about the midrib, then by its direction in
     // the picture; lit from the upper left. Seen from below (rolled past edge-on), the underside
     // shows: paler and duller.
-    float w = shape == 0 ? 0.34 : 0.4;
+    float w = shape == 0 ? 0.25 : 0.4;
     float u = clamp(x / w, -1.0, 1.0);
     float k = u_leaf3d;
     float sf = sin(v_leaf2.y), cf = cos(v_leaf2.y);

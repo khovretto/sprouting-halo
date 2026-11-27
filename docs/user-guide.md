@@ -240,7 +240,7 @@ DAW project.
 | Short pause (a breath) | The outer twigs grow back into the tree ("ungrow"); their leaves fall. They regrow when you sing again. |
 | The phrase ends (1 s of silence) | The tree stays whole until 3 s after you stopped singing, so it stands next to the tree the next phrase grows; then it ungrows, trunk and all. |
 | Full stop (4 s of silence) | Whatever is left of the tree goes the same way. The next phrase grows a new one. |
-| Two tracks in harmony | Their colours run into each other and everything glows a little more (with the Duet reaction, the branches also crisscross). |
+| Two tracks in harmony | Waves of both colours run through them and everything glows a little more (with the Duet reaction, the branches also turn wavy and crisscross). |
 | Loudness | Brightness, glow, wind in the branches. |
 | Note starts | A soft swell of glow. They do not move the plants (an optional push that swings back is under Reaction → Note starts, advanced; off by default). |
 | Pitch | High notes grow the upper side first and can shift the colours. |
@@ -303,12 +303,24 @@ turn on "unison & octaves count".
 Reaction → **Harmony** has one amount per effect; 0 turns an effect off, so use any of them
 together:
 
-- **Colours come together:** both voices' colours move toward a shared colour and back. The
-  shared colour is a gradient from one voice's colour to the other's, the mix of the two, or a
-  colour you pick.
-- **Branches crisscross** (off by default; the Duet reaction turns it on): the branches weave
-  across each other and the two trees lean into one another; each branch keeps its course and the
-  tree its outline. The halo ring braids.
+- **Colours come together:** how far both voices' colours go toward each other, and back when the
+  harmony ends. **Shared colour** says how:
+  - **Waves of both colours** (the default): bands of the other voice's colour run out along the
+    branches from the root, and round the halo, a sine wave between the two colours.
+    **Waves start:** the higher (or lower) voice leads: its colour runs into the other voice
+    first, and half a wave later the bands reach it too, so from then on both carry the same bands
+    in step. Or each voice takes the other's colour at once. **Halo waves start from** the side of
+    the ring facing the tree it is in harmony with (the bands run on from that tree), or from the
+    halo's growing points. **Wave length** and **wave speed** are in world units (the open halo's
+    radius is 1.05), the same on the trees and the halo.
+  - A **gradient** from one voice's colour at the root to the other's at the tips, the **mix** of
+    the two, or a **colour** you pick.
+- **Colours blend:** how two colours blend between each other: even (OKLab, no grey middle),
+  straight (RGB), as light (brighter half way), round the colour wheel, the painter's wheel
+  (yellow and blue make green) or a hard cut (sharp bands).
+- **Branches crisscross** (off by default; the Duet reaction turns it on): the branches turn wavy,
+  neighbours the opposite way, so they cross each other. They do not move; each branch keeps its
+  course and the tree its outline. The halo ring braids.
 - **Blossoms open in harmony**, and **glow in harmony**.
 - Theme parts can open in harmony (section 9).
 
@@ -316,7 +328,8 @@ To try it without a second singer: Setup preset **Duet: trading phrases**, React
 **Duet (harmony)**.
 
 The **voice scope** (key G) draws rolling graphs of what Sprout.exe hears and what the overlay
-makes of it: loudness, pitch, effort and breath, vibrato, note starts and phrases, growth. Hover a
+makes of it: loudness, pitch, effort and breath, vibrato, note starts and phrases, harmony (and the
+colour wave), growth. Hover a
 value for what it is and which settings use it.
 
 **Voice detection** (Setup) sets how vibrato is recognised. Sprout.exe keeps these in
