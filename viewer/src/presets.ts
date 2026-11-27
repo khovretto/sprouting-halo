@@ -38,7 +38,7 @@ const REACTIVE = new Set([
   'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
   'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed', 'growth.shed', 'growth.fallDirection', 'growth.fillSpace', 'growth.branchEachPhrase',
   'growth.branchesKept', 'growth.branchOrder', 'growth.branchSymmetry', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
-  'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine', 'glow.softGlow', 'glow.front',
+  'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine', 'glow.softGlow', 'glow.front', 'glow.travel',
   'halo.idleSpeed', 'halo.singSpeed', 'halo.sproutRate', 'halo.sproutGrow', 'halo.spawnSeconds',
   'plants.softDroop', 'plants.moodShaping', 'look.blossoms', 'look.blossomHold', 'look.thornEffort',
 ]);
@@ -146,7 +146,7 @@ const built = (list: Preset[]) => list.map((p) => ({ ...p, builtin: true }));
 
 export const BUILTINS: Record<Kind, Preset[]> = {
   visual: built([
-    { id: 'default', name: 'Sprout', description: 'The standard look: leafy canopy in your take colours, a white glint travelling round the halo.', values: { look: { leaf3d: 0.8 } } },
+    { id: 'default', name: 'Sprout', description: 'The standard look: leafy canopy in your take colours, a white glint travelling round the halo.', values: { look: { leaf3d: 0.8 }, colLeaf: { takeMix: 1 } } },
     {
       id: 'ivy', name: 'Lush ivy', description: 'Dense and overgrown. Woody dark stems that turn into your take colour, leaves from deep to light green.',
       values: {
@@ -322,7 +322,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         response: { release: 3, brightness: 0.6, variety: 0.3 },
         look: { blossoms: 0.9, blossomHold: 2 },
         halo: { idleSpeed: 5, singSpeed: 40, sproutRate: 2, sproutGrow: 1.0 },
-        glow: { levelGain: 0.65, onsetGain: 0.25, softGlow: 0.8 },
+        glow: { travel: 0.8, levelGain: 0.65, onsetGain: 0.25, softGlow: 0.8 },
         motion: { swayDeg: 6, springiness: 0.3, flutterDeg: 10, speed: 0.7 },
         commit: { duration: 1.4, limbs: 2 },
       },
@@ -335,7 +335,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         response: { phraseGap: 0.6, release: 0.7, brightness: 1, effortWidth: 1.5, pitchSteer: 0.8, variety: 0.8 },
         look: { blossoms: 1, blossomHold: 0.8, thornEffort: 2 },
         halo: { idleSpeed: 20, singSpeed: 160, sproutRate: 8, sproutGrow: 0.3, spawnSeconds: 0.5 },
-        glow: { levelGain: 1.6, onsetGain: 0.9, pitchShine: 1.0, front: 1.8 },
+        glow: { travel: 0.25, levelGain: 1.6, onsetGain: 0.9, pitchShine: 1.0, front: 1.8 },
         motion: { swayDeg: 12, springiness: 0.7, speed: 1.4, shiverDeg: 1.7, writhe: 0.25, writheVoice: 'effort' },
         transitions: { liveEndSeconds: 0.4, pruneSeconds: 0.9 },
         commit: { duration: 0.7, limbs: 4 },
@@ -349,7 +349,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         response: { brightness: 0.5, effortWidth: 0.5 },
         look: { blossoms: 0.4, blossomHold: 2.5 },
         halo: { sproutRate: 1.5 },
-        glow: { levelGain: 0.5, onsetGain: 0.15, pitchShine: 0.2, front: 0.4 },
+        glow: { travel: 0.7, levelGain: 0.5, onsetGain: 0.15, pitchShine: 0.2, front: 0.4 },
         motion: { swayDeg: 4, flutterDeg: 8, shiverDeg: 0.5 },
         commit: { duration: 0.8, limbs: 1 },
       },
@@ -375,13 +375,14 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       values: {
         growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5, witherEffect: 'fade', onPhraseEnd: false, dieAfter: 6, fadeSeconds: 3.5 },
         look: { blossoms: 1, blossomHold: 1 },
-        glow: { softGlow: 0.8 },
+        glow: { travel: 0.7, softGlow: 0.8 },
         motion: { shiverDeg: 1.7, shiverSensitivity: 1.5 },
       },
     },
     {
       id: 'fall', name: 'Falling leaves', description: 'Pauses and pitch drops strip the outer twigs deep into the tree and the leaves rain down; it regrows fast when you sing.',
       values: {
+        glow: { travel: 0.4 },
         growth: { newTreeEachPhrase: false, witherOnPitchDip: true, witherDipSemitones: 2, witherDepth: 0.8, witherSeconds: 0.6, twigFadeSeconds: 1.2, regrowSpeed: 2,
           onPhraseEnd: false, dieAfter: 3.5, fadeSeconds: 3 },
       },
@@ -389,6 +390,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'fallaway', name: 'Falling away', description: 'Nothing grows back into the tree: in a pause the outer twigs break off piece by piece and fall, and when the phrase ends the whole tree comes down from the tips inward.',
       values: {
+        glow: { travel: 0.4 },
         growth: { witherEffect: 'fall', shed: false, fadeAfter: 0, witherDepth: 0.5, witherSeconds: 1.0, fadeSeconds: 2.2, regrowSpeed: 1.6 },
       },
     },
@@ -422,7 +424,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         look: { thornEffort: 0.9, blossoms: 0.6, blossomHold: 1.2 },
         plants: { twistVoice: 0.6 },
         halo: { idleSpeed: 5, singSpeed: 50, sproutRate: 3, sproutGrow: 0.8 },
-        glow: { levelGain: 0.9, onsetGain: 0.45, pitchShine: 0.3, front: 1.2, softGlow: 0.5 },
+        glow: { travel: 0.9, levelGain: 0.9, onsetGain: 0.45, pitchShine: 0.3, front: 1.2, softGlow: 0.5 },
         motion: { writhe: 0, swayDeg: 5, idle: 0.4, speed: 0.7, springiness: 0.4, twigs: 0.8, flutterDeg: 9, shiverDeg: 1 },
       },
     },
@@ -436,7 +438,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         look: { thornEffort: 2.2, blossoms: 0 },
         plants: { twistVoice: 1.6, softDroop: 1.5 },
         halo: { idleSpeed: 4, singSpeed: 55, sproutRate: 4, sproutGrow: 0.9 },
-        glow: { levelGain: 0.5, onsetGain: 0.55, pitchShine: 0.2, front: 1.4, softGlow: 0.2 },
+        glow: { travel: 0.8, levelGain: 0.5, onsetGain: 0.55, pitchShine: 0.2, front: 1.4, softGlow: 0.2 },
         motion: { writhe: 0.7, writheVoice: 'vibrato', swayDeg: 5, idle: 0.5, speed: 0.6, springiness: 0.75,
           twigs: 1.6, flutterDeg: 6, shiverDeg: 1.7, shiverSensitivity: 1.5 },
         commit: { duration: 1.3, limbs: 3 },
@@ -445,6 +447,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'fade', name: 'Fade away (nothing dies)', description: 'Nothing withers back or falls: in pauses the outer twigs and their leaves fade, and after a long silence the whole tree fades out.',
       values: {
+        glow: { travel: 0.6 },
         growth: { witherEffect: 'fade', witherFromTips: false, shed: false, witherOnPitchDip: false, witherDepth: 0.5, witherSeconds: 1.2, dieAfter: 4, fadeAfter: 2, fadeSeconds: 3,
           branchEachPhrase: false, newTreeEachPhrase: true },
         response: { release: 2 },

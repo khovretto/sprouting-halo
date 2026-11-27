@@ -163,6 +163,7 @@ const RANGES: Record<string, Spec> = {
   'falling.spin': { min: 0, max: 2 },
   'falling.flutter': { min: 0, max: 1.5 },
   'falling.time': { min: 0.3, max: 3 },
+  'glow.travel': { min: 0, max: 2 },
   'falling.dropSeconds': { min: 0, max: 1.5 },
   'falling.dropVariety': { min: 0, max: 1 },
   'falling.dropSpeed': { min: 1, max: 3 },

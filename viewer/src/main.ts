@@ -29,6 +29,7 @@ import { Generations } from './growth/generations';
 import { NodeKind, Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
 import { HarmonyTracker } from './harmony';
+import { GlowTrail } from './glow-trail';
 import { decorateRing, decorateTree, DecoStyle, drawShed, RingLetGo } from './deco';
 import { layoutTakes, outlineOf, Placement, plantArc, toWorld } from './layout';
 import { angleLerp, carried, clamp, deg, hash1, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
@@ -41,6 +42,8 @@ interface TreeLook { params: LookParams; theme: Theme; density: number; colour: 
 
 interface Slot {
   id: string;
+  /** glow.travel: its glow over the last seconds. */
+  glowTrail?: GlowTrail;
   gens: Generations<Plant>;
   place: Placement;
   drive: Drive;
@@ -95,6 +98,8 @@ interface BoughFlight {
 /** One live track's halo. Several live tracks nest concentrically (first = outermost). */
 interface LiveHalo {
   id: string;
+  /** glow.travel: its glow over the last seconds. */
+  glowTrail?: GlowTrail;
   vine: HaloVine;
   drive: Drive;
   /** 0..1 open: opens with the first phrase of a recording, stays open until it stops. */
@@ -678,6 +683,9 @@ function start() {
   const partBufs: Float32Array[] = [];
   const inkPool: Ink[][] = Array.from({ length: MAX_LAYERS + 8 }, () => [newInk(), newInk(), newInk()]);
   const C = [0, 0, 0];
+  /** glow.travel: while a tree or halo is drawn, its glow at a point (s 0 root .. 1 tip; x, y in
+   *  its layer), a change of glow reaching the tips later than the root. Null: one glow for all. */
+  let glowAlong: ((s: number, x: number, y: number) => number) | null = null;
   /** Inks for a layer: stroke (branches, or the halo), leaf and accent. `geo`: where harmony waves
    *  run (a tree: its length from root to tip in world units; a halo: its radius and the angles
    *  they start from). */
@@ -787,7 +795,8 @@ function start() {
       const k = bright * tn;
       const wa = (sk.w[pa] * look.width) / u, wb = (sk.w[i] * look.width * (0.4 + 0.6 * f)) / u;
       const cr = lerp(c[0], 1, look.shine) * k, cg = lerp(c[1], 1, look.shine) * k, cb = lerp(c[2], 1, look.shine) * k;
-      const a = alpha * na * fade, gl = (look.glow + (f < 1 ? frontGlow * (1 - f) : 0)) * tn * tn;
+      const g0 = glowAlong ? glowAlong(ring ? 0 : sk.flex[i] * sScale, sk.x[i], sk.y[i]) : look.glow;
+      const a = alpha * na * fade, gl = (g0 + (f < 1 ? frontGlow * (1 - f) : 0)) * tn * tn;
       // Chain links tile: a start on the parent segment's end plane, and a flat end where a drawn
       // child continues it (tips and growing ends stay round).
       const gp = sk.parent[pa];
@@ -948,6 +957,7 @@ function start() {
       inkPt.y = Math.sin(am);
       const c = inkAt(ink, ringS(inkPt.x, inkPt.y, ink.loop), 0.5, C);
       const s = look.shine, i = brighten(look);
+      const gw = glowAlong ? glowAlong(0, inkPt.x, inkPt.y) : look.glow;
       if (braid > 0) {
         // halo.braid (consult 7, 1.8): two strands round each other, 12 crossings (whole: it closes),
         // the back one first and dimmer.
@@ -958,14 +968,14 @@ function start() {
           const ws = w * lerp(1, 0.7, braid), rp = 1 + 0.028 * braid * Math.sin(12 * ap + j * Math.PI);
           const x0 = r0 * Math.cos(a0), y0 = r0 * Math.sin(a0);
           out.stroke(x0, y0, r1 * Math.cos(a1), r1 * Math.sin(a1), ws, ws, 0, 0,
-            lerp(c[0], 1, s) * sh, lerp(c[1], 1, s) * sh, lerp(c[2], 1, s) * sh, alpha * mk * fadeOf(look), look.glow, layer,
+            lerp(c[0], 1, s) * sh, lerp(c[1], 1, s) * sh, lerp(c[2], 1, s) * sh, alpha * mk * fadeOf(look), gw, layer,
             2, 1, x0, y0, 0, 0, true, rp * Math.cos(ap), rp * Math.sin(ap), 0);
         }
         continue;
       }
       const x0 = Math.cos(a0), y0 = Math.sin(a0);
       out.stroke(x0, y0, Math.cos(a1), Math.sin(a1), w, w, 0, 0,
-        lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * mk * fadeOf(look), look.glow, layer,
+        lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * mk * fadeOf(look), gw, layer,
         2, 1, x0, y0, 0, 0, true, Math.cos(ap), Math.sin(ap), 0);
     }
   }
@@ -983,6 +993,7 @@ function start() {
                    fall: number, downX: number, downY: number, theme: Theme, density: number, sScale = 1): DecoStyle {
     return {
       theme, density, layer, leaf: inks.leaf, accent: inks.accent, sScale, alpha: alpha * fadeOf(look), glow: look.glow * params.look.decoGlow, unit, seed, effort: d.effort,
+      glowAlong: glowAlong ? ((ga, k) => (s: number, x: number, y: number) => ga(s, x, y) * k)(glowAlong, params.look.decoGlow) : undefined,
       bloom: look.bloom * params.look.blossoms, fall, downX, downY, intensity: brighten(look), time: t, pitch: d.pitch,
       harmony: d.harmony, fallAway: params.growth.fallDirection === 'away', drop: params.falling,
     };
@@ -1552,6 +1563,8 @@ function start() {
     };
     const drawPlant = (s: Slot, alpha: number, look: Look, fall: number) => {
       const pl = s.place;
+      const trail = (s.glowTrail ??= new GlowTrail());
+      trail.push(t, look.glow);
       const angle = pl.angle + spin * pl.tierDir;
       const weave = clamp(params.harmony.cross) * s.drive.harmony;
       const slotL = layer, look0 = look;
@@ -1562,7 +1575,11 @@ function start() {
         // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
         const base = inks.stroke.mid;
         const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
-        const look = { ...look0, glow: look0.glow * clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4) };
+        const gk = clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4);
+        const look = { ...look0, glow: look0.glow * gk };
+        // glow.travel: a change of glow runs from the root (s = 0) to the tips (s = 1).
+        const travel = Math.max(0, params.glow.travel ?? 0);
+        glowAlong = travel > 0.01 ? (s) => trail.at(travel * Math.min(1, Math.max(0, s))) * gk : null;
         const take = hexToRgb(s.colour), kTake = Math.max(0, slots.indexOf(s));
         const a0 = alpha * g.alpha * (g.dim ?? 1);
         const dry = g.dry ?? 0, gfall = g.fall ?? 0;
@@ -1626,6 +1643,7 @@ function start() {
             paint(L, ang, a0 * (1 - smooth(gfall)), gInks, pair ? k : -1);
           }
         } else paint(slotL, angle, a0, inks, -1);
+        glowAlong = null;
       };
       for (const g of s.gens.gens) {
         const tl = g.look as TreeLook | undefined;
@@ -1686,6 +1704,28 @@ function start() {
     // nest concentrically. A new one pops in; one whose track stopped being live fades out.
     const hp = params.halo;
     const drawHalo = (h: LiveHalo, fade: number) => {
+      const trail = (h.glowTrail ??= new GlowTrail());
+      trail.push(t, lookOf(h.drive).glow);
+      const travel = Math.max(0, params.glow.travel ?? 0);
+      if (travel > 0.01) {
+        const n = Math.max(1, Math.round(params.halo.origins)), a0 = params.halo.startAngle * deg;
+        glowAlong = (_s, x, y) => {
+          let d = Math.PI;
+          for (let k = 0; k < n; k++) {
+            let e = (Math.atan2(y, x) - a0 - (k * TAU) / n) % TAU;
+            if (e < 0) e += TAU;
+            d = Math.min(d, e > Math.PI ? TAU - e : e);
+          }
+          return trail.at((travel * d) / Math.PI);
+        };
+      }
+      try {
+        drawHaloBody(h, fade);
+      } finally {
+        glowAlong = null;
+      }
+    };
+    const drawHaloBody = (h: LiveHalo, fade: number) => {
       if (layer >= MAX_LAYERS) return;
       const hp = params.halo; // read here: a halo being replaced draws with its own (withParams)
       const spawn = Math.max(0.001, easeOutBack(clamp((t - h.spawnT0) / Math.max(0.05, hp.spawnSeconds))));

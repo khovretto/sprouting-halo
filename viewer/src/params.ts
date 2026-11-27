@@ -516,6 +516,9 @@ export const defaults = {
     pitchShine: 0.4,
     /** Extra glow on the growing edge of the construct. */
     front: 0.8,
+    /** Seconds a change of glow (a swell of the voice, a note start) takes to run from a tree's
+     *  root to its tips, and round the halo from where it grows (0 = all of it at once). */
+    travel: 0.5,
     /** Soft singing glows more diffusely (0 = ignore softness). */
     softGlow: 0.4,
     /** Where branches and leaves are dense the glow steps back, so the detail shows (0 = off). */

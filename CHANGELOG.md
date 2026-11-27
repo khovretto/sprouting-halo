@@ -45,6 +45,8 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
 - **Presets:** 12 Looks, 14 Reactions, 15 test setups, plus your own (export and import as files).
 - Leaves and petals fall instead of shrinking; Autumn's wood stays while its leaves fall and
   regrow.
+- Glow runs from root to tip: a swell of the voice or a note start lights each tree from the root
+  up and the halo from where it grows, instead of everything at once (0.5 s, adjustable).
 - Light, dark and split checker backdrops for the preview; an optional dark outline and flat
   glow so looks read over bright scenes.
 - Voice scope (rolling graphs of what the overlay hears), tooltips that say how each setting reads

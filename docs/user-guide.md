@@ -247,7 +247,7 @@ DAW project.
 | The phrase ends (1 s of silence) | The tree stays whole until 3 s after you stopped singing, so it stands next to the tree the next phrase grows; then it ungrows, trunk and all. |
 | Full stop (4 s of silence) | Whatever is left of the tree goes the same way. The next phrase grows a new one. |
 | Two tracks in harmony | Waves of both colours run through them and everything glows a little more (with the Duet reaction, the branches also turn wavy and crisscross). |
-| Loudness | Brightness, glow, wind in the branches. |
+| Loudness | Brightness, glow, wind in the branches. A swell of glow runs up each tree from the root to the tips, and round the halo from where its vine grows (Reaction → "glow runs root to tip", 0.5 s; 0 = all at once). |
 | Note starts | A soft swell of glow. They do not move the plants (an optional push that swings back is under Reaction → Note starts, advanced; off by default). |
 | Pitch | High notes grow the upper side first and can shift the colours. |
 | Effort (pressed, full voice) | Thicker branches, bigger thorns. Soft singing: thinner, drooping, a wider softer glow. |

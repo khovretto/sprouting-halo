@@ -135,7 +135,7 @@ export const FOLDERS: FolderSpec[] = [
   },
   {
     id: 'loud', tab: 'reaction', title: 'Loudness: brightness, wind, halo speed',
-    keys: ['response.brightness', 'glow.levelGain', 'motion.swayDeg', 'motion.idle', 'halo.singSpeed', 'halo.sproutRate'],
+    keys: ['response.brightness', 'glow.levelGain', 'glow.travel', 'motion.swayDeg', 'motion.idle', 'halo.singSpeed', 'halo.sproutRate'],
     advanced: ['halo.idleSpeed', 'motion.flutterDeg', 'motion.speed'],
   },
   {
@@ -271,7 +271,7 @@ export const LABELS: Record<string, string> = {
   'look.themeFrom': 'per-track settings', 'look.theme': 'theme', 'look.density': 'leaf amount', 'look.decoSize': 'leaf size',
   'look.naturalTint': 'natural colours', 'look.variety': 'tone variety', 'look.depthShade': 'inner shade',
   'look.blossoms': 'blossoms', 'look.blossomHold': 'blossom after note held (s)', 'look.thornEffort': 'thorn growth (thorns theme)', 'look.decoGlow': 'leaf glow',
-  'glow.base': 'idle glow', 'glow.levelGain': 'glow from loudness', 'glow.onsetGain': 'flash on note starts',
+  'glow.base': 'idle glow', 'glow.levelGain': 'glow from loudness', 'glow.travel': 'glow runs root to tip (s)', 'glow.onsetGain': 'flash on note starts',
   'glow.pitchShine': 'shine on high notes', 'glow.front': 'growing-edge glow', 'glow.wide': 'haze',
   'glow.crowd': 'less glow where dense', 'glow.inkMask': 'glow around, not on', 'glow.knee': 'soft roll-off',
   'glow.softGlow': 'soft voice glows wider',
@@ -558,6 +558,7 @@ Object.assign(TIPS, {
   'response.pitchSteer': 'High notes grow the upper side of a tree first, low notes the lower side.\nReads: the held pitch shifts the reveal order by up to ±0.35 × this toward the top or bottom. pitch: the sung note (detected over 43 ms); C3 = 0 up to F6 = 1, the last note is held through pauses (smoothed ~0.1 s).',
   'response.effortWidth': 'Branches get thicker with vocal effort and thinner when you sing softly.\nReads: width = 1 + this × (effort − 0.5) × 1.6 (never below 25 %). effort: energy in the overtones (2nd harmonic up to 5 kHz) against the fundamental, plus loudness, both compared with your own running average, so 0.5 = how you usually sing and mic gain does not matter (smoothed ~0.2 s).',
   'response.brightness': 'Brightness follows how loud you sing (0 = constant).\nReads: brightness = 0.45 + 0.75 × energy (×1.3, capped) + 0.12 × note-start flash, mixed in by this amount; below 1 it shows as see-through, not dark. energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s); note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
+  'glow.travel': 'How long a change of glow takes to run from a tree\'s root to its tips, and round the halo from where its vine grows: a swell of the voice or a note start lights the trees from the root up instead of all at once. 0 = the whole tree at once.',
   'glow.levelGain': 'Extra glow with loudness.\nReads: glow += this × energy. energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s).',
   'glow.onsetGain': 'A flash of glow on every note start.\nReads: glow += this × flash; the flash swells in on a note start (reaching about 1 after about 80 ms) and fades with a 0.25 s time constant. note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
   'glow.pitchShine': 'High, loud notes shine brighter.\nReads: glow += this × pitch × energy. pitch: the sung note (detected over 43 ms); C3 = 0 up to F6 = 1, the last note is held through pauses (smoothed ~0.1 s); energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s).',

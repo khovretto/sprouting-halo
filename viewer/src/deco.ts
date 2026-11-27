@@ -45,6 +45,8 @@ export interface DecoStyle {
   sScale: number;
   alpha: number;
   glow: number;
+  /** glow.travel: the glow at a point (s 0 root .. 1 tip; x, y in the layer), instead of `glow`. */
+  glowAlong?: (s: number, x: number, y: number) => number;
   /** Sizes are divided by this (the halo is built in unit-circle space). */
   unit: number;
   /** Extra size factor (the small resting halo gets smaller leaves). */
@@ -171,8 +173,9 @@ class Placer {
     }
     if (a <= 0.01 || size <= 0) return;
     const f = this.frame;
-    if (f) this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer, f[0], f[1], f[2], f[3], f[4], pivY, pivX);
-    else this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer, 1, x, y, flex, 0, pivY, pivX);
+    const g = (st.glowAlong ? st.glowAlong(flex * st.sScale, x, y) : st.glow) * glowMul;
+    if (f) this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, g, st.layer, f[0], f[1], f[2], f[3], f[4], pivY, pivX);
+    else this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, g, st.layer, 1, x, y, flex, 0, pivY, pivX);
   }
 }
 
@@ -242,7 +245,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   for (let k = 0, acc = 0; k < spaced.length; k++) cuts.push(Math.min(1, (acc += st.density * Math.max(0, spaced[k].amount))));
   const sparse = !!custom && custom.parts.every((x) => x.place === 'spaced' || x.place === 'tips');
   const place = new Placer(out, st);
-  const underPlace = extras.under ? new Placer(extras.under, { ...st, glow: 0 }) : null;
+  const underPlace = extras.under ? new Placer(extras.under, { ...st, glow: 0, glowAlong: undefined }) : null;
   place.now = extras.now ?? 0;
   if (underPlace) underPlace.now = place.now;
   const unit = Math.max(1e-3, st.unit);
