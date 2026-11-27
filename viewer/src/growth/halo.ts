@@ -18,6 +18,7 @@ import type { Drive } from '../drive';
 import type { Params } from '../params';
 import { angleLerp, clamp, deg, noise1, rng, Rng, TAU } from '../math';
 import { bendFrames, NodeKind, Skeleton } from './skeleton';
+import { ShedPool } from '../shed';
 
 interface VNode {
   id: number;
@@ -66,6 +67,14 @@ export class HaloVine {
   /** Per node: 1 runner, 2 sprout (motion), and the bend frames for the sprouts' own bend. */
   order = new Uint8Array(0);
   bend = new Float32Array(0);
+  /** growth.shed: the halo's falling leaves (vine and ring), in the halo's frame. */
+  shed = new ShedPool();
+  /** Vine node ids whose leaves have let go (each only once). */
+  gone = new Set<number>();
+  /** Ring decorations (by index round the ring): 1 = let go, until the vine covers it again; and
+   *  how visible each was last frame. */
+  ring = { gone: new Uint8Array(1024), prev: new Float32Array(1024), spacing: 0 };
+  private alphaOld = new Float32Array(0);
   private nodes: VNode[] = [];
   private tips: Tip[] = [];
   private nextId = 1;
@@ -115,7 +124,9 @@ export class HaloVine {
     return n;
   }
 
-  update(dt: number, d: Drive, onset: boolean, p: Params) {
+  /** tailKeepDeg: while a look change sweeps round, the vine an older look kept is not dropped
+   *  before it has faded (drawn by tailAlpha). */
+  update(dt: number, d: Drive, onset: boolean, p: Params, tailKeepDeg = 0) {
     const h = p.halo;
     this.t += dt;
     this.ensureLayout(p);
@@ -139,7 +150,7 @@ export class HaloVine {
     while (count-- > 0 && this.tips.length) this.sprout(this.tips[Math.floor(this.r() * this.tips.length)], d, h);
 
     // Drop vine that has fallen off the end of every tail.
-    const tail = Math.max(0.1, h.tailDeg * deg);
+    const tail = Math.max(0.1, Math.max(h.tailDeg, tailKeepDeg) * deg);
     // (in place, no new array; dropped nodes are marked so no survivor keeps pointing at them)
     let kept = 0;
     for (const node of this.nodes) {
@@ -227,10 +238,31 @@ export class HaloVine {
       const f = clamp((behind - fadeStart) / Math.max(1e-3, tail - fadeStart));
       this.alpha[j] = 1 - f * f * (3 - 2 * f);
     }
+    // Let-go memory of nodes that are gone (ids only grow).
+    if (this.gone.size > 2048 && n > 0) {
+      let minId = Infinity;
+      for (const v of this.nodes) minId = Math.min(minId, v.id);
+      for (const id of this.gone) if (id < minId) this.gone.delete(id);
+    }
     sk.computeChildren();
     if (this.order.length < sk.n) this.order = new Uint8Array(sk.n * 2);
     for (let i = 0; i < sk.n; i++) this.order[i] = sk.kind[i] === NodeKind.Sprout ? 2 : 1;
     this.bend = bendFrames(sk, this.order, this.bend);
+  }
+
+  /** Per node opacity of the tail fade with other settings (an older look, while a look change
+   *  sweeps round): same order as `alpha`. */
+  tailAlpha(tailDeg: number, tailFade: number) {
+    const n = this.nodes.length;
+    if (this.alphaOld.length < n) this.alphaOld = new Float32Array(n * 2);
+    const tail = Math.max(0.1, tailDeg * deg), fadeStart = tail * (1 - clamp(tailFade, 0.01, 1));
+    for (let i = 0; i < n; i++) {
+      const v = this.nodes[i], tip = this.tips[v.runner];
+      const behind = (tip ? tip.arc - STEP + tip.budget : 0) - v.arcAt;
+      const f = clamp((behind - fadeStart) / Math.max(1e-3, tail - fadeStart));
+      this.alphaOld[i] = behind > tail ? 0 : 1 - f * f * (3 - 2 * f);
+    }
+    return this.alphaOld;
   }
 
   /**

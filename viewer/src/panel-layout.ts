@@ -153,7 +153,7 @@ export const FOLDERS: FolderSpec[] = [
   {
     id: 'commit', tab: 'reaction', title: 'Planting a take & removal',
     keys: ['commit.enabled', 'commit.duration', 'commit.limbs'],
-    advanced: ['transitions.liveEndSeconds', 'transitions.pruneSeconds', 'halo.spawnSeconds'],
+    advanced: ['transitions.liveEndSeconds', 'transitions.pruneSeconds', 'transitions.lookChangeSeconds', 'halo.spawnSeconds'],
     catchSections: ['commit', 'transitions'],
   },
   // ---------------- Setup (rig and this viewer) ----------------
@@ -301,7 +301,7 @@ export const LABELS: Record<string, string> = {
   'fake.longNotes': 'long held notes', 'fake.fullStopEvery': 'full stop every n phrases', 'fake.fullStopSeconds': 'full stop length (s)',
   'perf.fps': 'max fps', 'perf.idleFps': 'fps when silent', 'perf.backgroundFps': 'preview fps in background',
   'perf.maxMegapixels': 'max picture size (MP)', 'perf.renderScale': 'render scale',
-  'commit.enabled': 'plant the halo', 'commit.duration': 'slowness',
+  'transitions.lookChangeSeconds': 'look change round the halo (s)', 'commit.enabled': 'plant the halo', 'commit.duration': 'slowness',
   'growth.shed': 'leaves let go when twigs go', 'growth.branchEachPhrase': 'new branch each phrase', 'growth.fillSpace': 'fill empty space',
   'growth.branchesKept': 'branches kept', 'growth.branchWitherSeconds': 'old branch dries (s)',
   'growth.branchDroopDeg': 'old branch droops (deg)', 'growth.branchFallSeconds': 'old branch falls (s)',
@@ -493,6 +493,7 @@ export const TIPS: Record<string, string> = {
   'fake.together': 'Fake singer, duet: share of the phrases that all voices sing together (in harmony); the others are sung by one voice alone, in turn.',
   'growth.fillSpace': 'Empty space gets filled. With “new branch each phrase”, a new branch also reaches into the empty space beside it, up to the nearest living branch. And a take that has been away for a while (silent, nothing of its tree left) leaves its space to the new trees of the takes that are here; it gets it back as soon as it sings. Only where trees are replaced as the song goes on (a new tree each phrase, or a new branch each phrase), so a tree that stays for good never keeps a neighbour’s space. 0 = everyone keeps their own space.',
   'growth.branchEachPhrase': "Each phrase grows one new branch on the take's tree; when there are more than \u201cbranches kept\u201d, the oldest dries, droops, drops its leaves and falls. Replaces \u201cnew tree each phrase\u201d while on.",
+  'transitions.lookChangeSeconds': 'When you switch the Look preset, the new look sweeps round the live halo as a wave, from its start point both ways, in this many seconds: every shoot and leaf takes it in its turn, vine the new look does not keep fades as it passes.',
   'commit.limbs': 'The halo breaks into this many pieces, and each unrolls along one main limb of the new tree. 1 = a single frond.',
   'commit.duration': 'How slowly the planting goes. 1 = about a second to curl up, a second to move to the tree and one and a half to unroll; 2 = twice as long.',
   'look.buds': 'Closed blossoms show as small buds of this size (relative to the open flower); 0 = nothing until it opens.',

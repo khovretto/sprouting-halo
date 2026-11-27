@@ -222,6 +222,7 @@ const RANGES: Record<string, Spec> = {
   'halo.ringSpacing': { min: 0.03, max: 0.4 },
   'fake.liveTracks': { min: 1, max: 4, step: 1 },
   'commit.duration': { min: 0.5, max: 2.5 },
+  'transitions.lookChangeSeconds': { min: 0.5, max: 10 },
   'transitions.pruneSeconds': { min: 0.3, max: 5 },
   'avatar.opacity': { min: 0, max: 1 },
   'avatar.headX': { min: -1, max: 1 },

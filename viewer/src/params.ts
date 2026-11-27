@@ -385,6 +385,9 @@ export const defaults = {
   transitions: {
     /** A live track stopped being live (recording done): its halo fades out (s). */
     liveEndSeconds: 0.8,
+    /** A Look preset sweeps round the live halo as a wave in this many seconds (from its start
+     *  point both ways): every shoot takes the new look in its turn. */
+    lookChangeSeconds: 3,
     /** A take was deleted: the plant retracts and its leaves fall (s). */
     pruneSeconds: 1.6,
   },

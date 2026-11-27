@@ -50,6 +50,9 @@ const voiceOf = (d: Drive | undefined, v: string) =>
 export function setInk(ink: Ink, p: Params, role: RoleId, take: RGB, k: number, t: number, d?: Drive, override?: string): Ink {
   let r = p[role] as RoleParams;
   if (role === 'colHalo' && (r.source as string) === 'branches') r = p.colBranch;
+  // The halo is a ring: its gradient fits round it a whole number of times (at least once), or it
+  // shows a hard seam where the ring closes (e.g. 0.3 of a gradient taken over from the branches).
+  const alongOf = (a: number) => (role === 'colHalo' && a !== 0 ? (a < 0 ? -1 : 1) * Math.max(1, Math.round(Math.abs(a))) : a);
   ink.take = take;
   ink.mixK = 0;
   ink.tint = hexToRgb(p.look.tint);
@@ -62,7 +65,7 @@ export function setInk(ink: Ink, p: Params, role: RoleId, take: RGB, k: number, 
     ink.natural = false;
     ink.takeMix = 0;
     ink.u0 = r.speed * t + r.voiceAmount * voiceOf(d, r.voice);
-    ink.along = r.along || 1;
+    ink.along = alongOf(r.along || 1);
     ink.scatter = 0;
     inkAt(ink, 0.5, 0.5, ink.mid);
     return ink;
@@ -75,7 +78,7 @@ export function setInk(ink: Ink, p: Params, role: RoleId, take: RGB, k: number, 
     ink.lut = b.lut;
     ink.loop = b.loop;
     ink.u0 = r.speed * t + r.perTake * k + r.voiceAmount * voiceOf(d, r.voice);
-    ink.along = r.along;
+    ink.along = alongOf(r.along);
     ink.scatter = r.scatter;
     inkAt(ink, 0.5, 0.5, ink.mid);
   } else {

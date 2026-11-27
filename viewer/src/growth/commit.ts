@@ -30,6 +30,8 @@ export interface HaloSnapshot {
   sk: Skeleton;
   vis: Float32Array;
   alpha: Float32Array;
+  /** Per node opacity of its leaves (default alpha): 0 where they already let go (growth.shed). */
+  decoAlpha?: Float32Array;
   ids: Int32Array;
   /** Halo layer at the commit (world). */
   cx: number;
@@ -449,7 +451,8 @@ export class CommitAnimation {
       // more of it while it unrolls, so the frond is not a tangle on the limb.
       const h = hash1(snap.ids[i] * 3.7);
       const thin = h > 0.5 ? 1 - curl : h > lerp(0.5, 0.4, unrolled) ? 1 - 0.6 * smoothstep(unrolled) : 1;
-      this.lineAlpha[i] = this.decoAlpha[i] = snap.alpha[i] * thin * fade;
+      this.lineAlpha[i] = snap.alpha[i] * thin * fade;
+      this.decoAlpha[i] = (snap.decoAlpha ?? snap.alpha)[i] * thin * fade;
     }
     // The ring line of each piece: it becomes the frond's core, then lies down on the limb.
     for (let m = 0; m < K; m++) {

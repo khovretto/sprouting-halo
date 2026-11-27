@@ -21,6 +21,7 @@ import { bakeGradient, parseGradient } from './gradient';
 import { addHotkeys, installHotkeys, toggleSheet } from './hotkeys';
 import { LiveSource, ViewerMessage } from './sources/live';
 import { HaloVine } from './growth/halo';
+import type { ShedPool } from './shed';
 import { endActionOf, Plant, Wilt } from './growth/plant';
 import { plantMetrics } from './debug';
 import { inkMetrics, pixelMetrics } from './debug-ink';
@@ -28,7 +29,7 @@ import { Generations } from './growth/generations';
 import { NodeKind, Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
 import { HarmonyTracker } from './harmony';
-import { decorateRing, decorateTree, DecoStyle } from './deco';
+import { decorateRing, decorateTree, DecoStyle, drawShed, RingLetGo } from './deco';
 import { layoutTakes, outlineOf, Placement, plantArc, toWorld } from './layout';
 import { angleLerp, clamp, deg, hash1, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
 
@@ -92,11 +93,33 @@ interface LiveHalo {
   look: { theme: Theme; density: number; colour: string; ink?: string };
   f?: LayerFeatures;
   motion: LayerMotion;
-  /** Replaced by a Look preset: the look settings it keeps while it fades out (main.ts withParams). */
-  kept?: LookParams;
+  /** A Look preset sweeping round it: ahead of the wave the older look (its settings, appearance
+   *  and, if the new look grows from other origins, its older vine), behind it the new one. */
+  wave?: {
+    t0: number; prev: LookParams; prevLook: { theme: Theme; density: number; colour: string; ink?: string }; oldVine?: HaloVine;
+    /** The ring's let-go state as the older look had it (its ring spacing). */
+    ring: RingLetGo;
+    /** Where the front sweeps from (radians; it keeps it if the start point changes meanwhile). */
+    start: number;
+    /** The older vine's tail fade in the older look's settings, taken when it was set aside. */
+    oldAlpha?: Float32Array;
+  };
   /** Seconds it takes to fade out once ending (default transitions.liveEndSeconds). */
   endSeconds?: number;
+  /** An ending halo that only finishes part of one: a look's part of it still showing when it was
+   *  planted or replaced (in that look, masked as the wave left it, fading), and/or its falling
+   *  leaves (drawsPool; otherwise the live halo sharing the pool draws them). */
+  ghost?: {
+    part?: {
+      kept: LookParams; look: LiveHalo['look']; vine: HaloVine; alpha: Float32Array; ring: RingLetGo;
+      start: number; reach: number; ahead: boolean;
+    };
+    drawsPool: boolean;
+  };
 }
+
+/** Width (radians) of a look change's front as it sweeps round a halo. */
+const WAVE_W = 0.6;
 
 const errorBox = document.getElementById('error')!;
 function showError(e: unknown) {
@@ -106,6 +129,7 @@ function showError(e: unknown) {
 }
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
+const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const easeOutBack = (t: number) => {
   const c1 = 1.70158, c3 = c1 + 1;
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
@@ -820,7 +844,8 @@ function start() {
     drops.length = 0;
   }
 
-  function pushRing(out: Instances, layer: number, ink: Ink, look: Look, alpha: number, unit: number, level: number, braidMore = 0) {
+  function pushRing(out: Instances, layer: number, ink: Ink, look: Look, alpha: number, unit: number, level: number, braidMore = 0,
+                    mask?: (angle: number) => number) {
     const h = params.halo;
     const N = 160;
     const w = (h.ringWidth * look.width * (1 + 0.6 * level)) / Math.max(1e-3, unit);
@@ -829,13 +854,16 @@ function start() {
     // The links tile (flat ends, each starting on the end plane of the one before): with round
     // caps every joint of a see-through ring is drawn twice and the ring reads as a row of dots.
     for (let k = 0; k < N; k++) {
-      const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU, ap = ((k - 1) / N) * TAU;
-      const c = inkAt(ink, (k / N) * (ink.loop ? 1 : 2), 0.5, C);
+      const a0 = (k / N) * TAU, a1 = ((k + 1) / N) * TAU, ap = ((k - 1) / N) * TAU, am = 0.5 * (a0 + a1);
+      // A look change sweeping round: this look only where it has reached.
+      const mk = mask ? mask(am) : 1;
+      if (mk <= 0.003) continue;
+      // Colour by the same ring position as the vine on it (ringS), so they agree.
+      const c = inkAt(ink, ringS(Math.cos(am), Math.sin(am), ink.loop), 0.5, C);
       const s = look.shine, i = brighten(look);
       if (braid > 0) {
         // halo.braid (consult 7, 1.8): two strands round each other, 12 crossings (whole: it closes),
         // the back one first and dimmer.
-        const am = 0.5 * (a0 + a1);
         const js = Math.cos(12 * am) < Math.cos(12 * am + Math.PI) ? [0, 1] : [1, 0];
         for (const j of js) {
           const r0 = 1 + 0.028 * braid * Math.sin(12 * a0 + j * Math.PI), r1 = 1 + 0.028 * braid * Math.sin(12 * a1 + j * Math.PI);
@@ -843,14 +871,14 @@ function start() {
           const ws = w * lerp(1, 0.7, braid), rp = 1 + 0.028 * braid * Math.sin(12 * ap + j * Math.PI);
           const x0 = r0 * Math.cos(a0), y0 = r0 * Math.sin(a0);
           out.stroke(x0, y0, r1 * Math.cos(a1), r1 * Math.sin(a1), ws, ws, 0, 0,
-            lerp(c[0], 1, s) * sh, lerp(c[1], 1, s) * sh, lerp(c[2], 1, s) * sh, alpha * fadeOf(look), look.glow, layer,
+            lerp(c[0], 1, s) * sh, lerp(c[1], 1, s) * sh, lerp(c[2], 1, s) * sh, alpha * mk * fadeOf(look), look.glow, layer,
             2, 1, x0, y0, 0, 0, true, rp * Math.cos(ap), rp * Math.sin(ap), 0);
         }
         continue;
       }
       const x0 = Math.cos(a0), y0 = Math.sin(a0);
       out.stroke(x0, y0, Math.cos(a1), Math.sin(a1), w, w, 0, 0,
-        lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * fadeOf(look), look.glow, layer,
+        lerp(c[0], 1, s) * i, lerp(c[1], 1, s) * i, lerp(c[2], 1, s) * i, alpha * mk * fadeOf(look), look.glow, layer,
         2, 1, x0, y0, 0, 0, true, Math.cos(ap), Math.sin(ap), 0);
     }
   }
@@ -903,11 +931,24 @@ function start() {
   }
 
   // ---- Commit (Part B) ---------------------------------------------------------------------------
+  /** How far round a look change's front has come (radians from its start point, both ways). */
+  function waveReach(w: NonNullable<LiveHalo['wave']>) {
+    return clamp((t - w.t0) / Math.max(0.3, params.transitions.lookChangeSeconds)) * (Math.PI + 2 * WAVE_W);
+  }
+  /** 0..1 at ring angle a: the front has passed (1) or not yet reached (0) it. */
+  function frontAt(start: number, reach: number, a: number) {
+    return smooth(clamp((reach - Math.abs(wrapAngle(a - start))) / WAVE_W));
+  }
+
   function snapshotOf(h: LiveHalo): HaloSnapshot {
     const sk = h.vine.sk.clone();
     const n = sk.n;
+    const ids = h.vine.ids.slice(0, n), alpha = h.vine.alpha.slice(0, n);
+    // Leaves that already let go stay gone on the planted strand.
+    const decoAlpha = alpha.slice();
+    if (h.vine.gone.size) for (let i = 0; i < n; i++) if (h.vine.gone.has(ids[i])) decoAlpha[i] = 0;
     return {
-      sk, vis: h.vine.vis.slice(0, n), alpha: h.vine.alpha.slice(0, n), ids: h.vine.ids.slice(0, n),
+      sk, vis: h.vine.vis.slice(0, n), alpha, decoAlpha, ids,
       cx: h.cx, cy: h.cy, R: h.R, theme: h.look.theme, density: h.look.density, colour: tinted(hexToRgb(h.look.colour)),
       seed: h.vine.seed, lead: h.vine.leadTip(),
       sizeMul: Math.pow(clamp(h.R / Math.max(0.05, params.halo.openRadius), 0.25, 1), 0.7),
@@ -1005,23 +1046,49 @@ function start() {
       s.staleFor = 0;
       s.staleSig = undefined;
     }
-    // The live halos the same way: each one fades out in the look it had (over growth.fadeSeconds),
-    // and a new one takes its place, its ring there at once (they cross-fade) and its vine growing
-    // round from the start again, in the new look. It carries on the old one's voice, size and
-    // motion.
-    halos = halos.map((h) => {
-      if (h.endT0 !== undefined) return h;
-      h.kept = before;
-      h.endT0 = t;
-      h.endSeconds = Math.max(0.3, params.growth.fadeSeconds);
-      endingHalos.push(h);
-      const nh = newHalo(h.id);
-      Object.assign(nh, {
-        drive: h.drive, motion: h.motion, open: h.open, cx: h.cx, cy: h.cy, R: h.R, f: h.f, look: { ...h.look },
-        spawnT0: t - Math.max(0.05, params.halo.spawnSeconds),
-      });
-      return nh;
-    });
+    // The live halos: the new look sweeps round each one as a wave, from its start point both ways
+    // at a steady pace (transitions.lookChangeSeconds), so every shoot changes in its turn; ahead of
+    // the wave it is drawn in the look it had (drawHalo). Vine the new look does not keep fades as
+    // the wave passes; what it lacks grows as usual. If the new look grows from other origins, the
+    // old vine stays as it is, ahead of the wave, and a new one starts from the new origins.
+    const lay = (h: LookParams['halo']) => [h.origins, h.startAngle, h.bothWays].join('|');
+    for (const h of halos) {
+      // Another look change while one still sweeps round: a halo shows two looks at most, so the
+      // look that has reached less of the ring gives way to the newest one at once. (Less than half
+      // way round: the oldest look stays ahead and the new one sweeps on behind the same front.)
+      const w0 = h.wave;
+      const keepOld = !!w0 && t - w0.t0 < 0.5 * Math.max(0.3, params.transitions.lookChangeSeconds);
+      const r = h.vine.ring;
+      const wave: NonNullable<LiveHalo['wave']> = keepOld ? w0!
+        : { t0: t, prev: before, prevLook: { ...h.look }, ring: { gone: r.gone.slice(), prev: r.prev.slice(), spacing: r.spacing },
+            start: params.halo.startAngle * deg };
+      if (lay(before.halo) !== lay(params.halo)) {
+        const old = h.vine;
+        haloSeed += 1000;
+        h.vine = new HaloVine(haloSeed, params);
+        h.vine.shed = old.shed; // its falling leaves fall on
+        if (!wave.oldVine) {
+          // It stays as it is from now on: its tail fade as the older look had it.
+          wave.oldVine = old;
+          wave.oldAlpha = old.tailAlpha(wave.prev.halo.tailDeg, wave.prev.halo.tailFade).slice();
+        } else {
+          // The wave already keeps an older vine: the one grown since (behind the front, in the
+          // look just replaced) fades out where it was.
+          const r2 = old.ring;
+          endingHalos.push({
+            ...h, vine: old, wave: undefined, endT0: t, endSeconds: Math.max(0.3, params.growth.fadeSeconds),
+            ghost: {
+              part: {
+                kept: before, look: { ...h.look }, vine: old, alpha: old.alpha.slice(),
+                ring: { gone: r2.gone.slice(), prev: r2.prev.slice(), spacing: r2.spacing }, start: wave.start, reach: waveReach(wave), ahead: false,
+              },
+              drawsPool: false,
+            },
+          });
+        }
+      }
+      h.wave = wave;
+    }
   }
 
   // ---- Simulation ------------------------------------------------------------------------------
@@ -1066,6 +1133,22 @@ function start() {
     for (const h of halos) if (!nextHalos.includes(h)) {
       if (params.commit.enabled && ids.includes(h.id) && !slots.some((s) => s.id === h.id) && commits.length < 4) {
         commits.push(new CommitAnimation(h.id, snapshotOf(h), t + 0.09 * started++, params));
+        // What the planting does not take along finishes where the halo was: the older look still
+        // ahead of a look change (it fades), and the leaves still falling.
+        const w = h.wave;
+        if (w || h.vine.shed.busy(t, params.falling.time)) {
+          const ov = w?.oldVine;
+          endingHalos.push({
+            ...h, wave: undefined, endT0: t, endSeconds: w ? Math.max(0.3, params.growth.fadeSeconds) : 0.05,
+            ghost: {
+              part: w && {
+                kept: w.prev, look: w.prevLook, vine: ov ?? h.vine, ring: w.ring, start: w.start, reach: waveReach(w), ahead: true,
+                alpha: (ov ? w.oldAlpha ?? ov.alpha : h.vine.tailAlpha(w.prev.halo.tailDeg, w.prev.halo.tailFade)).slice(),
+              },
+              drawsPool: true,
+            },
+          });
+        }
       } else {
         h.endT0 = t;
         endingHalos.push(h);
@@ -1082,7 +1165,9 @@ function start() {
       h.drive.update(f, dt, params);
       h.drive.harmony = f ? harmony.amount(f.id) : 0;
       h.motion.update(h.drive, wind, dt, params, 0.6, true);
-      h.vine.update(dt, h.drive, !!f?.onset, params);
+      // A look change sweeping round: done once the wave has gone round.
+      if (h.wave && t - h.wave.t0 > Math.max(0.3, params.transitions.lookChangeSeconds)) h.wave = undefined;
+      h.vine.update(dt, h.drive, !!f?.onset, params, h.wave && !h.wave.oldVine ? h.wave.prev.halo.tailDeg : 0);
       // Track colour if the tap asks for it; otherwise the live colour, hue-shifted for each extra
       // live track so nested halos stay distinguishable.
       // The look's palette colours the halo too (so it already has its tree's colour); with your own
@@ -1101,7 +1186,10 @@ function start() {
       h.cx = lerp(hp.restX, 0, o);
       h.R = lerp(hp.restRadius, hp.openRadius, o) * nest;
     });
-    endingHalos = endingHalos.filter((h) => t - (h.endT0 ?? t) < (h.endSeconds ?? params.transitions.liveEndSeconds));
+    // (kept while its last falling leaves are still falling)
+    endingHalos = endingHalos.filter((h) => t - (h.endT0 ?? t) < (h.endSeconds ?? params.transitions.liveEndSeconds)
+      || ((!h.ghost || h.ghost.drawsPool) && h.vine.shed.busy(t, params.falling.time)));
+    for (const h of endingHalos) if (h.wave && t - h.wave.t0 > Math.max(0.3, params.transitions.lookChangeSeconds)) h.wave = undefined;
 
     const first = halos[0];
     status.layers = lives.length + ' live + ' + n + (n === 1 ? ' take' : ' takes');
@@ -1439,19 +1527,117 @@ function start() {
       // Squish and tilt are for the small resting halo only; the recording halo opens round.
       const idle = 1 - smooth(clamp(h.open));
       layerU.set(layer, h.cx, h.cy, Math.PI / 2 + hp.tilt * deg * idle, R, h.motion, 1 - clamp(hp.squish, 0, 0.95) * idle);
+      const wave = h.wave;
+      const v = h.vine;
+      let style: DecoStyle | undefined;
+      /** Draw in another look: its settings and appearance swapped in. */
+      const inLook = (kept: LookParams, lk: LiveHalo['look'], draw: () => DecoStyle) => {
+        const keep = h.look;
+        h.look = lk;
+        try {
+          withParams(kept, () => (style = draw()));
+        } finally {
+          h.look = keep;
+        }
+      };
+      const g = h.ghost;
+      if (g) {
+        // Part of a halo finishing on its own (planted, or its vine replaced): masked as the wave
+        // left it, in its look, fading (its leaves let go as it does).
+        const pt = g.part;
+        if (pt) {
+          const mask = pt.ahead ? (a: number) => 1 - frontAt(pt.start, pt.reach - WAVE_W, a) : (a: number) => frontAt(pt.start, pt.reach, a);
+          inLook(pt.kept, pt.look, () => drawHaloLook(h, fade, R, pt.vine, pt.alpha, mask, { la: pt.alpha, gone: pt.vine.gone, ring: pt.ring, shed: v.shed }));
+        }
+        if (g.drawsPool) drawShed(v.shed, frontDeco, style ?? haloStyle(h, fade, R, v).style, t, params, fadeOf(lookOf(h.drive)));
+        layer++;
+        return;
+      }
+      if (!wave) style = drawHaloLook(h, fade, R, v, v.alpha, undefined, { la: v.alpha, ring: v.ring, track: true });
+      else {
+        // A Look preset sweeping round from the start point both ways at a steady pace: behind the
+        // front the new look, ahead of it the older one (its settings and appearance swapped in).
+        // The new look is drawn over the older one: the older stays whole until the new one is
+        // whole above it (no see-through band at the front), then goes.
+        const reach = waveReach(wave), start = wave.start;
+        const m = (a: number) => frontAt(start, reach, a), mo = (a: number) => 1 - frontAt(start, reach - WAVE_W, a);
+        const ov = wave.oldVine;
+        const oldAlpha = ov ? (wave.oldAlpha ?? ov.alpha) : v.tailAlpha(wave.prev.halo.tailDeg, wave.prev.halo.tailFade);
+        // growth.shed: a node's leaves let go once what shows of it fades half way. Both looks with
+        // leaves on one vine: what the two show together, let go by the look showing more of it.
+        // Otherwise each look's own (an older vine goes with the wave; the new one is only hidden).
+        const leafy = (lk: LiveHalo['look']) => lk.theme !== 'branches' && lk.density > 0;
+        const oSk = ov ? ov.sk : v.sk;
+        const shared = !ov && leafy(wave.prevLook) && leafy(h.look);
+        if (waveLa.length < oSk.n) {
+          const n2 = oSk.n * 2;
+          waveLa = new Float32Array(n2);
+          waveOld = new Uint8Array(n2);
+          waveNew = new Uint8Array(n2);
+        }
+        for (let i = 0; i < oSk.n; i++) {
+          const a = Math.atan2(oSk.y[i], oSk.x[i]);
+          const so = oldAlpha[i] * mo(a);
+          if (!shared) {
+            waveLa[i] = so;
+            continue;
+          }
+          const sn = v.alpha[i] * m(a), below = so * (1 - sn);
+          waveLa[i] = sn + below;
+          waveOld[i] = below >= sn ? 1 : 0;
+          waveNew[i] = 1 - waveOld[i];
+        }
+        inLook(wave.prev, wave.prevLook, () => drawHaloLook(h, fade, R, ov ?? v, oldAlpha, mo,
+          { la: waveLa, mine: shared ? waveOld : undefined, gone: ov?.gone, ring: wave.ring, shed: v.shed }));
+        style = drawHaloLook(h, fade, R, v, v.alpha, m,
+          { la: shared ? waveLa : v.alpha, mine: shared ? waveNew : undefined, ring: v.ring, track: true });
+      }
+      // growth.shed: the leaves that let go (either look), once; each keeps the opacity it had when
+      // it let go, and how it falls.
+      drawShed(v.shed, frontDeco, style!, t, params, fadeOf(lookOf(h.drive)));
+      layer++;
+    };
+    /** A halo's decoration style in the current look. */
+    const haloStyle = (h: LiveHalo, fade: number, R: number, vine: HaloVine) => {
+      const hp = params.halo;
       const inks = inksFor(layer, hexToRgb(h.look.colour), Math.max(0, halos.indexOf(h)), h.drive, true, h.look.ink, h.id);
       const look = lookOf(h.drive);
-      // In harmony the ring braids (harmony.cross): its two strands cross and recross.
-      pushRing(front, layer, inks.stroke, look, fade, R, h.drive.energy, clamp(params.harmony.cross) * h.drive.harmony);
       // More origins = more vine, so fewer leaves on each part of it.
       const origins = Math.max(1, Math.round(hp.origins));
-      const style = styleOf(layer, inks, look, fade, R, h.vine.seed, h.drive, 0, 0, -1 / R, h.look.theme, h.look.density / origins);
+      const style = styleOf(layer, inks, look, fade, R, vine.seed, h.drive, 0, 0, -1 / R, h.look.theme, h.look.density / origins);
       style.sizeMul = Math.pow(clamp(R / Math.max(0.05, hp.openRadius), 0.25, 1), 0.7);
-      pushTree(front, h.vine.sk, h.vine.vis, layer, inks.stroke, look, fade, R, params.glow.front, h.vine.alpha, undefined, h.vine.order, h.vine.bend, 1, true,
+      return { style, inks, look };
+    };
+    let haloMask = new Float32Array(0), waveLa = new Float32Array(0), waveOld = new Uint8Array(0), waveNew = new Uint8Array(0);
+    /** One look of a halo into the current layer: its ring, vine and leaves, where `mask` (per ring
+     *  angle) shows them; returns its decoration style. `lg` (growth.shed): per node how much
+     *  shows (la; its leaves let go below one half) and whether this pass lets them go (mine); the
+     *  ring's let-go state and whether this pass keeps it (track). The caller draws the pool. */
+    const drawHaloLook = (h: LiveHalo, fade: number, R: number, vine: HaloVine, alpha: ArrayLike<number>,
+                          mask: ((angle: number) => number) | undefined,
+                          lg: { la: ArrayLike<number>; mine?: ArrayLike<number>; gone?: Set<number>; ring: RingLetGo; track?: boolean; shed?: ShedPool }) => {
+      const hp = params.halo;
+      const { style, inks, look } = haloStyle(h, fade, R, vine);
+      // In harmony the ring braids (harmony.cross): its two strands cross and recross.
+      pushRing(front, layer, inks.stroke, look, fade, R, h.drive.energy, clamp(params.harmony.cross) * h.drive.harmony, mask);
+      let na: ArrayLike<number> = alpha;
+      if (mask) {
+        const n = vine.sk.n;
+        if (haloMask.length < n) haloMask = new Float32Array(n * 2);
+        for (let i = 0; i < n; i++) haloMask[i] = alpha[i] * mask(Math.atan2(vine.sk.y[i], vine.sk.x[i]));
+        na = haloMask;
+      }
+      pushTree(front, vine.sk, vine.vis, layer, inks.stroke, look, fade, R, params.glow.front, na, undefined, vine.order, vine.bend, 1, true,
         branchRgb(h.look.theme));
-      decorateTree(h.vine.sk, h.vine.vis, params, style, frontDeco, { ids: h.vine.ids, alpha: h.vine.alpha, order: h.vine.order, bend: h.vine.bend, leafGrow: h.vine.leaf });
-      decorateRing(params, { ...style, density: h.look.density }, (a) => h.vine.coverage(a, params), frontDeco, hp.alwaysLeaves);
-      layer++;
+      const shed = lg.shed ?? vine.shed;
+      decorateTree(vine.sk, vine.vis, params, style, frontDeco, {
+        ids: vine.ids, alpha: na, order: vine.order, bend: vine.bend, leafGrow: vine.leaf,
+        // growth.shed: leaves let go as the tail (or the whole halo) fades; the pool keeps them falling.
+        letGone: lg.gone ?? vine.gone, letGoAlpha: lg.la, letGoMine: lg.mine, letGoAll: fade, shed, now: t, shedDrawnElsewhere: true,
+      });
+      decorateRing(params, { ...style, density: h.look.density }, (a) => vine.coverage(a, params), frontDeco, hp.alwaysLeaves,
+        { mask, ring: lg.ring, track: lg.track, shed, whole: fade, now: t });
+      return style;
     };
     halos.forEach((h) => drawHalo(h, 1));
     // Planting: the strand is drawn in its take's layer.
@@ -1462,8 +1648,7 @@ function start() {
     }
     endingHalos.forEach((h) => {
       const fade = 1 - smooth(clamp((t - (h.endT0 ?? t)) / Math.max(0.05, h.endSeconds ?? params.transitions.liveEndSeconds)));
-      if (h.kept) withParams(h.kept, () => drawHalo(h, fade));
-      else drawHalo(h, fade);
+      drawHalo(h, fade);
     });
 
     // Render.

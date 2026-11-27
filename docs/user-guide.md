@@ -268,9 +268,14 @@ The same effect takes away a tree that is replaced, and the trees after a **look
 Look preset (or a tree-shape setting) changes, the trees are not rebuilt on the spot. Once the
 settings have rested for a moment, the old trees wither away and new ones grow back in the new look,
 without waiting for you to sing. The old trees keep their look (colours, theme, leaves) while they
-go, and so does the live halo: it fades out in its old look while a new one, in the new look, grows its
-vine round again. The glow and the 3D-leaf light are shared and change at once. A single slider that only
-changes colours or leaves acts at once.
+go. The live halo changes as a wave instead: the new look sweeps round it from its start point both
+ways at a steady pace ("look change round the halo", in the planting folder's advanced settings,
+3 s by default), so each shoot and leaf takes the new colours in its turn without you having to
+sing. Vine the new look does not keep (a shorter tail) fades as the wave passes, and what it lacks
+grows as usual when you sing. If the new look grows from other origins, the old vine stays as it is
+until the wave reaches it and a new vine starts from the new origins. The glow and the 3D-leaf
+light are shared and change at once. A single slider that only changes colours or leaves acts at
+once.
 
 - "Short pause reaches in" is how deep a breath goes; "tree stays after singing" keeps a
   tree whole for that long after its take stopped singing, so old and new trees overlap into a
@@ -278,7 +283,9 @@ changes colours or leaves acts at once.
   "an ending takes" is how long the phrase end and the full stop take.
 - **Leaves let go when twigs go** (on by default): leaves and petals fall whenever their twig
   ungrows, fades or falls. Off: they go the way of the twig, so they shrink back with it, fade with
-  it, and fall only when it falls.
+  it, and fall only when it falls. It covers the live halo too: leaves on its fading tail, on the
+  ring where the vine has moved on, on a halo that fades out, and those a look change without
+  leaves passes over.
 - **Falling pieces go** down with gravity (they turn so their loose end hangs down as they fall),
   or **away from the origin**: no gravity, they drift straight out from the point the tree grows
   from. It covers branch pieces, old branches (new branch each phrase), and the leaves and petals

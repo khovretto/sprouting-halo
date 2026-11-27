@@ -6,7 +6,7 @@ import type { Instances } from './render/renderer';
 import { fallDir, lerp, RGB } from './math';
 
 const MAX = 512; // room for showers (look.leafFall)
-const N = 20; // floats per particle
+const N = 26; // floats per particle
 
 /** What the pool needs from the decoration style of the frame it is drawn in. */
 export interface ShedStyle {
@@ -30,10 +30,19 @@ export class ShedPool {
   private d = new Float32Array(MAX * N);
   private head = 0;
   count = 0;
+  private lastAdd = -Infinity;
 
-  /** frame: order, pivot x, y, flex, heading of the node it hung on (null = rigid at the point). */
+  /** Something may still be falling at `now` (falling.time: their life scale); needs no draw. */
+  busy(now: number, time: number) {
+    return this.count > 0 && now - this.lastAdd < 1.7 * Math.max(0.1, time);
+  }
+
+  /** frame: order, pivot x, y, flex, heading of the node it hung on (null = rigid at the point).
+   *  look: the glow and the falling settings it keeps while it falls (a look change, or a slider
+   *  moved meanwhile, does not change a leaf already falling). */
   add(now: number, x: number, y: number, angle: number, size: number, shape: number, c: ArrayLike<number>,
-      flex: number, h: number, glowMul: number, frame: ArrayLike<number> | null, alpha: number, pivY = 0, pivX = 0) {
+      flex: number, h: number, glowMul: number, frame: ArrayLike<number> | null, alpha: number, pivY = 0, pivX = 0,
+      look?: { glow: number; drop?: ShedStyle['drop'] }) {
     const d = this.d;
     let o = this.head * N;
     d[o++] = now; d[o++] = x; d[o++] = y; d[o++] = angle;
@@ -46,8 +55,12 @@ export class ShedPool {
       d[o++] = 1; d[o++] = x; d[o++] = y; d[o++] = flex; d[o++] = 0;
     }
     d[o++] = pivY; d[o++] = pivX;
+    const dp = look?.drop;
+    d[o++] = dp ? dp.speed : NaN; d[o++] = dp ? dp.sway : 1; d[o++] = dp ? dp.spin : 1; d[o++] = dp ? dp.flutter : 1;
+    d[o++] = dp ? dp.time : 1; d[o++] = look ? look.glow : NaN;
     this.head = (this.head + 1) % MAX;
     this.count = Math.min(MAX, this.count + 1);
+    this.lastAdd = now;
   }
 
   clear() {
@@ -63,7 +76,11 @@ export class ShedPool {
       const o = k * N;
       const age = now - d[o];
       const h = d[o + 10];
-      const dp = st.drop ?? { speed: 1, sway: 1, spin: 1, flutter: 1, time: 1 };
+      // Its own falling settings (NaN: none kept, those of the frame it is drawn in).
+      const own = !Number.isNaN(d[o + 20]);
+      const dp = own ? { speed: d[o + 20], sway: d[o + 21], spin: d[o + 22], flutter: d[o + 23], time: d[o + 24] }
+        : st.drop ?? { speed: 1, sway: 1, spin: 1, flutter: 1, time: 1 };
+      const glow = Number.isNaN(d[o + 25]) ? st.glow : d[o + 25];
       const life = (1.1 + 0.6 * h) * Math.max(0.1, dp.time);
       if (age < 0 || age >= life) continue;
       alive++;
@@ -88,7 +105,7 @@ export class ShedPool {
       const flex = lerp(d[o + 9], d[o + 16], smooth(age / 0.5));
       out.sprite(x, y, ang, d[o + 4], d[o + 5], flex, h,
         lerp(d[o + 6], dry[0], m), lerp(d[o + 7], dry[1], m), lerp(d[o + 8], dry[2], m),
-        a, st.glow * d[o + 11], st.layer, d[o + 13], px, py, d[o + 16], d[o + 17], d[o + 18], d[o + 19], Math.max(0, dp.flutter));
+        a, glow * d[o + 11], st.layer, d[o + 13], px, py, d[o + 16], d[o + 17], d[o + 18], d[o + 19], Math.max(0, dp.flutter));
     }
     if (!alive) this.count = this.head = 0;
   }

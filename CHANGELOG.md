@@ -19,7 +19,9 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
   a new branch per phrase.
 - **Pauses and endings:** one withering effect (ungrow, fade or fall away, from the tips inward or
   all at once) and a switch for each length of silence: a short pause, the end of a phrase, a full
-  stop. A look change lets the old trees wither the same way while new ones grow back. Leaves let go and fall, or go the way of their twig.
+  stop. A look change lets the old trees wither the same way while new ones grow back, and sweeps
+  round the live halo as a wave. Leaves let go and fall, or go the way of their twig, on the trees
+  and on the live halo.
 - **Harmony:** two tracks singing a third, fourth, fifth or sixth apart are in harmony: their
   colours run into each other, the glow rises, and (optionally) their branches crisscross and
   blossoms open; theme parts can open in harmony.
@@ -32,6 +34,7 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
 - **Shapes:** twist, gnarl, knots, curling tips, rope strands, writhe; braided halo ring.
 - **Colour:** branch, leaf, blossom and halo colour roles from the take colour, the theme or a
   gradient that can flow, run root to tip, scatter or follow the voice; per-look take palettes.
+  A gradient goes round the halo ring a whole number of times, so it has no seam.
 - **Themes:** Leaves, Thorns, Christmas wreath, Briar, Branches, and your own from up to six
   parts and PNG pictures with an origin point (`/themes` editor, saved by Sprout.exe).
 - **Presets:** 12 Looks, 14 Reactions, 15 test setups, plus your own (export and import as files).

@@ -141,6 +141,8 @@ class Placer {
   frame: [number, number, number, number, number] | null = null;
   /** Set for one put(): that decoration lets go and falls (drawn by the pool from now on). */
   drop: ShedPool | null = null;
+  /** Set for every put() at the current node (a halo node whose leaves all let go). */
+  dropNode: ShedPool | null = null;
   now = 0;
   /** Origin of the shapes put now (a user theme's part); null = the built-in shape's own. */
   pivot: readonly [number, number] | null = null;
@@ -161,8 +163,9 @@ class Placer {
     }
     const pv = this.pivot ?? (shape < 16 ? SHAPE_PIVOT[shape] ?? SHAPE_PIVOT[0] : SHAPE_PIVOT[0]);
     const pivY = pv[1], pivX = pv[0] - 0.5;
-    if (this.drop) {
-      if (size > 0 && a > 0.01) this.drop.add(this.now, x, y, angle, size, shape, col, flex, h, glowMul, this.frame, this.nodeAlpha, pivY, pivX);
+    const pool = this.drop ?? this.dropNode;
+    if (pool) {
+      if (size > 0 && a > 0.01) pool.add(this.now, x, y, angle, size, shape, col, flex, h, glowMul, this.frame, this.nodeAlpha, pivY, pivX, this.st);
       this.drop = null;
       return;
     }
@@ -214,6 +217,15 @@ export interface TreeExtras {
   /** Per node: 1 = its branch piece just broke off and fell (growth "fall away"): its leaf falls
    *  too. Cleared here. */
   dropped?: Uint8Array;
+  /** Halo vine (growth.shed): ids of nodes whose leaves have let go; a node's leaves let go once
+   *  letGoAlpha (its tail fade) times letGoAll (the whole halo's fade) falls below one half. */
+  letGone?: Set<number>;
+  letGoAlpha?: ArrayLike<number>;
+  letGoAll?: number;
+  /** Per node: 0 = another pass lets this node's leaves go (a look change: two looks share a vine). */
+  letGoMine?: ArrayLike<number>;
+  /** The pool is drawn by the caller (a halo: its passes share it). */
+  shedDrawnElsewhere?: boolean;
 }
 
 export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: DecoStyle, out: Instances, extras: TreeExtras = {}) {
@@ -348,8 +360,28 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (leafOnly && rank![i] > Math.min(1, dens * 1.3) && tipScratch[i] === 0 && !(ls && ls[i] > 0.003)) continue;
     if (sparse && rank && rank[i] > 1 && tipScratch[i] === 0 && bloomSite[i] !== 1 && !(ls && ls[i] > 0.003)) continue;
     place.nodeAlpha = extras.alpha ? extras.alpha[i] : 1;
-    if (place.nodeAlpha <= 0.01) continue;
+    place.dropNode = null;
     const id = extras.ids ? extras.ids[i] : i;
+    if (extras.letGone) {
+      // Halo vine: its leaves let go once its tail (or the whole halo) has faded half way, and grow
+      // back once it shows fully again (a look change brought it back), or shedding is off.
+      const la = (extras.letGoAlpha ? extras.letGoAlpha[i] : place.nodeAlpha) * (extras.letGoAll ?? 1);
+      if (extras.letGone.has(id)) {
+        if (la > 0.85 || !shedOn) extras.letGone.delete(id);
+        else continue;
+      } else if (shedOn && la < 0.5) {
+        // Two looks share this node (a look change): the other pass lets it go, with all of la, this
+        // frame; not drawn here too.
+        if (extras.letGoMine && !(extras.letGoMine[i] > 0)) continue;
+        extras.letGone.add(id);
+        place.dropNode = extras.shed!;
+        // It falls at the opacity it had (the pool is drawn without the halo's fade). Two passes
+        // sharing a node (letGoMine) show la between them; otherwise what this pass showed (a
+        // node a look change still hides lets go unseen).
+        place.nodeAlpha = extras.letGoMine ? la : Math.min(la, place.nodeAlpha * (extras.letGoAll ?? 1));
+      }
+    }
+    if (place.nodeAlpha <= 0.01) continue;
     if (extras.bend && extras.order) {
       const b = extras.bend, o = i * 4;
       frame[0] = extras.order[i];
@@ -563,7 +595,35 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       }
     }
   }
-  extras.shed?.draw(out, st, extras.now ?? 0, dryOf(p));
+  place.dropNode = null;
+  if (!extras.shedDrawnElsewhere) extras.shed?.draw(out, st, extras.now ?? 0, dryOf(p));
+}
+
+/** Draw a pool of falling leaves (a halo's: its passes share one) at opacity `alpha`. */
+export function drawShed(pool: ShedPool, out: Instances, st: DecoStyle, now: number, p: Params, alpha: number) {
+  pool.draw(out, { ...st, alpha }, now, dryOf(p));
+}
+
+/** A halo ring's let-go state: per ring decoration (by index round the ring, at `spacing`)
+ *  whether it let go (it stays hidden until the vine covers it again) and how visible it was. */
+export interface RingLetGo {
+  gone: Uint8Array;
+  prev: Float32Array;
+  spacing: number;
+}
+
+/** Optional extras for decorateRing. */
+export interface RingExtras {
+  /** 0..1 per angle: how much of this look is shown there (a look change sweeping round). */
+  mask?: (angle: number) => number;
+  /** growth.shed: the ring's let-go state; `track`: this pass keeps it and lets leaves go into
+   *  `shed` (the other pass of a look change only reads it). */
+  ring?: RingLetGo;
+  track?: boolean;
+  shed?: ShedPool;
+  /** The whole halo's fade (1 = there). */
+  whole?: number;
+  now?: number;
 }
 
 /**
@@ -574,19 +634,32 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
  * `revealAt(angle)` gives 0..1 for how much the vine covers that point; a share `always` of the
  * ring's decorations, spread evenly, is shown regardless.
  */
-export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number) => number, out: Instances, always = 0) {
+export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number) => number, out: Instances, always = 0, ex: RingExtras = {}) {
   const L = p.look;
-  if (st.theme === 'branches' || st.density <= 0) return;
+  // Nothing on the ring: what it knew of its decorations is stale by the time it has some again.
+  const none = () => {
+    if (ex.ring && ex.track) ex.ring.spacing = -1;
+  };
+  if (st.theme === 'branches' || st.density <= 0) return none();
   const custom = customDef(st.theme);
   // Every spaced / every part, alternating round the ring (a leaf, a thorn, a leaf…).
   const ringParts = custom ? custom.parts.filter((x) => x.place === 'spaced' || x.place === 'every') : [];
-  if (custom && !ringParts.length) return;
+  if (custom && !ringParts.length) return none();
   const nR = Math.max(1, ringParts.length);
   const place = new Placer(out, st);
+  place.now = ex.now ?? 0;
   const unit = Math.max(1e-3, st.unit);
   const size = (L.decoSize * (st.sizeMul ?? 1)) / unit;
   const dens = st.density;
   const spacing = (st.theme === 'wreath' ? 0.07 : st.theme === 'thorns' ? 0.2 : 0.3) / nR;
+  const R = ex.ring;
+  // The state is by index round the ring: other spacing, other decorations.
+  if (R && R.spacing !== spacing) {
+    R.gone.fill(0);
+    R.prev.fill(0);
+    R.spacing = spacing;
+  }
+  const shedOn = p.growth.shed && !!ex.shed && !!R && !!ex.track && st.fall <= 0;
 
   let k = 0;
   for (let a = 0; a < Math.PI * 2; a += spacing, k++) {
@@ -594,8 +667,26 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
     const h1 = hash1(k * 4.37 + st.seed * 5.9);
     // Evenly spaced always-there share: every point where floor(k * always) steps up.
     const isAlways = always > 0 && Math.floor((k + 1) * always) > Math.floor(k * always);
-    const v = isAlways ? 1 : revealAt(a);
+    let v = isAlways ? 1 : revealAt(a);
     place.nodeAlpha = 1;
+    place.dropNode = null;
+    if (R && k < R.gone.length) {
+      // growth.shed: it lets go as the vine's tail fades past it (or the whole halo fades), and
+      // comes back once the vine covers it again. Not while a look change is still reaching it.
+      const vl = v * (ex.whole ?? 1), pv = R.prev[k];
+      const settled = !ex.mask || ex.mask(a) >= 0.999;
+      if (ex.track) R.prev[k] = settled ? vl : 0;
+      if (R.gone[k]) {
+        if (vl > 0.85) R.gone[k] = 0;
+        else continue;
+      } else if (shedOn && settled && vl < 0.5 && pv >= 0.5) {
+        R.gone[k] = 1;
+        place.dropNode = ex.shed!;
+        place.nodeAlpha = ex.whole ?? 1; // at the opacity it had (the pool is drawn without the fade)
+        v = 1;
+      }
+    }
+    if (ex.mask && !place.dropNode) v *= ex.mask(a);
     if (v <= 0.02) continue;
     const pop = easeOutBack(clamp(v));
     const x = Math.cos(a), y = Math.sin(a);
