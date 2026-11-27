@@ -62,6 +62,8 @@ export interface DecoStyle {
   downY: number;
   /** growth.fallDirection "away": what lets go drifts straight out from (originX, originY). */
   fallAway?: boolean;
+  /** growth.fallDirection "up": what lets go floats up. */
+  fallUp?: boolean;
   /** How leaves and petals that let go fall (params.falling). */
   drop?: { speed: number; sway: number; spin: number; flutter: number; time: number };
   originX?: number;
@@ -157,7 +159,7 @@ class Placer {
     let a = st.alpha * this.nodeAlpha;
     if (st.fall > 0) {
       const d = st.fall * st.fall * (0.5 + 0.9 * h) * (st.fallAway ? 0.8 : 1.2);
-      const [Dx, Dy] = fallDir(st.downX, st.downY, !!st.fallAway, x, y, st.originX, st.originY);
+      const [Dx, Dy] = fallDir(st.downX, st.downY, st.fallAway ? 1 : st.fallUp ? 2 : 0, x, y, st.originX, st.originY);
       x += Dx * d;
       y += Dy * d;
       angle += st.fall * (h - 0.5) * 8;

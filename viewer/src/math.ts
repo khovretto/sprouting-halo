@@ -5,12 +5,14 @@ export const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /**
- * Where a piece that let go travels, in a layer's frame (growth.fallDirection): down (downX, downY,
- * world down per world unit), or (away) straight out from the point the tree grows from, (ox, oy)
- * in the same frame, seen from (x, y): no gravity. Same length as (downX, downY).
+ * Where a piece that let go travels, in a layer's frame (growth.fallDirection): way 0 down (downX,
+ * downY, world down per world unit), 2 up (the other way), or 1 away: straight out from the point
+ * the tree grows from, (ox, oy) in the same frame, seen from (x, y): no gravity. Same length as
+ * (downX, downY).
  */
-export function fallDir(downX: number, downY: number, away: boolean, x: number, y: number, ox = 0, oy = 0): [number, number] {
-  if (!away) return [downX, downY];
+export function fallDir(downX: number, downY: number, way: number | boolean, x: number, y: number, ox = 0, oy = 0): [number, number] {
+  if (way === 2) return [-downX, -downY];
+  if (!way) return [downX, downY];
   const g = Math.hypot(downX, downY) || 1, dx = x - ox, dy = y - oy, r = Math.hypot(dx, dy);
   if (r < 1e-4) return [-downX, -downY];
   return [(dx / r) * g, (dy / r) * g];

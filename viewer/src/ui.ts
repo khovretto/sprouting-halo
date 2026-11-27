@@ -1,12 +1,12 @@
-// Tweak panel, generated from `params`: every value in params.ts gets a control automatically,
-// grouped by panel-layout.ts (artist folders, then setup folders; keys not listed there still
-// appear). RANGES sets slider limits so the full travel of each slider makes a visible difference;
-// typed values may go beyond them. Labels come from panel-layout.ts, tooltips from the doc
+// Settings panel, generated from `params`: every value in params.ts gets a control automatically,
+// grouped by panel-layout.ts (three tabs, folders in each; keys not listed there still appear).
+// RANGES sets slider limits so the full travel of each slider makes a visible difference; typed
+// values may go beyond them. Labels come from panel-layout.ts, tooltips from there and from the doc
 // comments in params.ts. Presets (presets.ts): built-in looks, saved looks, a revert button on
 // every changed row (to the active preset; Shift-click: the factory default).
 
 import { toggleSheet } from './hotkeys';
-import { ButtonApi, FolderApi, ListBladeApi, Pane, TabPageApi } from 'tweakpane';
+import { ButtonApi, FolderApi, Pane } from 'tweakpane';
 import { defaults, Params } from './params';
 import paramsSource from './params.ts?raw';
 import { FOLDER_HINTS, FOLDERS, FolderSpec, LABELS, MACROS, macroPos, macroValue, MOVEMENTS, TIPS } from './panel-layout';
@@ -140,7 +140,8 @@ const RANGES: Record<string, Spec> = {
   'plants.trunkLean': { min: -45, max: 45 },
   'growth.fillSpace': { min: 0, max: 1 },
   'growth.branchOrder': { options: { 'Spread out': 'spread', Random: 'random', 'Top to bottom': 'topDown', 'Bottom to top': 'bottomUp' } },
-  'growth.fallDirection': { options: { 'Down (gravity)': 'down', 'Away from the origin (no gravity)': 'away' } },
+  'growth.fallDirection': { options: { 'Down (gravity)': 'down', 'Away from the origin (no gravity)': 'away', 'Up (they float up)': 'up' } },
+  'look.gravity': { options: { 'As the reaction says': 'reaction', 'Down (gravity)': 'down', 'Away from the origin (no gravity)': 'away', 'Up (they float up)': 'up' } },
   'plants.gnarl': { min: 0, max: 1 },
   'plants.curl': { min: 0, max: 1 },
   'plants.strands': { min: 1, max: 3, step: 1 },
@@ -167,6 +168,7 @@ const RANGES: Record<string, Spec> = {
   'falling.dropSeconds': { min: 0, max: 1.5 },
   'falling.dropVariety': { min: 0, max: 1 },
   'falling.dropSpeed': { min: 1, max: 3 },
+  'falling.variety': { min: 0, max: 1 },
   'harmony.colour': { min: 0, max: 1 },
   'harmony.colourMode': { options: { 'Waves of both colours': 'waves', 'Gradient from one to the other': 'gradient', 'Mix of the two': 'mix', 'The harmony colour': 'colour' } },
   'harmony.colourMix': { options: { 'Even (OKLab)': 'oklab', 'Straight (RGB)': 'rgb', 'As light (brighter)': 'light', 'Round the colour wheel': 'hue', "Painter's wheel (yellow + blue = green)": 'paint', 'Hard cut': 'hard' } },
@@ -330,7 +332,7 @@ const RANGES: Record<string, Spec> = {
   'growth.branchFallSeconds': { min: 0.3, max: 4 },
   'commit.limbs': { min: 1, max: 4, step: 1 },
   'look.buds': { min: 0, max: 0.6 },
-  'palette.from': { options: { 'My take colours (Setup)': 'mine', "This look's colours": 'list' } },
+  'palette.from': { options: { 'My take colours': 'mine', "This look's colours": 'list' } },
   'palette.pick': { options: { 'In order': 'order', 'Random (per take)': 'random', 'Spread along the gradient': 'spread' } },
   'palette.seed': { min: 1, max: 99, step: 1 },
   'fake.fullStopEvery': { min: 0, max: 10, step: 1 },
@@ -431,7 +433,7 @@ export interface UIActions {
   changed(): void;
 }
 
-/** Read-only values shown at the top of the panel (updated by the app). */
+/** Read-only values shown in the head of the panel (updated by the app). */
 export interface UIStatus {
   feed: string;
   layers: string;
@@ -444,6 +446,8 @@ export interface UI {
   refresh(): void;
   /** Open a setting's folder(s), scroll it into view and flash it. */
   reveal(path: string): void;
+  /** Put the cursor in the panel's search field. */
+  search(): void;
   /** The user themes changed (rebuild the theme list). */
   themesChanged(): void;
   /** Switch a kind to the i-th preset of its list (0-based, as numbered there; keys 1..9, 0). */
@@ -490,24 +494,166 @@ function parseHints(src: string): Record<string, string> {
 const HINTS = parseHints(paramsSource);
 
 // ---- Panel -------------------------------------------------------------------------------------
+//
+// The panel is a fixed head (title bar, status, test buttons, search, the three tabs) over a
+// scrolling body. The body is one Tweakpane pane: its own tab strip is hidden and driven from the
+// tabs in the head. Each tab page starts with its preset card (plain DOM, placed beside
+// Tweakpane's own container: Tweakpane inserts rows by child index, so nothing foreign may sit
+// among them), then the combined sliders, then the folders of panel-layout.ts.
 
 const PANEL_KEY = 'sprout.viewer.panel.v1';
+const TAB_KEY = 'sprout.viewer.tab.v1';
+const WIDTH_KEY = 'sprout.viewer.panelWidth.v1';
+const MIN_WIDTH = 280, MAX_WIDTH = 640;
+/** Share of the panel's width the value column takes (the label gets the rest). */
+const VALUE_SHARE = 0.47;
 const CSS = `
-.sprout-rv { float: right; border: 0; background: none; color: #8fd0ff; cursor: pointer; padding: 0 2px;
-  font: 12px/1 sans-serif; visibility: hidden; }
-.sprout-mod .sprout-rv { visibility: visible; }
-.sprout-mod .tp-lblv_l { color: #cfe8ff; }
+.sprout-panel { --accent: #8fd0ff; --accent-soft: rgba(143,208,255,0.16); --line: rgba(255,255,255,0.08);
+  --text: #e6e9ee; --muted: #8e95a3; color: var(--text); font: 12px/1.3 system-ui, 'Segoe UI', Roboto, sans-serif; }
+.sprout-panel [hidden] { display: none !important; }
+.sprout-panel .sprout-btn, .sprout-panel .sprout-chip, .sprout-panel .sprout-tab, .sprout-panel .sprout-hit { font: inherit; color: inherit; }
+.sprout-panel .sprout-head { flex: none; padding: 0 8px 6px; border-bottom: 1px solid var(--line); }
+.sprout-panel .sprout-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin;
+  scrollbar-color: #4a4e58 transparent; padding: 2px 0 6px; }
+.sprout-panel.sprout-folded .sprout-head > :not(.sprout-title), .sprout-panel.sprout-folded .sprout-body { display: none; }
+.sprout-panel.sprout-folded .sprout-head { padding-bottom: 0; border-bottom: 0; }
+
+/* Title bar */
+.sprout-panel .sprout-title { display: flex; align-items: center; gap: 4px; height: 34px; }
+.sprout-panel .sprout-name { flex: 1; font-weight: 650; font-size: 13px; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; cursor: default; }
+.sprout-panel .sprout-name::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 8px 0 8px 0;
+  background: linear-gradient(135deg, #9be08a, #4fb873); }
+.sprout-panel .sprout-chip { height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: 11px; background: transparent;
+  color: var(--muted); font-size: 11px; cursor: pointer; white-space: nowrap; }
+.sprout-panel .sprout-chip:hover { color: var(--text); background: rgba(255,255,255,0.07); }
+.sprout-panel .sprout-chip.on { color: var(--accent); border-color: rgba(143,208,255,0.45); background: var(--accent-soft); }
+.sprout-panel .sprout-chip.sprout-round { width: 22px; padding: 0; }
+
+/* Status */
+.sprout-panel .sprout-status { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 6px 8px; border-radius: 6px;
+  background: rgba(0,0,0,0.25); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sprout-panel .sprout-stat { display: flex; gap: 6px; min-width: 0; white-space: nowrap; }
+.sprout-panel .sprout-stat-pitch, .sprout-panel .sprout-stat-voice { grid-column: 1 / -1; }
+.sprout-panel .sprout-stat-l { flex: none; width: 34px; color: var(--muted); }
+.sprout-panel .sprout-stat-layers .sprout-stat-l { width: auto; }
+.sprout-panel .sprout-stat-v { overflow: hidden; text-overflow: ellipsis; }
+.sprout-panel .sprout-stat-feed .sprout-stat-v::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 5px;
+  border-radius: 50%; background: #e0b34f; }
+.sprout-panel .sprout-status[data-feed=live] .sprout-stat-feed .sprout-stat-v::before { background: #5fd08a; box-shadow: 0 0 6px #5fd08a; }
+.sprout-panel .sprout-status[data-feed=waiting] .sprout-stat-feed .sprout-stat-v::before { background: #ff8080; }
+
+/* Buttons of the head and the preset card */
+.sprout-panel .sprout-toolbar { display: flex; gap: 4px; padding-top: 6px; }
+.sprout-panel .sprout-btn { flex: 1 1 auto; height: 24px; padding: 0 7px; border: 1px solid rgba(255,255,255,0.09); border-radius: 5px;
+  background: #343843; cursor: pointer; white-space: nowrap; font-size: 11.5px; }
+.sprout-panel .sprout-btn:hover:not(:disabled) { background: #414655; }
+.sprout-panel .sprout-btn:active:not(:disabled) { background: #4c5263; }
+.sprout-panel .sprout-btn:disabled { opacity: 0.4; cursor: default; }
+.sprout-panel .sprout-btn.on { border-color: rgba(143,208,255,0.5); background: var(--accent-soft); color: var(--accent); }
+.sprout-panel .sprout-btn.sprout-quiet { background: transparent; color: var(--muted); }
+.sprout-panel .sprout-btn.sprout-quiet:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,0.07); }
+.sprout-panel .sprout-btn.sprout-narrow { flex: none; width: 26px; padding: 0; }
+
+/* Search */
+.sprout-panel .sprout-search { padding-top: 6px; }
+.sprout-panel .sprout-search input, .sprout-panel .sprout-preset input, .sprout-panel .sprout-preset select { box-sizing: border-box; width: 100%; height: 24px; padding: 0 8px;
+  border: 1px solid rgba(255,255,255,0.09); border-radius: 5px; background: rgba(0,0,0,0.25); color: var(--text); font: inherit;
+  outline: none; color-scheme: dark; }
+.sprout-panel .sprout-search input:focus, .sprout-panel .sprout-preset input:focus, .sprout-panel .sprout-preset select:focus { border-color: rgba(143,208,255,0.6); }
+.sprout-panel .sprout-search input::placeholder { color: var(--muted); }
+.sprout-panel .sprout-results { display: none; margin-top: 4px; max-height: 46vh; overflow-y: auto; scrollbar-width: thin; }
+.sprout-panel .sprout-hit { display: block; width: 100%; padding: 4px 8px; border: 0; border-radius: 5px; background: none; text-align: left;
+  cursor: pointer; }
+.sprout-panel .sprout-hit.sel, .sprout-panel .sprout-hit:hover { background: var(--accent-soft); }
+.sprout-panel .sprout-hit small { display: block; color: var(--muted); font-size: 10.5px; }
+.sprout-panel .sprout-hit-none { padding: 4px 8px; color: var(--muted); }
+
+/* Tabs */
+.sprout-panel .sprout-tabs { display: flex; gap: 2px; margin: 8px 0 -7px; }
+.sprout-panel .sprout-tab { flex: 1; height: 28px; border: 0; border-bottom: 2px solid transparent; border-radius: 5px 5px 0 0; background: none;
+  color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.sprout-panel .sprout-tab:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+.sprout-panel .sprout-tab.sel { color: var(--text); border-bottom-color: var(--accent); background: rgba(255,255,255,0.06); }
+.sprout-panel .sprout-tab.sprout-dirty::after, .sprout-panel .sprout-dot > .tp-fldv_b::after { content: ''; display: inline-block; width: 6px;
+  height: 6px; margin-left: 6px; border-radius: 50%; background: var(--accent); vertical-align: 1px; }
+
+/* Preset card */
+.sprout-panel .sprout-preset { margin: 6px 8px 4px; padding: 7px 8px 8px; border: 1px solid var(--line); border-radius: 7px;
+  background: rgba(255,255,255,0.035); }
+.sprout-panel .sprout-preset-cap { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--muted); font-size: 10.5px;
+  font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.sprout-panel .sprout-preset-cap b { color: var(--accent); font-weight: 600; letter-spacing: 0; text-transform: none; }
+.sprout-panel .sprout-preset-pick, .sprout-panel .sprout-preset-acts, .sprout-panel .sprout-saveas { display: flex; gap: 4px; }
+.sprout-panel .sprout-preset select { flex: 1; min-width: 0; height: 26px; padding: 0 4px; font-weight: 600; cursor: pointer; }
+.sprout-panel .sprout-preset-acts { flex-wrap: wrap; }
+.sprout-panel .sprout-preset-acts .sprout-btn { flex: 0 1 auto; }
+.sprout-panel .sprout-preset-gap { flex: 1; }
+.sprout-panel .sprout-saveas { margin-top: 4px; }
+.sprout-panel .sprout-saveas .sprout-btn { flex: none; }
+.sprout-panel .sprout-desc { color: #a3a9b5; font-size: 11.5px; line-height: 1.4; padding: 6px 1px 7px; white-space: normal; }
+
+/* Rows */
+.sprout-panel .sprout-body .tp-rotv { background: none; box-shadow: none; }
+.sprout-panel .sprout-body .tp-tabv_t, .sprout-panel .sprout-body .tp-tabv_i { display: none; }
+.sprout-panel .sprout-body .tp-tabv_c, .sprout-panel .sprout-body .tp-tbpv_c { padding-left: 0; }
+.sprout-panel .sprout-body .tp-lblv_l { position: relative; padding-left: 8px; padding-right: 18px; line-height: 1.25; }
+.sprout-panel .sprout-body .tp-txtv_i, .sprout-panel .sprout-body .tp-lstv_s { font-variant-numeric: tabular-nums; }
+.sprout-panel .sprout-rv { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: var(--accent);
+  cursor: pointer; padding: 2px; font: 13px/1 sans-serif; visibility: hidden; opacity: 0.75; }
+.sprout-panel .sprout-rv:hover { opacity: 1; }
+.sprout-panel .sprout-mod .sprout-rv { visibility: visible; }
+.sprout-panel .sprout-mod { position: relative; }
+.sprout-panel .sprout-mod::before { content: ''; position: absolute; left: 1px; top: 4px; bottom: 4px; width: 2px; border-radius: 1px;
+  background: var(--accent); }
+.sprout-panel .sprout-mod > .tp-lblv_l { color: #d6ecff; }
 @keyframes sprout-flash { 0%, 40% { background: rgba(143,208,255,0.35); } 100% { background: transparent; } }
-.sprout-flash { animation: sprout-flash 1.6s ease-out; border-radius: 3px; }
-.sprout-moves { display: flex; gap: 3px; padding: 4px 6px 2px; flex-wrap: wrap; }
-.sprout-moves button { font: 11px system-ui, sans-serif; color: #ddd; background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12); border-radius: 3px; padding: 2px 6px; cursor: pointer; }
-.sprout-moves button:hover { background: rgba(143,208,255,0.25); }
-.sprout-desc { color: #9aa0a8; font: 11px/1.35 sans-serif; padding: 2px 8px 6px; white-space: normal; }
+.sprout-panel .sprout-flash { animation: sprout-flash 1.6s ease-out; border-radius: 4px; }
+.sprout-panel .sprout-macro > .tp-lblv_l { color: #b9e6c4; font-weight: 600; }
+.sprout-panel .sprout-macro > .tp-lblv_l::before { content: '◆'; margin-right: 5px; font-size: 8px; vertical-align: 1px; opacity: 0.8; }
+
+/* Folders: the top ones read as headings, the nested ones as quiet groups */
+.sprout-panel .sprout-body .tp-fldv_b { padding-left: 8px; }
+.sprout-panel .sprout-body .tp-fldv_t { display: inline; padding-left: 0; }
+.sprout-panel .sprout-top { margin-top: 3px; }
+.sprout-panel .sprout-top > .tp-fldv_b { font-weight: 650; font-size: 12.5px; color: var(--text); height: 28px; line-height: 28px; }
+.sprout-panel .sprout-top > .tp-fldv_i { top: 28px; }
+/* Nested groups must not read as settings: a tinted, rounded header with a turning chevron, a
+   little inset, and a guide line down the left of what they hold while open. */
+.sprout-panel .sprout-sub, .sprout-panel .sprout-adv { margin: 5px 6px 3px 8px; }
+.sprout-panel .sprout-sub > .tp-fldv_b, .sprout-panel .sprout-adv > .tp-fldv_b { height: 24px; line-height: 24px; padding-left: 6px;
+  border-radius: 5px; background: rgba(143,208,255,0.07); color: #a9d8ff; font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em; }
+.sprout-panel .sprout-sub > .tp-fldv_b:hover, .sprout-panel .sprout-adv > .tp-fldv_b:hover { background: rgba(143,208,255,0.14); }
+.sprout-panel .sprout-sub > .tp-fldv_b .tp-fldv_t::before, .sprout-panel .sprout-adv > .tp-fldv_b .tp-fldv_t::before { content: '›';
+  display: inline-block; width: 10px; margin-right: 3px; text-align: center; font-size: 13px; transition: transform 0.15s; }
+.sprout-panel .sprout-sub.tp-fldv-expanded > .tp-fldv_b .tp-fldv_t::before,
+.sprout-panel .sprout-adv.tp-fldv-expanded > .tp-fldv_b .tp-fldv_t::before { transform: rotate(90deg); }
+.sprout-panel .sprout-sub > .tp-fldv_b .tp-fldv_m, .sprout-panel .sprout-adv > .tp-fldv_b .tp-fldv_m { display: none; }
+.sprout-panel .sprout-sub > .tp-fldv_i, .sprout-panel .sprout-adv > .tp-fldv_i { display: none; }
+.sprout-panel .sprout-sub.tp-fldv-expanded > .tp-fldv_c, .sprout-panel .sprout-adv.tp-fldv-expanded > .tp-fldv_c {
+  margin: 2px 0 2px 5px; border-left: 2px solid rgba(143,208,255,0.22); }
+.sprout-panel .sprout-adv > .tp-fldv_b { background: rgba(255,255,255,0.04); color: var(--muted); font-style: italic; }
+.sprout-panel .sprout-adv.tp-fldv-expanded > .tp-fldv_c { border-left-color: rgba(255,255,255,0.12); }
+.sprout-panel .sprout-note { margin-left: 7px; color: var(--muted); font-weight: 400; font-size: 11px; }
+.sprout-panel .sprout-moves { display: flex; align-items: center; gap: 3px; padding: 3px 4px 4px 8px; flex-wrap: wrap; }
+.sprout-panel .sprout-moves span { color: var(--muted); font-size: 11px; margin-right: 3px; }
+.sprout-panel .sprout-moves .sprout-btn { flex: none; height: 21px; padding: 0 6px; font-size: 11px; }
+
+/* Drag the left edge to make the panel wider or narrower */
+.sprout-panel .sprout-grip { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: ew-resize; z-index: 2; }
+.sprout-panel .sprout-grip:hover, .sprout-panel .sprout-grip.on { background: linear-gradient(to right, rgba(143,208,255,0.5), transparent); }
 `;
 
 type Binding = { element: HTMLElement; hidden: boolean; refresh(): void; min?: number; max?: number };
 type Folder = FolderApi;
+
+/** A new element with a class and a text. */
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
 
 export function buildUI(container: HTMLElement, p: Params, actions: UIActions, status: UIStatus): UI {
   if (!document.getElementById('sprout-ui-css')) {
@@ -536,47 +682,183 @@ export function buildUI(container: HTMLElement, p: Params, actions: UIActions, s
     return k ? presetValue(activePreset(k), path) : getPath(defaults, path);
   };
 
-  const pane = new Pane({ container, title: 'Sprouting Halo  (H hides, G scope)' });
+  container.classList.add('sprout-panel');
+  const head = el('div', 'sprout-head');
+  const body = el('div', 'sprout-body');
+  container.append(head, body);
+  const pane = new Pane({ container: body });
   installTooltips(container);
   installSelectMenus(container);
   const folderTip = (f: Folder, text?: string) => tip(f.element.querySelector('.tp-fldv_b'), text);
   const btnTip = (b: { element: HTMLElement }, text: string) => tip(b.element.querySelector('button'), text);
-  tip(pane.addBinding(status, 'feed', { readonly: true, label: 'feed' }).element,
-    'Where the voice data comes from right now: live taps from Sprout.exe, or the fake singer.');
-  tip(pane.addBinding(status, 'layers', { readonly: true, label: 'layers' }).element,
-    'Live tracks (a halo each) and recorded takes (a tree each).');
-  tip(pane.addBinding(status, 'pitch', { readonly: true, label: 'live pitch' }).element,
-    'The note the first live track is singing, in cents off the note, and the vibrato rate when there is vibrato.');
+  /** A plain button of the head or a preset card. */
+  const button = (parent: HTMLElement, text: string, tipText: string, cls = 'sprout-btn') => {
+    const b = el('button', cls, text);
+    b.type = 'button';
+    tip(b, tipText);
+    parent.appendChild(b);
+    return b;
+  };
+  /** Another text on a button for 3 s (a question before a second click, or a message). */
+  const say = (b: HTMLButtonElement, text: string, idle: string) => {
+    b.textContent = text;
+    clearTimeout(Number(b.dataset.timer));
+    b.dataset.timer = String(window.setTimeout(() => (b.textContent = idle), 3000));
+  };
+
+  let panelState: Record<string, boolean> = {};
+  try {
+    panelState = JSON.parse(localStorage.getItem(PANEL_KEY) ?? '{}');
+  } catch {
+    /* ignore */
+  }
+  const savePanelState = () => {
+    try {
+      localStorage.setItem(PANEL_KEY, JSON.stringify(panelState));
+    } catch {
+      /* ignore */
+    }
+  };
+  let syncFoldAll = () => {};
+  const remember = (id: string, f: Folder) =>
+    f.on('fold', (ev) => {
+      panelState[id] = ev.expanded;
+      savePanelState();
+      syncFoldAll();
+    });
+
+  // ---- Title bar: the panel-wide switches ----
+  const TAB_IDS = ['look', 'reaction', 'setup'] as const;
+  type TabId = (typeof TAB_IDS)[number];
+  const titleBar = el('div', 'sprout-title');
+  const nameEl = el('span', 'sprout-name', 'Sprouting Halo');
+  tip(nameEl, 'Sprouting Halo settings. Every change is saved at once and sent to the other open viewers and OBS.\nKeys: H hides the panels, G shows the voice scope, S searches, / lists every key.');
+  titleBar.appendChild(nameEl);
+  const showAdv = { showAdvanced: !!panelState.showAdvanced };
+  const advFolders: Folder[] = [];
+  const advBtn = button(titleBar, 'Advanced', 'Show the Advanced fold of each folder, with the rarely needed settings. Search finds them either way.', 'sprout-chip');
+  const syncAdv = () => {
+    advBtn.classList.toggle('on', showAdv.showAdvanced);
+    for (const f of advFolders) f.hidden = !showAdv.showAdvanced;
+  };
+  advBtn.addEventListener('click', () => {
+    showAdv.showAdvanced = !showAdv.showAdvanced;
+    panelState.showAdvanced = showAdv.showAdvanced;
+    savePanelState();
+    syncAdv();
+  });
+  const foldAllBtn = button(titleBar, 'Fold all', '', 'sprout-chip');
+  button(titleBar, '?', 'Show every keyboard shortcut.\nKey: /', 'sprout-chip sprout-round').addEventListener('click', () => toggleSheet());
+  const foldBtn = button(titleBar, '–', '', 'sprout-chip sprout-round');
+  const setFolded = (folded: boolean) => {
+    container.classList.toggle('sprout-folded', folded);
+    foldBtn.textContent = folded ? '+' : '–';
+    tip(foldBtn, folded ? 'Open the panel again.' : 'Fold the panel down to this bar.\nKey: H hides the panels altogether.');
+  };
+  foldBtn.addEventListener('click', () => setFolded(!container.classList.contains('sprout-folded')));
+  setFolded(false);
+  head.appendChild(titleBar);
+
+  // ---- Status: what the viewer hears right now (the app keeps `status` up to date) ----
+  const statusBox = el('div', 'sprout-status');
+  const stat = (key: keyof UIStatus, label: string, tipText: string) => {
+    const row = el('div', 'sprout-stat sprout-stat-' + key);
+    const value = el('span', 'sprout-stat-v');
+    row.append(el('span', 'sprout-stat-l', label), value);
+    tip(row, tipText);
+    statusBox.appendChild(row);
+    return value;
+  };
+  const statEls: Record<keyof UIStatus, HTMLElement> = {
+    feed: stat('feed', 'feed', 'Where the voice data comes from right now: live taps from Sprout.exe, or the fake singer.'),
+    layers: stat('layers', '', 'Live tracks (a halo each) and recorded takes (a tree each).'),
+    pitch: stat('pitch', 'pitch', 'The note the first live track is singing, in cents off the note, and the vibrato rate when there is vibrato.'),
+    voice: stat('voice', 'voice', 'Effort: soft (0) to full voice (1), from the overtones, so 0.5 = how you usually sing and mic distance does not matter. Breath: how airy the singing is (only while a note is sung; inhales do not count). Soft: what the visuals use, high for soft, airy singing. G opens the voice scope to see them over time'),
+  };
+  const shown: Partial<UIStatus> = {};
+  const showStatus = () => {
+    for (const k of Object.keys(statEls) as (keyof UIStatus)[]) {
+      if (shown[k] === status[k]) continue;
+      shown[k] = status[k];
+      statEls[k].textContent = status[k] || '–';
+    }
+    statusBox.dataset.feed = status.feed.startsWith('live') ? 'live' : status.feed.startsWith('waiting') ? 'waiting' : 'fake';
+  };
+  showStatus();
+  window.setInterval(showStatus, 200);
+  head.appendChild(statusBox);
+
+  // ---- Test buttons: the preview tools used most, with their keys ("/" lists every key) ----
   let fakeSync = () => {};
-  const voiceRow = pane.addBinding(status, 'voice', { readonly: true, label: 'live voice' });
-  // Test toolbar: the preview tools used most, with their keys ("/" lists every key).
   {
-    const bar = document.createElement('div');
-    bar.className = 'sprout-toolbar';
+    const bar = el('div', 'sprout-toolbar');
     const add = (text: string, key: string, tipText: string, run: () => void) => {
-      const b = document.createElement('button');
-      b.textContent = text;
+      const b = button(bar, text, `${tipText}\nKey: ${key}`);
       b.addEventListener('click', () => {
         run();
         pane.refresh();
       });
-      tip(b, `${tipText}
-Key: ${key}`);
-      bar.appendChild(b);
       return b;
     };
-    const fakeBtn = add('', 'F', 'Switch between the fake singer and live taps from Sprout.exe (the mode you had before), to test without a DAW and come back.', () => actions.toggleFake());
-    const syncFake = () => (fakeBtn.textContent = p.source.mode === 'fake' ? '◉ Fake singer' : '○ Fake singer');
-    syncFake();
-    fakeSync = syncFake;
+    const fakeBtn = add('Fake singer', 'F', 'Switch between the fake singer and live taps from Sprout.exe (the mode you had before), to test without a DAW and come back.', () => actions.toggleFake());
+    fakeSync = () => fakeBtn.classList.toggle('on', p.source.mode === 'fake');
+    fakeSync();
     add('↻ Restart', 'R', 'Restart growth: the fake singer and every tree start from the beginning.', () => actions.restart());
     add('Halo → tree', 'T', 'Play the planting animation: the live take finishes recording and its halo becomes a tree (fake singer).', () => actions.commitLive());
     add('End phrase', 'E', 'Fake singer: end the phrase now with a full stop (a long pause), to see the phrase-end effects.', () => actions.endPhrase());
-    add('Keys /', '/', 'Show every keyboard shortcut.', () => toggleSheet());
-    voiceRow.element.after(bar);
+    head.appendChild(bar);
   }
-  tip(voiceRow.element,
-    'Effort: soft (0) to full voice (1), from the overtones, so 0.5 = how you usually sing and mic distance does not matter. Breath: how airy the singing is (only while a note is sung; inhales do not count). Soft: what the visuals use, high for soft, airy singing. G opens the voice scope to see them over time');
+
+  // ---- Search: any setting or button by its name, its folder or what its tooltip says ----
+  const searchBox = el('div', 'sprout-search');
+  const searchIn = el('input');
+  searchIn.type = 'search';
+  searchIn.placeholder = 'Find a setting…';
+  searchIn.spellcheck = false;
+  tip(searchIn, 'Type a few letters of a setting, a folder or what it does: Enter (or a click) opens its folder and scrolls to it, in any tab. Up and down choose, Esc clears.\nKey: S');
+  const resultsEl = el('div', 'sprout-results');
+  searchBox.append(searchIn, resultsEl);
+  head.appendChild(searchBox);
+
+  // ---- Tabs: Look (visual preset), Reaction (reactivity preset), Setup (rig and this viewer;
+  // testing preset) - docs/fable-consult-5-colour-themes-panel.md, D.1 ----
+  const TAB_TITLES: Record<TabId, string> = { look: 'Look', reaction: 'Reaction', setup: 'Setup' };
+  const TAB_TIPS: Record<TabId, string> = {
+    look: 'How it looks: theme and leaves, colours, tree shape, halo, glow. The Look preset at the top sets all of it.',
+    reaction: 'How it answers your voice, grouped by what the voice does. The Reaction preset at the top sets all of it.',
+    setup: 'Fit to your avatar, connection, performance, voice detection, and the preview tools and fake singer (Setup preset). No Look or Reaction preset touches these.',
+  };
+  const KIND_TAB: Record<Kind, TabId> = { visual: 'look', reactivity: 'reaction', testing: 'setup' };
+  const mainTab = pane.addTab({ pages: TAB_IDS.map((id) => ({ title: TAB_TITLES[id] })) });
+  const pageOf = (id: TabId) => mainTab.pages[TAB_IDS.indexOf(id)];
+  const currentTab = () => TAB_IDS[Math.max(0, mainTab.pages.findIndex((pg) => pg.selected))];
+  const tabBar = el('div', 'sprout-tabs');
+  const tabBtns = TAB_IDS.map((id, i) => {
+    const b = button(tabBar, TAB_TITLES[id], '', 'sprout-tab');
+    b.addEventListener('click', () => (mainTab.pages[i].selected = true));
+    return b;
+  });
+  head.appendChild(tabBar);
+  const syncTabs = () => {
+    const cur = currentTab();
+    tabBtns.forEach((b, i) => b.classList.toggle('sel', TAB_IDS[i] === cur));
+    syncFoldAll();
+  };
+  try {
+    const last = Number(localStorage.getItem(TAB_KEY) ?? 0);
+    if (mainTab.pages[last]) mainTab.pages[last].selected = true;
+  } catch {
+    /* ignore */
+  }
+  mainTab.on('select', (ev) => {
+    syncTabs();
+    body.scrollTop = 0;
+    try {
+      localStorage.setItem(TAB_KEY, String(ev.index));
+    } catch {
+      /* ignore */
+    }
+  });
 
   // Changes applied from another viewer must never be sent back: that echo, arriving late, is
   // what overwrote newer values while dragging. Ignore panel events for a moment after a refresh.
@@ -588,22 +870,6 @@ Key: ${key}`);
     saveStore(store);
     actions.changed();
   };
-
-  let panelState: Record<string, boolean> = {};
-  try {
-    panelState = JSON.parse(localStorage.getItem(PANEL_KEY) ?? '{}');
-  } catch {
-    /* ignore */
-  }
-  const remember = (id: string, f: Folder) =>
-    f.on('fold', (ev) => {
-      panelState[id] = ev.expanded;
-      try {
-        localStorage.setItem(PANEL_KEY, JSON.stringify(panelState));
-      } catch {
-        /* ignore */
-      }
-    });
 
   /** A button that asks for a second click within 3 s. */
   const confirmButton = (folder: Folder, title: string, ask: string, run: () => void) => {
@@ -634,67 +900,25 @@ Key: ${key}`);
     URL.revokeObjectURL(a.href);
   };
 
-  // ---- Presets: Visual, Reactivity and Testing, each on its own tab ----
-  // ---- Top tabs: Look (visual preset), Reaction (reactivity preset), Setup (rig and this viewer;
-  // testing preset) - docs/fable-consult-5-colour-themes-panel.md, D.1 ----
-  const TAB_IDS = ['look', 'reaction', 'setup'] as const;
-  type TabId = (typeof TAB_IDS)[number];
-  const TAB_TITLES: Record<TabId, string> = { look: 'Look', reaction: 'Reaction', setup: 'Setup' };
-  const TAB_TIPS: Record<TabId, string> = {
-    look: 'How it looks: colours, theme and leaves, tree shape, halo, glow. The Visual preset at the top sets all of it.',
-    reaction: 'How it answers your voice, grouped by what the voice does. The Reactivity preset at the top sets all of it.',
-    setup: 'Fit to your avatar, voice detection, performance, connection, and preview tools (Testing preset). No look preset touches these.',
-  };
-  const KIND_TAB: Record<Kind, TabId> = { visual: 'look', reactivity: 'reaction', testing: 'setup' };
-  const showAdv = { showAdvanced: !!panelState.showAdvanced };
-  const advRow = pane.addBinding(showAdv, 'showAdvanced', { label: 'show advanced' });
-  tip(advRow.element, 'Show the Advanced folds with the rarely needed settings.');
-  const advFolders: Folder[] = [];
-  advRow.on('change', () => {
-    for (const f of advFolders) f.hidden = !showAdv.showAdvanced;
-    panelState.showAdvanced = showAdv.showAdvanced;
-    try {
-      localStorage.setItem(PANEL_KEY, JSON.stringify(panelState));
-    } catch {
-      /* ignore */
-    }
-  });
-  const mainTab = pane.addTab({ pages: TAB_IDS.map((id) => ({ title: TAB_TITLES[id] })) });
-  const pageOf = (id: TabId) => mainTab.pages[TAB_IDS.indexOf(id)];
-  mainTab.element.querySelectorAll('.tp-tbiv_b').forEach((b, i) => tip(b, TAB_TIPS[TAB_IDS[i]]));
-  try {
-    const last = Number(localStorage.getItem('sprout.viewer.tab.v1') ?? 0);
-    if (mainTab.pages[last]) mainTab.pages[last].selected = true;
-  } catch {
-    /* ignore */
-  }
-  mainTab.on('select', (ev) => {
-    try {
-      localStorage.setItem('sprout.viewer.tab.v1', String(ev.index));
-    } catch {
-      /* ignore */
-    }
-  });
-  /** Each preset kind's rows go at the top of its tab. */
-  const tab = { pages: KINDS.map((k) => pageOf(KIND_TAB[k])) };
+  // ---- Presets: Visual, Reactivity and Testing, each in a card at the top of its tab ----
   const STASH = '__stash', CUSTOM = '__custom';
+  const KIND_CAPTION: Record<Kind, string> = { visual: 'Look preset', reactivity: 'Reaction preset', testing: 'Setup preset' };
   const LIST_TIPS: Record<Kind, string> = {
-    visual: 'Pick a look: tree shape, leaves, colour tint and glow. Built-in looks first, then your own (·). It also sets the theme in every Sprout Tap window.',
-    reactivity: 'Pick how it answers your voice: growth speed, withering, brightness, glow flashes, motion and the planting animation. Built-in first, then your own (·).',
-    testing: 'Pick a test scene for this browser only: what the fake singer sings, how many takes, preview speed. Never sent to OBS.',
+    visual: 'Pick a look: tree shape, leaves, colour tint and glow. Built-in looks first, then your own (·). It also sets the theme in every Sprout Tap window.\nKeys: 1 to 9 and 0 pick the first ten (numbered in the list).',
+    reactivity: 'Pick how it answers your voice: growth speed, withering, brightness, glow flashes, motion and the planting animation. Built-in first, then your own (·).\nKeys: Shift + 1 to 9 and 0 pick the first ten (numbered in the list).',
+    testing: 'Pick a test scene for this browser only: what the fake singer sings, how many takes, preview speed. Never sent to OBS.\nKeys: Alt + 1 to 9 and 0 pick the first ten (numbered in the list).',
   };
   interface Section {
     k: Kind;
-    page: TabPageApi;
-    list: ListBladeApi<string>;
+    card: HTMLDivElement;
+    select: HTMLSelectElement;
+    stateEl: HTMLElement;
     descEl: HTMLDivElement;
-    saveBtn: ButtonApi;
-    revertBtn: ButtonApi;
-    delBtn: ButtonApi;
-    nameObj: { name: string };
-    nameRow: { refresh(): void };
+    saveBtn: HTMLButtonElement;
+    revertBtn: HTMLButtonElement;
+    delBtn: HTMLButtonElement;
+    nameIn: HTMLInputElement;
     namedFor: string | null | undefined;
-    suppress: boolean;
   }
   const sections = {} as Record<Kind, Section>;
   /** The quick movement buttons of each colour role (shown only with a gradient). */
@@ -702,7 +926,7 @@ Key: ${key}`);
   /** A kind's presets in list order: built-in first, then your own by name. */
   const presetOrder = (k: Kind) => [...BUILTINS[k], ...[...store[k].user].sort((a, b) => a.name.localeCompare(b.name))];
   /** The first ten carry the number key that picks them (1..9, 0). */
-  const keyNum = (i: number) => (i < 10 ? `${(i + 1) % 10}   ` : '     ');
+  const keyNum = (i: number) => (i < 10 ? `${(i + 1) % 10}   ` : '     ');
   const listOptions = (k: Kind) => [
     ...(active[k] ? [] : [{ text: '(custom)', value: CUSTOM }]),
     ...presetOrder(k).map((x, i) => ({ text: keyNum(i) + (x.id.startsWith('user:') ? '· ' : '') + x.name, value: x.id })),
@@ -719,25 +943,15 @@ Key: ${key}`);
     const i = at < 0 ? (step > 0 ? 0 : n - 1) : (((at + step) % n) + n) % n;
     choose(k, list[i].id);
   };
-  /** (Re)create a kind's preset list (its options change after save / delete / import). */
-  const makeList = (sec: Section, index?: number) => {
-    const list = sec.page.addBlade({ view: 'list', label: 'preset', options: listOptions(sec.k), value: active[sec.k] ?? CUSTOM, index }) as ListBladeApi<string>;
-    list.on('change', (ev) => {
-      if (!sec.suppress) choose(sec.k, ev.value);
-    });
-    tip(list.element, LIST_TIPS[sec.k]);
-    list.element.after(sec.descEl);
-    return list;
-  };
+  /** Refill a kind's preset list (its options change after save / delete / import). */
   const rebuildList = (k: Kind) => {
-    const sec = sections[k];
-    const idx = sec.page.children.indexOf(sec.list);
-    sec.list.dispose();
-    sec.list = makeList(sec, idx);
+    const sel = sections[k].select;
+    sel.replaceChildren(...listOptions(k).map((o) => new Option(o.text, o.value)));
+    sel.value = active[k] ?? CUSTOM;
   };
 
   function choose(k: Kind, id: string) {
-    if (id === CUSTOM) return;
+    if (id === CUSTOM || (id !== STASH && !byId(k, id))) return;
     const dirtyNow = active[k] === null || isDirty(p, activePreset(k), k);
     const stashFrom = dirtyNow ? diffOf(p, k) : undefined;
     if (id === STASH) {
@@ -785,7 +999,8 @@ Key: ${key}`);
     return applied;
   };
 
-  const importFile = (into: Kind | null, btn?: ButtonApi, idle?: string) => {
+  /** Pick a file and load it; `failed` is told when it is not JSON. */
+  const importFile = (into: Kind | null, failed?: (message: string) => void) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
@@ -796,10 +1011,7 @@ Key: ${key}`);
       try {
         json = JSON.parse(await file.text());
       } catch {
-        if (btn && idle) {
-          btn.title = 'Not a valid .json file';
-          setTimeout(() => (btn.title = idle), 3000);
-        }
+        failed?.('Not a valid .json file');
         return;
       }
       if (json.sprout === 'preset') addImportedPreset(json, into);
@@ -830,79 +1042,112 @@ Key: ${key}`);
     input.click();
   };
 
-  KINDS.forEach((k, i) => {
-    const page = tab.pages[i];
-    const descEl = document.createElement('div');
-    descEl.className = 'sprout-desc';
-    const sec = { k, page, descEl, namedFor: undefined, suppress: false } as unknown as Section;
-    sections[k] = sec;
-    sec.list = makeList(sec);
+  const pageEls = mainTab.element.querySelectorAll<HTMLElement>('.tp-tbpv');
+  for (const k of KINDS) {
     const what = KIND_TITLES[k].toLowerCase();
-    const nextBtn = page.addButton({ title: 'Next preset ▸' });
-    const mod = k === 'visual' ? '' : k === 'reactivity' ? 'Ctrl + ' : 'Alt + ';
-    btnTip(nextBtn, `Switch to the next ${what} preset in the list, round and round (Shift-click: the one before). Keys: ${mod}1 to 9 and 0 pick the first ten (numbered in the list).`);
-    let back = false;
-    nextBtn.element.addEventListener('pointerdown', (e) => (back = e.shiftKey), true);
-    nextBtn.on('click', () => cyclePreset(k, back ? -1 : 1));
-    sec.saveBtn = page.addButton({ title: 'Save' });
-    btnTip(sec.saveBtn, `Overwrite this saved ${what} preset with the current values.`);
-    sec.nameObj = { name: 'Mine' };
-    const nameRow = page.addBinding(sec.nameObj, 'name', { label: 'new name' });
-    sec.nameRow = nameRow;
-    tip(nameRow.element, 'Name for "Save as new preset".');
-    const saveAsBtn = page.addButton({ title: 'Save as new preset' });
-    btnTip(saveAsBtn, `Save the current ${what} settings under the name above. Kept in this browser; use Export to move it.`);
-    sec.revertBtn = page.addButton({ title: 'Revert all changes' });
-    btnTip(sec.revertBtn, `Put every ${what} value back to the active preset. Your changes are kept as "Unsaved tweaks" in the list.`);
-    sec.delBtn = confirmButton(page as unknown as Folder, 'Delete preset', 'Click again to delete', () => {
-      store[k].user = store[k].user.filter((x) => x.id !== active[k]);
-      active[k] = null;
-      afterPresetChange(k, false);
-    });
-    btnTip(sec.delBtn, 'Delete this saved preset (asks for a second click). The values stay on screen.');
-    const exportBtn = page.addButton({ title: 'Export preset (.json)' });
-    btnTip(exportBtn, `Save the current ${what} settings as a preset file to share or move to another browser.`);
-    exportBtn.on('click', () => {
-      const pr = activePreset(k);
-      const name = pr?.name ?? 'custom';
-      download(`sprout-${k}-${slug(name)}.json`, { sprout: 'preset', version: 2, kind: k, name, description: pr?.description, values: diffOf(p, k) });
-    });
-    const importIdle = 'Import preset…';
-    const importBtn = page.addButton({ title: importIdle });
-    btnTip(importBtn, `Load a ${what} preset file (it is added to this list). Older preset files are split into their visual and reactivity parts.`);
-    importBtn.on('click', () => importFile(k, importBtn, importIdle));
+    const card = el('div', 'sprout-preset');
+    const cap = el('div', 'sprout-preset-cap');
+    const capName = el('span', '', KIND_CAPTION[k]);
+    tip(capName, FOLDER_HINTS.preset);
+    const stateEl = el('b');
+    cap.append(capName, stateEl);
+    const pickRow = el('div', 'sprout-preset-pick');
+    const select = el('select');
+    tip(select, LIST_TIPS[k]);
+    select.addEventListener('change', () => choose(k, select.value));
+    pickRow.appendChild(select);
+    const prevBtn = button(pickRow, '◂', `The ${what} preset before this one in the list, round and round.`, 'sprout-btn sprout-narrow');
+    prevBtn.addEventListener('click', () => cyclePreset(k, -1));
+    const nextBtn = button(pickRow, '▸', `Next preset: the next ${what} preset in the list, round and round (Shift-click: the one before).`, 'sprout-btn sprout-narrow');
+    nextBtn.addEventListener('click', (e) => cyclePreset(k, e.shiftKey ? -1 : 1));
+    const descEl = el('div', 'sprout-desc');
+    const acts = el('div', 'sprout-preset-acts');
+    const saveBtn = button(acts, 'Save', `Overwrite this saved ${what} preset with the current values.`);
+    const saveAsBtn = button(acts, 'Save as…', `Save the current ${what} settings as a new preset under a name of your choice. Kept in this browser; use Export to move it.`);
+    const revertBtn = button(acts, 'Revert', `Revert all changes: every ${what} value back to the active preset. Your changes are kept as "Unsaved tweaks" in the list.`);
+    acts.appendChild(el('span', 'sprout-preset-gap'));
+    const exportBtn = button(acts, 'Export', `Save the current ${what} settings as a preset file (.json) to share or move to another browser.`, 'sprout-btn sprout-quiet');
+    const importBtn = button(acts, 'Import', `Load a ${what} preset file (it is added to this list). Older preset files are split into their visual and reactivity parts.`, 'sprout-btn sprout-quiet');
+    const delBtn = button(acts, 'Delete', 'Delete this saved preset (asks for a second click). The values stay on screen.', 'sprout-btn sprout-quiet');
+    // "Save as…" opens a name field under the buttons.
+    const saveAs = el('div', 'sprout-saveas');
+    saveAs.hidden = true;
+    const nameIn = el('input');
+    nameIn.type = 'text';
+    nameIn.maxLength = 32;
+    nameIn.value = 'Mine';
+    nameIn.spellcheck = false;
+    tip(nameIn, 'Name for the new preset. Enter saves, Esc cancels.');
+    saveAs.appendChild(nameIn);
+    const saveNewBtn = button(saveAs, 'Save new', 'Save the current values as a preset with this name.');
+    button(saveAs, '✕', 'Cancel.', 'sprout-btn sprout-quiet sprout-narrow').addEventListener('click', () => (saveAs.hidden = true));
+    card.append(cap, pickRow, descEl, acts, saveAs);
+    pageEls[TAB_IDS.indexOf(KIND_TAB[k])]?.prepend(card);
+    sections[k] = { k, card, select, stateEl, descEl, saveBtn, revertBtn, delBtn, nameIn, namedFor: undefined };
+    rebuildList(k);
 
-    sec.saveBtn.on('click', () => {
+    saveBtn.addEventListener('click', () => {
       const pr = activePreset(k);
       if (!pr || pr.builtin) return;
       pr.values = diffOf(p, k);
       afterPresetChange(k, false);
     });
+    saveAsBtn.addEventListener('click', () => {
+      saveAs.hidden = !saveAs.hidden;
+      if (!saveAs.hidden) {
+        nameIn.focus();
+        nameIn.select();
+      }
+    });
     let overwriteArmed = 0;
-    saveAsBtn.on('click', () => {
-      let name = sec.nameObj.name.trim().slice(0, 32);
+    const saveNew = () => {
+      let name = nameIn.value.trim().slice(0, 32);
       if (!name) return;
       if (BUILTINS[k].some((x) => x.name.toLowerCase() === name.toLowerCase())) name += ' (mine)';
       const id = 'user:' + slug(name);
       if (store[k].user.some((x) => x.id === id) && performance.now() > overwriteArmed) {
         overwriteArmed = performance.now() + 3000;
-        saveAsBtn.title = `Overwrite "${name}"?`;
-        setTimeout(() => (saveAsBtn.title = 'Save as new preset'), 3000);
+        say(saveNewBtn, 'Overwrite?', 'Save new');
         return;
       }
       overwriteArmed = 0;
-      saveAsBtn.title = 'Save as new preset';
+      saveNewBtn.textContent = 'Save new';
+      saveAs.hidden = true;
       store[k].user = [...store[k].user.filter((x) => x.id !== id), { id, name, values: diffOf(p, k) }];
       active[k] = id;
       afterPresetChange(k, false);
+    };
+    saveNewBtn.addEventListener('click', saveNew);
+    nameIn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') saveNew();
+      else if (e.key === 'Escape') saveAs.hidden = true;
     });
-    sec.revertBtn.on('click', () => {
+    revertBtn.addEventListener('click', () => {
       if (active[k] === null) return;
       if (isDirty(p, activePreset(k), k)) store[k].stash = diffOf(p, k);
       applyPreset(p, activePreset(k), k);
       afterPresetChange(k, true);
     });
-  });
+    let deleteArmed = 0;
+    delBtn.addEventListener('click', () => {
+      if (performance.now() > deleteArmed) {
+        deleteArmed = performance.now() + 3000;
+        say(delBtn, 'Really delete?', 'Delete');
+        return;
+      }
+      deleteArmed = 0;
+      delBtn.textContent = 'Delete';
+      store[k].user = store[k].user.filter((x) => x.id !== active[k]);
+      active[k] = null;
+      afterPresetChange(k, false);
+    });
+    exportBtn.addEventListener('click', () => {
+      const pr = activePreset(k);
+      const name = pr?.name ?? 'custom';
+      download(`sprout-${k}-${slug(name)}.json`, { sprout: 'preset', version: 2, kind: k, name, description: pr?.description, values: diffOf(p, k) });
+    });
+    importBtn.addEventListener('click', () => importFile(k, (message) => say(importBtn, message, 'Import')));
+  }
 
   // ---- Combined sliders (not settings: each moves several real settings) ----
   type MacroRow = { spec: (typeof MACROS)[number]; obj: Record<string, number>; binding: { label: string | undefined; refresh(): void; element: HTMLElement } };
@@ -910,7 +1155,8 @@ Key: ${key}`);
   for (const spec of MACROS) {
     const obj: Record<string, number> = { [spec.id]: 0.5 };
     const b = pageOf(spec.tab).addBinding(obj, spec.id, { min: 0, max: 1, label: spec.label });
-    tip(b.element, spec.tip + '\n“~” after the name: the settings it moves were changed one by one; moving it puts them back in line.');
+    b.element.classList.add('sprout-macro');
+    tip(b.element, 'Combined slider. ' + spec.tip + '\n“~” after the name: the settings it moves were changed one by one; moving it puts them back in line.');
     b.on('change', (ev) => {
       if (marking || isQuiet()) return;
       for (const tg of spec.targets) setPath(p, tg.path, +macroValue(Number(ev.value), tg.at).toFixed(3));
@@ -939,7 +1185,9 @@ Key: ${key}`);
     fitRanges();
     paneRefresh();
   };
-  const folderRows: { folder: Folder; title: string; rows: Row[] }[] = [];
+  const folderRows: { folder: Folder; rows: Row[] }[] = [];
+  /** Every folder with its tab; `top` for the ones directly on a tab page ("Fold all"). */
+  const allFolders: { folder: Folder; tab: TabId; top: boolean }[] = [];
 
   const placed = new Set(FOLDERS.flatMap((f) => [...f.keys, ...(f.advanced ?? []), ...(f.sub ?? []).flatMap((x) => x.keys)]));
   const extra = new Map<string, string[]>();
@@ -983,10 +1231,8 @@ Key: ${key}`);
     const binding = folder.addBinding(obj, key, opts) as unknown as Binding;
     if (spec) allowTypedBeyond(binding, path, spec);
     tip(binding.element, TIPS[path] ?? HINTS[path]);
-    const button = document.createElement('button');
-    button.className = 'sprout-rv';
-    button.textContent = '↺';
-    button.addEventListener('click', (e) => {
+    const revert = el('button', 'sprout-rv', '↺');
+    revert.addEventListener('click', (e) => {
       e.stopPropagation();
       const to = e.shiftKey ? getPath(defaults, path) : baseline(path);
       obj[key] = structuredClone(to);
@@ -995,7 +1241,7 @@ Key: ${key}`);
       updateMarks();
       userChange();
     });
-    binding.element.querySelector('.tp-lblv_l')?.appendChild(button);
+    binding.element.querySelector('.tp-lblv_l')?.appendChild(revert);
     if (isGradient) {
       // A gradient: the text field is replaced by the gradient bar and editor (full row width).
       const input = binding.element.querySelector<HTMLElement>('.tp-lblv_v');
@@ -1015,40 +1261,53 @@ Key: ${key}`);
       binding.element.appendChild(ed.el);
       editors.push({ obj, key, ed, binding });
     }
-    const row = { path, binding, button, spec };
+    const row = { path, binding, button: revert, spec };
     rows.push(row);
     for (const g of groups) g.push(row);
   };
 
   const pathTab = new Map<string, TabId>();
+  /** Where a setting lives, for the search results: "Look › Colours › Branches". */
+  const pathTrail = new Map<string, string>();
+  /** The buttons inside folders, so search finds them too. */
+  const folderButtons: { label: string; trail: string; text: string; tab: TabId; folders: Folder[]; element: HTMLElement }[] = [];
   const specs: FolderSpec[] = [...FOLDERS, ...(unsorted.length ? [{ id: 'unsorted', tab: 'setup' as const, title: 'Unsorted', keys: unsorted }] : [])];
   for (const spec of specs) {
     const folder = pageOf(spec.tab).addFolder({ title: spec.title, expanded: panelState[spec.id] ?? !!spec.open });
+    /** A nested folder dressed as a group: its class, its quiet note, its tooltip. */
+    const dress = (f: Folder, cls: string, note: string | undefined, hint: string | undefined, top = false) => {
+      f.element.classList.add(cls);
+      if (note) f.element.querySelector('.tp-fldv_t')?.after(el('span', 'sprout-note', note));
+      folderTip(f, hint);
+      allFolders.push({ folder: f, tab: spec.tab, top });
+    };
     remember(spec.id, folder);
-    folderTip(folder, FOLDER_HINTS[spec.id]);
+    dress(folder, 'sprout-top', spec.note, FOLDER_HINTS[spec.id], true);
+    const trail = `${TAB_TITLES[spec.tab]} › ${spec.title}`;
     const fRows: Row[] = [];
-    folderRows.push({ folder, title: spec.title, rows: fRows });
-    for (const path of [...spec.keys, ...(extra.get(spec.id) ?? [])]) {
-      addRow(folder, path, [fRows]);
-      pathFolders.set(path, [folder]);
+    folderRows.push({ folder, rows: fRows });
+    const place = (path: string, folders: Folder[], groups: Row[][], where: string) => {
+      addRow(folders[folders.length - 1], path, groups);
+      pathFolders.set(path, folders);
       pathTab.set(path, spec.tab);
-    }
+      pathTrail.set(path, where);
+    };
+    for (const path of [...spec.keys, ...(extra.get(spec.id) ?? [])]) place(path, [folder], [fRows], trail);
     for (const sub of spec.sub ?? []) {
       const sf = folder.addFolder({ title: sub.title, expanded: panelState[spec.id + '.' + sub.id] ?? false });
       remember(spec.id + '.' + sub.id, sf);
-      folderTip(sf, FOLDER_HINTS[sub.id]);
+      dress(sf, 'sprout-sub', sub.note, FOLDER_HINTS[sub.id]);
       const sRows: Row[] = [];
-      folderRows.push({ folder: sf, title: sub.title, rows: sRows });
+      folderRows.push({ folder: sf, rows: sRows });
+      for (const path of sub.keys) place(path, [folder, sf], [fRows, sRows], `${trail} › ${sub.title}`);
       if (sub.id.startsWith('col')) {
-        // Quick "movement" buttons: they set the role to a gradient and its movers.
-        const bar = document.createElement('div');
-        bar.className = 'sprout-moves';
+        // Quick "movement" buttons: they set the role to a gradient and its movers. They sit
+        // under "colour from" (placed once the rows exist: see the note at the top).
+        const bar = el('div', 'sprout-moves');
+        bar.appendChild(el('span', '', 'movement'));
         moveBars.set(sub.id, bar);
         for (const mv of MOVEMENTS) {
-          const btn = document.createElement('button');
-          btn.textContent = mv.label;
-          tip(btn, mv.tip);
-          btn.addEventListener('click', () => {
+          button(bar, mv.label, mv.tip).addEventListener('click', () => {
             const role = (p as unknown as Record<string, Record<string, unknown>>)[sub.id];
             role.source = 'gradient';
             Object.assign(role, mv.values);
@@ -1057,69 +1316,88 @@ Key: ${key}`);
             updateMarks();
             userChange();
           });
-          bar.appendChild(btn);
         }
-        sf.element.querySelector('.tp-fldv_c')?.appendChild(bar);
-      }
-      for (const path of sub.keys) {
-        addRow(sf, path, [fRows, sRows]);
-        pathFolders.set(path, [folder, sf]);
-        pathTab.set(path, spec.tab);
+        const source = sRows.find((r) => r.path === `${sub.id}.source`);
+        if (source) source.binding.element.after(bar);
+        else sf.element.querySelector('.tp-fldv_c')?.appendChild(bar);
       }
     }
     if (spec.advanced?.length) {
       const adv = folder.addFolder({ title: 'Advanced', expanded: panelState[spec.id + '.adv'] ?? false });
       remember(spec.id + '.adv', adv);
-      folderTip(adv, 'Values you rarely need to change.');
+      dress(adv, 'sprout-adv', undefined, 'Values you rarely need to change.');
       adv.hidden = !showAdv.showAdvanced;
       advFolders.push(adv);
       const aRows: Row[] = [];
-      folderRows.push({ folder: adv, title: 'Advanced', rows: aRows });
-      for (const path of spec.advanced) {
-        addRow(adv, path, [fRows, aRows]);
-        pathFolders.set(path, [folder, adv]);
-        pathTab.set(path, spec.tab);
-      }
+      folderRows.push({ folder: adv, rows: aRows });
+      for (const path of spec.advanced) place(path, [folder, adv], [fRows, aRows], `${trail} › Advanced`);
     }
+    /** A button at the foot of this folder (search finds it by its title and tooltip). */
+    const action = (b: ButtonApi, text: string) => {
+      btnTip(b, text);
+      folderButtons.push({ label: b.title ?? '', trail, text, tab: spec.tab, folders: [folder], element: b.element });
+      return b;
+    };
     if (spec.id === 'theme') {
-      const et = folder.addButton({ title: 'Edit themes…' });
-      btnTip(et, 'Make your own themes with your own pictures (opens the theme editor of Sprout.exe in a new tab).');
-      et.on('click', () => window.open(`http://localhost:${p.source.port}/themes`, '_blank'));
-      const ta = confirmButton(folder, 'Set every tap to Auto', 'Click again: every tap follows this look', () => actions.tapsToAuto());
-      btnTip(ta, 'Every Sprout Tap window: Theme, Leaves and Colour back to Auto, so every track follows the look picked here. A tap set to its own theme or colour keeps it until then (asks for a second click).');
+      action(folder.addButton({ title: 'Edit themes…' }), 'Make your own themes with your own pictures (opens the theme editor of Sprout.exe in a new tab).')
+        .on('click', () => window.open(`http://localhost:${p.source.port}/themes`, '_blank'));
+      action(confirmButton(folder, 'Set every tap to Auto', 'Click again: every tap follows this look', () => actions.tapsToAuto()),
+        'Every Sprout Tap window: Theme, Leaves and Colour back to Auto, so every track follows the look picked here. A tap set to its own theme or colour keeps it until then (asks for a second click).');
     }
     if (spec.id === 'commit') {
-      const tc = folder.addButton({ title: 'Test: commit the live take' });
-      btnTip(tc, 'Fake singer: pretend the live take finished recording, to watch the planting animation.');
-      tc.on('click', () => {
-        actions.commitLive();
-        pane.refresh();
-      });
-      const td = folder.addButton({ title: 'Test: delete the last take' });
-      btnTip(td, 'Fake singer: remove the newest take, to watch it fade with falling leaves.');
-      td.on('click', () => {
-        actions.deleteTake();
-        pane.refresh();
-      });
+      action(folder.addButton({ title: 'Test: commit the live take' }), 'Fake singer: pretend the live take finished recording, to watch the planting animation.')
+        .on('click', () => {
+          actions.commitLive();
+          pane.refresh();
+        });
+      action(folder.addButton({ title: 'Test: delete the last take' }), 'Fake singer: remove the newest take, to watch it fade with falling leaves.')
+        .on('click', () => {
+          actions.deleteTake();
+          pane.refresh();
+        });
     }
     if (spec.id === 'test') {
-      btnTip(folder.addButton({ title: 'Load avatar PNG…' }).on('click', () => actions.loadAvatar()),
-        'Show your own avatar picture (PNG with transparency) instead of the grey shape, to judge the look. Stays in this browser; never shown in OBS.');
-      btnTip(folder.addButton({ title: 'Remove avatar PNG' }).on('click', () => actions.clearAvatar()), 'Back to the grey placeholder shape.');
-      btnTip(folder.addButton({ title: 'Restart growth' }).on('click', () => actions.restart()),
-        'Start the fake singer and all trees from the beginning.');
-      btnTip(folder.addButton({ title: 'Export everything (.json)' }).on('click', () =>
-        download('sprout-settings.json', { sprout: 'settings', version: 2, params: p, presets: store })),
-        'Save every setting and your own presets to one file (a backup, or to move to another browser).');
-      btnTip(folder.addButton({ title: 'Import…' }).on('click', () => importFile(null)), 'Load a settings file or a preset file.');
-      const resetAll = confirmButton(folder, 'Reset everything', 'Click again to reset everything', () => {
+      action(folder.addButton({ title: 'Load avatar PNG…' }), 'Show your own avatar picture (PNG with transparency) instead of the grey shape, to judge the look. Stays in this browser; never shown in OBS.')
+        .on('click', () => actions.loadAvatar());
+      action(folder.addButton({ title: 'Remove avatar PNG' }), 'Back to the grey placeholder shape.').on('click', () => actions.clearAvatar());
+    }
+    if (spec.id === 'fake') {
+      action(folder.addButton({ title: 'Restart growth' }), 'Start the fake singer and all trees from the beginning.').on('click', () => actions.restart());
+    }
+    if (spec.id === 'backup') {
+      action(folder.addButton({ title: 'Export everything (.json)' }), 'Save every setting and your own presets to one file (a backup, or to move to another browser).')
+        .on('click', () => download('sprout-settings.json', { sprout: 'settings', version: 2, params: p, presets: store }));
+      const importAll = action(folder.addButton({ title: 'Import…' }), 'Load a settings file or a preset file.');
+      importAll.on('click', () => importFile(null, (message) => {
+        importAll.title = message;
+        setTimeout(() => (importAll.title = 'Import…'), 3000);
+      }));
+      action(confirmButton(folder, 'Reset everything', 'Click again to reset everything', () => {
         deepMerge(p as unknown as Record<string, unknown>, structuredClone(defaults));
         for (const k of KINDS) active[k] = 'default';
         afterPresetChange(null, true);
-      });
-      btnTip(resetAll, 'Every setting back to factory defaults, including the fit to your avatar and colours (asks for a second click).');
+      }), 'Every setting back to factory defaults, including the fit to your avatar and colours (asks for a second click).');
     }
   }
+  syncAdv();
+
+  // "Fold all" closes every folder of the tab in view; with all of them closed it opens the top ones.
+  const anyOpen = () => allFolders.some((f) => f.top && f.tab === currentTab() && f.folder.expanded);
+  syncFoldAll = () => {
+    const open = anyOpen();
+    foldAllBtn.textContent = open ? 'Fold all' : 'Open all';
+    tip(foldAllBtn, open ? 'Close every folder of this tab, for an overview.' : 'Open every folder of this tab (the folders inside them stay closed).');
+  };
+  foldAllBtn.addEventListener('click', () => {
+    const open = anyOpen(), tb = currentTab();
+    for (const f of allFolders) {
+      if (f.tab !== tb) continue;
+      if (open) f.folder.expanded = false;
+      else if (f.top) f.folder.expanded = true;
+    }
+    syncFoldAll();
+  });
+  syncTabs();
 
   /** Revert buttons, folder dots, dependent rows, preset title and buttons. */
   let marking = false;
@@ -1149,10 +1427,9 @@ Key: ${key}`);
 Shift-click: factory default ${fmt(d)}`));
       }
     }
-    for (const f of folderRows) {
-      const any = f.rows.some((r) => r.binding.element.classList.contains('sprout-mod'));
-      f.folder.title = f.title + (any ? ' •' : '');
-    }
+    // A dot on every folder that holds a changed row.
+    for (const f of folderRows)
+      f.folder.element.classList.toggle('sprout-dot', f.rows.some((r) => r.binding.element.classList.contains('sprout-mod')));
     const hide = (path: string, h: boolean) => rows.filter((r) => r.path === path).forEach((r) => (r.binding.hidden = h));
     // Colour roles: the gradient and its movers only when the source is a gradient.
     for (const r of ['colBranch', 'colLeaf', 'colAccent', 'colHalo'] as const) {
@@ -1190,18 +1467,18 @@ Shift-click: factory default ${fmt(d)}`));
     const motion = p.motion as unknown as Record<string, unknown>;
     if ('shiver' in motion) hide('motion.shiverDeg', !motion.shiver);
 
-    const names: string[] = [];
-    let anyDirty = false;
-    KINDS.forEach((k, i) => {
+    for (const k of KINDS) {
       const sec = sections[k];
       const pr = activePreset(k);
       const dirty = active[k] === null ? false : isDirty(p, pr, k);
-      anyDirty ||= dirty;
-      if (k !== 'testing') names.push((pr ? pr.name : 'Custom') + (dirty ? ' *' : ''));
-      tab.pages[i].title = TAB_TITLES[KIND_TAB[k]] + (dirty ? ' *' : '');
-      const text = pr?.description ?? (pr ? '' : 'Values match no preset.');
+      // A dot on the tab and "changed" on the card: values differ from the preset picked.
+      const tabBtn = tabBtns[TAB_IDS.indexOf(KIND_TAB[k])];
+      tabBtn.classList.toggle('sprout-dirty', dirty);
+      tip(tabBtn, TAB_TIPS[KIND_TAB[k]] + (dirty ? `\nThe dot: something was changed since “${pr?.name ?? ''}” was picked (Save, Save as… or Revert on its preset card).` : ''));
+      sec.stateEl.textContent = dirty ? 'changed' : pr ? '' : 'matches no preset';
+      const text = pr?.description ?? '';
       sec.descEl.textContent = text;
-      sec.descEl.style.display = text ? '' : 'none';
+      sec.descEl.hidden = !text;
       sec.saveBtn.hidden = !pr || !!pr.builtin;
       sec.saveBtn.disabled = !dirty;
       sec.revertBtn.disabled = !dirty;
@@ -1209,17 +1486,10 @@ Shift-click: factory default ${fmt(d)}`));
       // Suggest a name only when the active preset changes (never over what is being typed).
       if (active[k] !== sec.namedFor) {
         sec.namedFor = active[k];
-        sec.nameObj.name = pr ? (pr.builtin ? pr.name + ' 2' : pr.name) : 'Mine';
-        sec.nameRow.refresh();
+        sec.nameIn.value = pr ? (pr.builtin ? pr.name + ' 2' : pr.name) : 'Mine';
       }
-      if (sec.list.value !== (active[k] ?? CUSTOM)) {
-        sec.suppress = true;
-        sec.list.value = active[k] ?? CUSTOM;
-        sec.suppress = false;
-      }
-    });
-    void anyDirty;
-    void names;
+      if (sec.select.value !== (active[k] ?? CUSTOM)) sec.select.value = active[k] ?? CUSTOM;
+    }
     // Combined sliders: position from the first target; "~" when the others are off its line.
     for (const m of macroRows) {
       const first = m.spec.targets[0];
@@ -1265,25 +1535,159 @@ Shift-click: factory default ${fmt(d)}`));
     }
     updateMarks();
   }
+  /** Show the panel, open a tab and these folders, scroll to an element and flash it. */
+  function show(tb: TabId | undefined, folders: Folder[], element: HTMLElement) {
+    container.style.display = '';
+    setFolded(false);
+    if (tb) pageOf(tb).selected = true;
+    for (const f of folders) {
+      f.expanded = true;
+      if (f.hidden && advFolders.includes(f)) f.hidden = false;
+    }
+    setTimeout(() => {
+      element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      element.classList.remove('sprout-flash');
+      void element.offsetWidth;
+      element.classList.add('sprout-flash');
+    }, 60);
+  }
   function reveal(path: string) {
     const row = rows.find((r) => r.path === path);
     if (!row) return;
-    container.style.display = '';
-    pane.expanded = true;
-    const tb = pathTab.get(path);
-    if (tb) pageOf(tb).selected = true;
-    for (const f of pathFolders.get(path) ?? []) {
-      f.expanded = true;
-      if (f.title === 'Advanced' && f.hidden) f.hidden = false;
-    }
     row.binding.hidden = false;
-    setTimeout(() => {
-      row.binding.element.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      row.binding.element.classList.remove('sprout-flash');
-      void row.binding.element.offsetWidth;
-      row.binding.element.classList.add('sprout-flash');
-    }, 60);
+    show(pathTab.get(path), pathFolders.get(path) ?? [], row.binding.element);
   }
+
+  // ---- Search results ----
+  type Hit = { label: string; trail: string; go(): void };
+  let hits: Hit[] = [], hitAt = 0;
+  const closeResults = () => {
+    hits = [];
+    resultsEl.replaceChildren();
+    resultsEl.style.display = 'none';
+  };
+  const markHit = () => [...resultsEl.querySelectorAll('.sprout-hit')].forEach((b, i) => {
+    b.classList.toggle('sel', i === hitAt);
+    if (i === hitAt) b.scrollIntoView({ block: 'nearest' });
+  });
+  const runSearch = () => {
+    const terms = searchIn.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    closeResults();
+    if (!terms.length) return;
+    /** Every word has to be somewhere; a word in the name counts most, then the folder, then the tooltip. */
+    const score = (label: string, where: string, text: string) => {
+      let s = 0;
+      for (const t of terms) {
+        if (label.includes(t)) s += label.startsWith(t) ? 5 : 4;
+        else if (where.includes(t)) s += 2;
+        else if (text.includes(t)) s += 1;
+        else return 0;
+      }
+      return s;
+    };
+    const found: (Hit & { s: number })[] = [];
+    for (const r of rows) {
+      const label = LABELS[r.path] ?? r.path.split('.')[1];
+      const trail = pathTrail.get(r.path) ?? '';
+      const s = score(label.toLowerCase(), (trail + ' ' + r.path).toLowerCase(), (TIPS[r.path] ?? HINTS[r.path] ?? '').toLowerCase());
+      if (s) found.push({ s, label, trail: trail + (r.binding.hidden ? '  ·  not in use right now' : ''), go: () => reveal(r.path) });
+    }
+    for (const b of folderButtons) {
+      const s = score(b.label.toLowerCase(), b.trail.toLowerCase(), b.text.toLowerCase());
+      if (s) found.push({ s, label: b.label + '  (button)', trail: b.trail, go: () => show(b.tab, b.folders, b.element) });
+    }
+    found.sort((a, b) => b.s - a.s);
+    hits = found.slice(0, 12);
+    hitAt = 0;
+    for (const h of hits) {
+      const b = el('button', 'sprout-hit', h.label);
+      b.type = 'button';
+      b.appendChild(el('small', '', h.trail));
+      b.addEventListener('click', () => pick(h));
+      resultsEl.appendChild(b);
+    }
+    if (!hits.length) resultsEl.appendChild(el('div', 'sprout-hit-none', 'Nothing found.'));
+    else if (found.length > hits.length) resultsEl.appendChild(el('div', 'sprout-hit-none', `…and ${found.length - hits.length} more: type another word.`));
+    resultsEl.style.display = 'block';
+    markHit();
+  };
+  const pick = (h: Hit | undefined) => {
+    if (!h) return;
+    closeResults();
+    searchIn.select();
+    h.go();
+  };
+  searchIn.addEventListener('input', runSearch);
+  searchIn.addEventListener('focus', () => {
+    if (searchIn.value && !hits.length) runSearch();
+  });
+  searchIn.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') pick(hits[hitAt]);
+    else if (e.key === 'Escape') {
+      searchIn.value = '';
+      closeResults();
+      searchIn.blur();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (hits.length) hitAt = (hitAt + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length;
+      markHit();
+    }
+  });
+  function search() {
+    container.style.display = '';
+    setFolded(false);
+    searchIn.focus();
+    searchIn.select();
+  }
+
+  // ---- Width: drag the left edge (double-click: back to the usual width) ----
+  {
+    const fit = (w: number | null) => {
+      container.style.width = w ? `${w}px` : '';
+      // The value column keeps its share of the row at any width.
+      const now = container.getBoundingClientRect().width;
+      if (now > 0) container.style.setProperty('--tp-blade-value-width', `${Math.round(now * VALUE_SHARE)}px`);
+    };
+    const grip = el('div', 'sprout-grip');
+    tip(grip, 'Drag to make the panel wider or narrower. Double-click: the usual width.');
+    container.appendChild(grip);
+    let saved: number | null = null;
+    try {
+      const w = Number(localStorage.getItem(WIDTH_KEY));
+      if (w >= MIN_WIDTH && w <= MAX_WIDTH) saved = w;
+    } catch {
+      /* ignore */
+    }
+    fit(saved);
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      grip.setPointerCapture(e.pointerId);
+      grip.classList.add('on');
+      const x0 = e.clientX, w0 = container.getBoundingClientRect().width;
+      const move = (ev: PointerEvent) => fit(Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w0 + x0 - ev.clientX))));
+      const up = () => {
+        grip.classList.remove('on');
+        grip.removeEventListener('pointermove', move);
+        grip.removeEventListener('pointerup', up);
+        try {
+          localStorage.setItem(WIDTH_KEY, String(Math.round(container.getBoundingClientRect().width)));
+        } catch {
+          /* ignore */
+        }
+      };
+      grip.addEventListener('pointermove', move);
+      grip.addEventListener('pointerup', up);
+    });
+    grip.addEventListener('dblclick', () => {
+      fit(null);
+      try {
+        localStorage.removeItem(WIDTH_KEY);
+      } catch {
+        /* ignore */
+      }
+    });
+  }
+
   /** The user themes changed: rebuild the theme dropdown with the new list. */
   function themesChanged() {
     const r = rows.find((x) => x.path === 'look.theme');
@@ -1301,5 +1705,5 @@ Shift-click: factory default ${fmt(d)}`));
     themeRowAt = undefined;
     updateMarks();
   }
-  return { refresh, reveal, themesChanged, pickPreset, cyclePreset };
+  return { refresh, reveal, search, themesChanged, pickPreset, cyclePreset };
 }

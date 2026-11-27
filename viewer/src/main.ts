@@ -88,7 +88,7 @@ type WaveGeo = { scale: number } | { R: number; starts: number[]; offset: number
  *  change on the way): the way it goes, where it was at the change and how fast it went, and its
  *  last two poses (for that speed). */
 interface BoughFlight {
-  away?: boolean;
+  way?: string;
   from?: { t: number; x: number; y: number; delta: number; fs: number; gfall: number };
   v: [number, number];
   t: number; x: number; y: number; delta: number;
@@ -479,6 +479,7 @@ function start() {
       const hide = panel.style.display !== 'none';
       for (const el of [panel, document.getElementById('theme-panel')]) if (el) el.style.display = hide ? 'none' : '';
     } },
+    { key: 'S', label: 'Search the settings', group: VIEW, run: () => ui?.search() },
   ]);
   if (!obs) {
     addHotkeys([
@@ -501,8 +502,8 @@ function start() {
     addHotkeys([
       { key: '1 … 9, 0', label: 'Look preset 1 to 10 (numbered in its list)', group: PRESETS,
         match: (e) => digitIndex(e) >= 0 && mods(e, false, false, false), run: pick('visual') },
-      { key: 'Ctrl + 1 … 0 / Shift + 1 … 0', label: 'Reaction preset 1 to 10 (Shift: where the browser keeps Ctrl + number for its tabs)', group: PRESETS,
-        match: (e) => digitIndex(e) >= 0 && (mods(e, true, false, false) || mods(e, false, false, true)), run: pick('reactivity') },
+      { key: 'Shift + 1 … 0', label: 'Reaction preset 1 to 10', group: PRESETS,
+        match: (e) => digitIndex(e) >= 0 && mods(e, false, false, true), run: pick('reactivity') },
       { key: 'Alt + 1 … 0', label: 'Setup preset 1 to 10', group: PRESETS,
         match: (e) => digitIndex(e) >= 0 && mods(e, false, true, false), run: pick('testing') },
     ]);
@@ -995,7 +996,7 @@ function start() {
       theme, density, layer, leaf: inks.leaf, accent: inks.accent, sScale, alpha: alpha * fadeOf(look), glow: look.glow * params.look.decoGlow, unit, seed, effort: d.effort,
       glowAlong: glowAlong ? ((ga, k) => (s: number, x: number, y: number) => ga(s, x, y) * k)(glowAlong, params.look.decoGlow) : undefined,
       bloom: look.bloom * params.look.blossoms, fall, downX, downY, intensity: brighten(look), time: t, pitch: d.pitch,
-      harmony: d.harmony, fallAway: params.growth.fallDirection === 'away', drop: params.falling,
+      harmony: d.harmony, fallAway: fallWay() === 'away', fallUp: fallWay() === 'up', drop: params.falling,
     };
   }
 
@@ -1009,6 +1010,13 @@ function start() {
     const w = hm.colourMode === 'waves' && other ? waveSpec(id, other, d.harmony * clamp(hm.colour)) : null;
     return { harmonyLead: lead * 0.9, harmonyWave: w ? waveAt({ ...w, ring: false, scale: 0, offset: 0 }, 0) * w.k : 0 };
   }
+
+  /** Where what lets go goes: the look's own gravity (look.gravity), else the reaction's. */
+  const fallWay = () => {
+    const g = params.look.gravity;
+    return g && g !== 'reaction' ? g : params.growth.fallDirection;
+  };
+  const fallCode = () => ({ down: 0, away: 1, up: 2 })[fallWay()] ?? 0;
 
   /** One scope sample for the followed layer: raw tap values next to what the drive makes of them. */
   function sampleScope(takes: LayerFeatures[]) {
@@ -1508,23 +1516,25 @@ function start() {
      * drifted starts to droop when it comes back).
      */
     const boughPose = (fl: BoughFlight, px: number, py: number, tx: number, ty: number, dry: number, gfall: number) => {
-      const away = params.growth.fallDirection === 'away';
-      if (fl.away === undefined) {
-        fl.away = away;
+      const way = fallWay(), away = way === 'away', up = way === 'up';
+      if (fl.way === undefined) {
+        fl.way = way;
         fl.v = [0, 0];
         fl.t = fl.tPrev = t;
         fl.x = fl.y = fl.xPrev = fl.yPrev = fl.delta = 0;
-      } else if (fl.away !== away) {
+      } else if (fl.way !== way) {
         const dt = fl.t - fl.tPrev;
         fl.v = dt > 1e-4 ? [(fl.x - fl.xPrev) / dt, (fl.y - fl.yPrev) / dt] : [0, 0];
         fl.from = { t, x: fl.x, y: fl.y, delta: fl.delta, fs: gfall * params.growth.branchFallSeconds, gfall };
-        fl.away = away;
+        fl.way = way;
       }
       const f0 = fl.from, tau = f0 ? t - f0.t : 0;
       const dirA = Math.atan2(ty - py, tx - px);
-      let toT = Math.atan2(Math.sin(-Math.PI / 2 - dirA), Math.cos(-Math.PI / 2 - dirA));
-      // Pointing straight up: turn outward, away from the head.
-      if (Math.abs(toT) > 2.8) toT = Math.abs(toT) * (tx >= params.avatar.headX ? -1 : 1);
+      // Toward the ground (up: toward the sky).
+      const goal = up ? Math.PI / 2 : -Math.PI / 2;
+      let toT = Math.atan2(Math.sin(goal - dirA), Math.cos(goal - dirA));
+      // Pointing straight the other way: turn outward, away from the head.
+      if (Math.abs(toT) > 2.8) toT = Math.abs(toT) * ((tx >= params.avatar.headX) !== up ? -1 : 1);
       const fs = gfall * params.growth.branchFallSeconds; // seconds falling
       const fs1 = Math.max(0, fs - (f0?.fs ?? 0)); // since the change
       const cx = f0 ? f0.x + fl.v[0] * carried(1.5, tau) : 0, cy = f0 ? f0.y + fl.v[1] * carried(1.5, tau) : 0;
@@ -1535,7 +1545,7 @@ function start() {
         const full = Math.sign(toT) * (droop * (0.85 * e + 0.15 * gfall) + (Math.abs(toT) - droop) * 0.6 * smooth(gfall));
         delta = f0 ? lerp(f0.delta, full, smooth(Math.min(1, tau / 0.8))) : full;
         x = cx + 0.06 * Math.sign(tx - px) * Math.max(0, gfall - (f0?.gfall ?? 0));
-        y = cy - 0.5 * 1.8 * fs1 * fs1; // gravity 1.8 units / s²
+        y = cy + (up ? 0.5 * 1.2 : -0.5 * 1.8) * fs1 * fs1; // gravity 1.8 units / s² (up: lift 1.2)
       } else {
         delta = f0 ? f0.delta : 0;
         const out = 0.25 * fs1 + 0.25 * fs1 * fs1, u = dirA + delta;
@@ -1601,7 +1611,7 @@ function start() {
           const [hx, hy] = g.tree.originLocal();
           if (part <= 0) {
             takeDrops(g.tree, sk, gInks.stroke, look, a, sScale, branchRgb(s.theme));
-            g.tree.twigs.draw(back, L, a * fadeOf(look), dx, dy, t, dryRgbOf(), params.growth.fallDirection === 'away', hx, hy);
+            g.tree.twigs.draw(back, L, a * fadeOf(look), dx, dy, t, dryRgbOf(), fallCode(), hx, hy);
           }
           decorateTree(sk, g.tree.vis, params,
             { ...styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), originX: hx, originY: hy }, backDeco,

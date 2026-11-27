@@ -104,9 +104,10 @@ export const defaults = {
     fadeAfter: 3,
     /** Seconds an ending takes (the phrase end's or the full stop's). */
     fadeSeconds: 2.5,
-    /** Where branches, leaves and petals that let go go: down (gravity), or away: no gravity, they
-     *  drift straight out, away from the point the tree grows from. */
-    fallDirection: 'down' as 'down' | 'away',
+    /** Where branches, leaves and petals that let go go: down (gravity), away: no gravity, they
+     *  drift straight out, away from the point the tree grows from, or up: they float up. A look
+     *  can bring its own (look.gravity). */
+    fallDirection: 'down' as 'down' | 'away' | 'up',
     /** A drop in pitch (a dip of witherDipSemitones or more) also withers the outer twigs. */
     witherOnPitchDip: false,
     witherDipSemitones: 3,
@@ -135,6 +136,9 @@ export const defaults = {
     brightness: 0.7,
   },
   look: {
+    /** This look's gravity: where what lets go goes (reaction = as the reaction says,
+     *  growth.fallDirection; otherwise this, whatever the reaction). */
+    gravity: 'reaction' as 'reaction' | 'down' | 'away' | 'up',
     /** The wood stays: trees are there in full from the start (no growing), one per take, and
      *  their branches never wither, fade or die. Pauses and endings only touch the leaves (they
      *  fall, see leafFall). For seasonal looks like Autumn. */
@@ -497,6 +501,9 @@ export const defaults = {
     dropVariety: 0.8,
     /** How much faster a leaf falls during the drop than once it sways (1 = the same). */
     dropSpeed: 1.6,
+    /** How differently each leaf falls: 0 = all alike; up to 1 each has its own speed, swing and
+     *  rhythm, and some tumble end over end and slide away. */
+    variety: 0.8,
   },
   glow: {
     /** A soft dark outline round everything, so light colours and glow stay readable on a bright
@@ -625,10 +632,10 @@ export const defaults = {
     /** How the fake voices relate. independent: each has its own phrases, pauses and notes.
      *  duet: they trade phrases, one alone, then another, some together. together: every voice
      *  sings every phrase at a fixed interval. */
-    voices: 'together' as 'independent' | 'duet' | 'together',
+    voices: 'independent' as 'independent' | 'duet' | 'together',
     /** How often a second voice joins the first in harmony (a third, fourth, fifth or sixth)
      *  rather than clashing with it. */
-    harmony: 0.7,
+    harmony: 0.25,
     /** duet: share of the phrases that all voices sing together. */
     together: 0.4,
   },

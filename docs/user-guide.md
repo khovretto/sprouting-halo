@@ -114,15 +114,15 @@ page detects OBS by itself: it never slows down for "not focused", and its panel
 Open `http://localhost:7777/` in a normal browser (Chrome, Edge, Firefox). This is the same page
 with the settings panel. Every change you make here is sent to the OBS source at once.
 
-1. **Setup → Test & preview → Load avatar PNG**: load a screenshot of your avatar (with
+1. **Setup → Preview → Load avatar PNG**: load a screenshot of your avatar (with
    transparency). It's only shown in this browser, to line things up; OBS never shows it.
 2. **Setup → Fit to avatar**: zoom out and move the picture until the placeholder matches your
    avatar's size and place, then set the idle halo (small, on top of the head while you're not
    recording) and the open halo (while recording): size and height. Squish and tilt make the idle
    ring look like a halo seen slightly from above. Turn on the guides to see the canopy outline and
    each tree's territory.
-3. With **show advanced** on, the same folder has the head circle and body outline (head x / y /
-   size, shoulders, body bottom and width). Trees grow round this shape and keep a small gap from it.
+3. With **Advanced** on (top of the panel), the same folder has the head circle and body outline
+   (head centre x / y, head radius, body top, bottom and half-width). Trees grow round this shape and keep a small gap from it.
 
 These "fit" settings belong to your avatar, not to a look: presets never change them.
 
@@ -131,37 +131,56 @@ monitor while OBS shows the overlay.
 
 ## 7. The settings panel
 
-The panel has three tabs. Each has a preset of its own at the top.
+The panel has a fixed head and, under it, three tabs of folders that scroll.
 
-| Tab | What's in it |
+**The head**, always in view:
+
+- The title bar: **Advanced** shows the Advanced fold of each folder (the rarely needed
+  settings), **Fold all / Open all** closes or opens the folders of the tab you are on, **?**
+  lists the keys, **–** folds the panel down to its title bar (**H** hides it altogether).
+- **Status:** where the voice comes from (a green dot: live taps, amber: the fake singer, red:
+  waiting for Sprout.exe), how many live tracks and takes, the note being sung, and effort /
+  breath / softness.
+- **Test buttons:** Fake singer ⇄ live, Restart (the song starts over, with new trees each time),
+  Halo → tree, End phrase.
+- **Find a setting…** (key **S**): type a few letters of a setting, its folder or what it does.
+  Enter or a click opens its folder, in whichever tab it is, scrolls to it and flashes it. It
+  finds the Advanced settings and the buttons inside folders too.
+- **The tabs.** A dot on a tab means something was changed since its preset was picked.
+
+| Tab | Its folders, top to bottom |
 | --- | --- |
-| **Look** | How it looks: colours, theme and leaves, tree shape (including twist), halo, glow, many takes. |
-| **Reaction** | How it answers the voice: growing per phrase, pauses and endings, harmony between tracks, loudness, note starts, pitch / effort / softness, held notes and vibrato, planting a take. |
-| **Setup** | Fit to avatar, voice detection, performance, connection and sync, test and preview. |
+| **Look** | Theme & leaves (with 3D leaves and Falling leaves), Colours, Tree shape (with Twist & rope), Live halo, Glow, Many takes. |
+| **Reaction** | Growing, Pauses & endings, Loudness, Note starts, Pitch / effort / softness, Held notes & vibrato, Harmony, Planting & removing takes. |
+| **Setup** | Fit to avatar, Connection & sync, Performance, Voice detection, Preview, Fake singer, Backup & reset. |
 
-- **Hover** any row or folder title for what it does. Settings driven by the voice say exactly how
-  they read it ("Reads: …").
-- **Show advanced** (top of the panel) shows the rarely needed settings in each folder.
-- **Combined sliders** (fullness, liveliness, pace) move several settings at once.
-- A changed row gets a **↺** button: click returns it to the active preset, Shift-click to the
-  factory default. Folders with changes show a dot.
+Each tab starts with its **preset card** (section 8) and its **combined sliders** (fullness on
+Look; liveliness and pace on Reaction, marked ◆), which move several settings at once.
+
+- **Hover** any row, folder title or button for what it does. Settings driven by the voice say
+  exactly how they read it ("Reads: …").
+- A changed row gets a blue bar and a **↺** button: click returns it to the active preset,
+  Shift-click to the factory default. Folders with changes show a dot.
 - Type any number into a slider's box, even past the slider's ends: the slider stretches to fit.
   Only a few settings have hard limits where the overlay would break (for example layers 1–17).
-- The **toolbar** under the status rows: Fake singer ⇄ live, Restart (the song starts over, with
-  new trees each time), Halo → tree, End phrase, and the key list. Press **/** for all keys.
+- **Drag the panel's left edge** to make it wider or narrower (double-click: the usual width).
+- **Setup → Backup & reset** saves every setting and your presets to one file, loads one, or
+  puts everything back to the factory defaults.
+- Press **/** for all keys.
 
 ## 8. Presets: Look, Reaction, Setup
 
 The three kinds are picked independently: any Look works with any Reaction.
 
-**Switching quickly:** each tab has a **Next preset ▸** button under its list (Shift-click goes
-back), and the first ten presets of each list are numbered for the keys above the letters (not
-the numpad): **1 … 9, 0** for Look, **Ctrl + number** for Reaction (or **Shift + number**: a
-browser tab keeps Ctrl + 1 … 9 for switching its own tabs), **Alt + number** for Setup.
+**Switching quickly:** the **◂ ▸** buttons beside each list go to the preset before and after
+(round and round), and the first ten presets of each list are numbered for the keys above the letters (not
+the numpad): **1 … 9, 0** for Look, **Shift + number** for Reaction, **Alt + number** for Setup
+(Ctrl + number stays the browser's own, for switching tabs).
 **Ctrl + .** and **Ctrl + ,** add or remove a fake take. Press **/** for the full list, grouped.
 
 **Look presets:** Sprout, Lush ivy, Winter branches, Festive wreath, Red bramble, Minimal, Neon
-stage, Rainbow, Cherry blossom, Autumn, Dark & twisted, Black briar.
+stage, Rainbow, Cherry blossom, Autumn, Black briar, Dark & twisted, Angelic (white leaves, blue
+blossoms; what lets go floats up).
 
 **Reaction presets:** Responsive, Calm (ballad), Punchy (stage), Subtle, Vibrato-sensitive, Branch
 by branch, Blossom ballad, Falling leaves, Falling away, Drifting away, Duet (harmony), Steady (no withering),
@@ -175,7 +194,10 @@ stops, Pitch jumps, Planting loop.
 Some pairings made for each other: **Black briar + Nocturne** (black ink stays solid when you're
 quiet), **Dark & twisted + Writhing**, **Cherry blossom + Blossom ballad**.
 
-- **Save as new preset** keeps your own in this browser. **Export / Import** move them as files.
+- The buttons on the card: **Save** (your own presets only) overwrites the preset with what is on
+  screen, **Save as…** asks for a name and keeps a new one in this browser, **Revert** puts every
+  value of that kind back, **Export / Import** move presets as files, **Delete** removes one of
+  your own (it asks twice). "changed" on the card means the values differ from the preset.
 - Switching presets with unsaved changes keeps them as "Unsaved tweaks" in the list.
 - Presets never touch the fit to your avatar, your own take colours ("My take colours"), or the
   Sprout Tap windows.
@@ -271,7 +293,9 @@ the light comes from, how dark the shade and how bright the glint) and **Falling
 leaves fall, sway, turn and flutter, and how long they last). A leaf that lets go first drops
 straight down for a moment ("straight drop first", faster by "drop speed"), then slows and starts
 to sway like a real leaf catching the air; "drop differs per leaf" keeps them from all swaying at
-the same moment.
+the same moment. "Leaves differ in how they fall" gives each leaf its own character: most
+flutter, each at its own speed, swing width and rhythm, tilting into each swing and rising a
+little at its ends; a few tumble end over end, fall faster and slide away to one side.
 
 The same effect takes away a tree that is replaced, and the trees after a **look change**: when a
 Look preset (or a tree-shape setting) changes, the trees are not rebuilt on the spot. Once the
@@ -296,8 +320,10 @@ once.
   ring where the vine has moved on, on a halo that fades out, and those a look change without
   leaves passes over.
 - **Falling pieces go** down with gravity (they turn so their loose end hangs down as they fall),
-  or **away from the origin**: no gravity, they drift straight out from the point the tree grows
-  from. It covers branch pieces, old branches (new branch each phrase), and the leaves and petals
+  **away from the origin**: no gravity, they drift straight out from the point the tree grows
+  from, or **up**: they float up and old branches turn toward the sky. A look can bring its own
+  (Look → Theme & leaves → Falling leaves → "gravity of this look"), which then wins over the
+  reaction's: Neon stage and Dark & twisted drift away, Angelic floats up. It covers branch pieces, old branches (new branch each phrase), and the leaves and petals
   that let go with them. An old branch grown as a mirrored pair droops and falls (or drifts out)
   each half its own way. Switching between the two on the way (a reaction preset, say) does not
   jump: what is in the air carries on from where it is, with the speed it had, and turns the new
@@ -363,6 +389,7 @@ Add `?offline` to a preview to use the built-in fake singer without Sprout.exe.
 | --- | --- |
 | H | Hide / show the panels (works in OBS's Interact window too) |
 | G | Voice scope |
+| S | Search the settings |
 | F | Fake singer ⇄ live taps |
 | R | Restart growth |
 | T | Halo → tree (plant the live take) |
@@ -388,11 +415,11 @@ as backdrop and guides, the avatar picture) stay in that browser and are never s
 | --- | --- |
 | The OBS source is empty | Is Sprout.exe running? Open `http://localhost:7777/` in a browser: if it loads there, check the OBS URL and that the source is the size of the canvas. |
 | The tap says "Not connected (no free slot)" | All 16 slots are taken: remove unused Sprout Taps. If the track is Connected but Sprout.exe doesn't see it, the two are different versions; install both from the same release. |
-| The halo never opens | The live track must be recognised: in REAPER arm it (Role Auto), elsewhere set Role to Live voice. "Fake singer" in the panel's toolbar must be off. |
+| The halo never opens | The live track must be recognised: in REAPER arm it (Role Auto), elsewhere set Role to Live voice. "Fake singer" at the top of the panel must be off. |
 | Everything reacts too little or too much | Put the tap before any effects. In the Sprout.exe window Up / Down moves the sensitivity floor (quieter sound than that counts as silence). Setup → Voice detection tunes vibrato. |
 | Trees never appear | Take tracks need Role Take playback (or Auto in REAPER with the track disarmed) and must actually play back sound. |
 | The panel's dropdowns don't open in OBS's Interact window | They open their own menu inside OBS; click the row again. Easier: change settings in a browser or on `/controls`. |
 | It stutters | Setup → Performance: lower "max fps" or "max picture size". Check that OBS's Browser Source hardware acceleration is on. `sprout.perf()` in the browser console shows where the time goes. |
 | A tap's track looks different from the rest | It has its own Theme, Leaves or Colour set. Press All Auto in that tap window, or Set every tap to Auto in the viewer. |
-| Black or dark looks vanish on a dark scene | They rely on the rim glow: keep glow strength up, use a Reaction that keeps trees opaque (Nocturne), and check on Setup → Test & preview → backdrop "half dark, half light". |
+| Black or dark looks vanish on a dark scene | They rely on the rim glow: keep glow strength up, use a Reaction that keeps trees opaque (Nocturne), and check on Setup → Preview → background "half dark, half light". |
 | Port 7777 is taken | Start Sprout.exe with `--port 8123` and use that port in the OBS URL. |

@@ -14,46 +14,84 @@ export interface FolderSpec {
   /** Top tab: Look (visual preset), Reaction (reactivity preset), Setup (rig and this viewer). */
   tab: 'look' | 'reaction' | 'setup';
   title: string;
+  /** A few quiet words after the title: what is inside. */
+  note?: string;
   open?: boolean;
   keys: string[];
   advanced?: string[];
   /** Nested folders with their own title. */
-  sub?: { id: string; title: string; keys: string[] }[];
+  sub?: { id: string; title: string; note?: string; keys: string[] }[];
   /** Any key of these sections not listed anywhere lands here (so new params still show up). */
   catchSections?: string[];
 }
 
 /** Tooltips for folder titles. */
 export const FOLDER_HINTS: Record<string, string> = {
-  preset: 'Three kinds of preset, picked independently. Visual: how it looks (shape, leaves, tint, glow). Reactivity: how it answers your voice (growth, withering, brightness, motion, the planting). Testing: fake singer and preview, this browser only. Your palette and the fit to your avatar belong to none of them. A star means something changed since picking it.',
+  preset: 'Three kinds of preset, picked independently. Visual: how it looks (shape, leaves, tint, glow). Reactivity: how it answers your voice (growth, withering, brightness, motion, the planting). Testing: fake singer and preview, this browser only. Your palette and the fit to your avatar belong to none of them. A dot on the tab means something changed since picking it.',
+  // Look
+  theme: 'Which decorations grow on the branches and the halo (leaves, thorns, a wreath, your own themes), how many and how big, and how leaves look and fall. Every Sprout Tap starts on Auto and follows this; a tap set to its own theme, amount or colour keeps it (Set every tap to Auto undoes that).',
+  leaves3d: 'Leaves folded, turned and lit in 3D instead of flat.',
+  falling: 'Leaves that let go on their own, and how anything that falls moves on its way down.',
+  colours: 'What colours everything. Each part takes its colour from the take, from the theme\'s natural colours, or from a gradient that can move with time, along the branch, or with your voice. Your own take colours are kept across presets.',
+  colBranch: 'Colour of the take trees\' branches.',
+  colLeaf: 'Colour of leaves, thorns and needles.',
+  colAccent: 'Colour of blossoms and berries.',
+  colHalo: 'Colour of the halo ring and its vine.',
+  lookPalette: 'Take colours this look brings with it, instead of your own.',
+  palette: 'Your own colours: the live halo and one per take. Presets never change them.',
   shape: 'The take trees: how big, flat, dense and arched the shared canopy behind you is, and how the branch tips curve.',
-  life: 'How fast a tree grows while you sing, how long old trees stay, and how the outer twigs grow back in pauses.',
-  leaves: 'Leaves, thorns or wreath on the branches and the halo, their size and amount. Every Sprout Tap starts on Auto and follows this; a tap set to its own theme, amount or colour keeps it (Set every tap to Auto undoes that).',
-  colours: 'The live halo colour and the colour of each take (unless the track uses its DAW colour), or a rainbow.',
-  halo: 'The live vine looping round the ring while you record: where it grows from, how fast, how long it trails and what sprouts from it.',
-  voice: 'How your voice drives the look: loudness to brightness, effort to thickness, high notes growing upward, and what counts as the end of a phrase.',
-  glow: 'Bloom around everything: how strong and wide, what makes it flare, and how it steps back where branches are dense so the detail shows.',
-  motion: 'How the plants move: wind that grows with loudness, leaf flutter, and the shiver on vibrato.',
+  twist: 'Branches that wind like a corkscrew, gnarl like old wood, curl at the tips or are wound like rope.',
+  halo: 'The live vine looping round the ring while you record: where it grows from, how long it trails and what sprouts from it.',
+  glow: 'Bloom around everything: how strong and wide, its colour, and how it steps back where branches are dense so the detail shows.',
+  many: 'Behaviour with many takes: how neighbouring plants interleave, how the canopy shrinks, and the optional carousel spin.',
+  // Reaction
+  phrases: 'How the trees grow while you sing, and what counts as a phrase: a new tree or a new branch for each one.',
   pauses: 'What the branches do when you stop singing, by how long the silence is: a short pause (a breath) acts on the outer twigs, the end of the phrase and a full stop on the whole tree. Each has its own choice: keep, ungrow, fade or fall away, from the tips inward or all at once. And whether the leaves let go.',
+  loud: 'Everything your loudness drives: brightness, glow, wind and the speed of the halo.',
+  onsets: 'What happens at the start of every note.',
+  timbre: 'What high notes, full singing and soft, breathy singing change.',
+  held: 'What a long held note and vibrato do: blossoms open, twigs and leaves shiver.',
   harmony: 'What happens while two tracks sing in harmony: different notes that sound well together (a third, fourth, fifth or sixth apart, in any octave), at the same time. The viewer finds it from the pitches of the tracks, live and played back. Every effect has its own amount; 0 turns it off, so any of them can be combined. Theme parts can also open in harmony (theme editor: opens).',
   commit: 'What happens when a take finishes recording (the halo winds up and is planted as the new tree) and when a take is deleted.',
-  many: 'Behaviour with many takes: how neighbouring plants interleave, how the canopy shrinks, and the optional carousel spin.',
+  // Setup
   fit: 'Fit the overlay to your avatar: framing, halo position and size, where the trees grow from, and the keep-out region behind your head and body.',
-  detect: 'How Sprout.exe recognises things in your voice. These live in Sprout.exe (saved next to it), so every viewer and OBS use the same values; a viewer that connects shows them. Needs Sprout.exe running: the fake singer always sings with clear vibrato.',
-  perf: 'How often and how large the picture is drawn. Lower values leave more of the graphics card to OBS, VTube Studio and your browser. Shared with the OBS page. Hidden pages and OBS sources that are not shown draw nothing at all.',
   connection: 'Where the voice data comes from (Sprout.exe or the fake singer) and whether panel changes are shared with other open viewers such as OBS.',
-  test: 'Preview tools for this browser only: the voice scope, the placeholder avatar or your own PNG, pausing, the fake singer.',
+  perf: 'How often and how large the picture is drawn. Lower values leave more of the graphics card to OBS, VTube Studio and your browser. Shared with the OBS page. Hidden pages and OBS sources that are not shown draw nothing at all.',
+  detect: 'How Sprout.exe recognises things in your voice. These live in Sprout.exe (saved next to it), so every viewer and OBS use the same values; a viewer that connects shows them. Needs Sprout.exe running: the fake singer always sings with clear vibrato.',
+  test: 'Preview tools for this browser only, never shown in OBS: the voice scope, the background, the placeholder avatar or your own PNG, pausing and slow motion.',
+  fake: 'The built-in test singer, for trying looks without a DAW: how many takes it fakes, how its voices relate, how long its phrases and pauses are. This browser only.',
+  backup: 'Save every setting and your own presets to one file, load such a file, or put everything back to the factory defaults.',
 };
 
 const ROLE = (r: string) => [`${r}.source`, `${r}.gradient`, `${r}.takeMix`, `${r}.along`, `${r}.speed`,
   `${r}.voice`, `${r}.voiceAmount`, `${r}.perTake`, `${r}.scatter`];
 
-// docs/fable-consult-5-colour-themes-panel.md, D.3: a tab is a preset kind.
+// docs/fable-consult-5-colour-themes-panel.md, D.3: a tab is a preset kind. Within a tab the
+// folders run from what is reached for first to what is set once. Folder ids are also the keys the
+// open / closed state is remembered under, so they stay when a title changes.
 export const FOLDERS: FolderSpec[] = [
   // ---------------- Look (visual preset) ----------------
   {
-    id: 'colours', tab: 'look', title: 'Colours', open: true,
-    keys: ['look.tint', 'look.tintAmount'],
+    id: 'theme', tab: 'look', title: 'Theme & leaves', open: true,
+    keys: ['look.theme', 'look.density', 'look.decoSize', 'look.buds', 'look.leafSheen', 'look.sheenColour', 'look.woodStays'],
+    sub: [
+      {
+        id: 'leaves3d', title: '3D leaves',
+        keys: ['look.leaf3d', 'leaves3d.fold', 'leaves3d.cup', 'leaves3d.arch', 'leaves3d.turn', 'leaves3d.tilt', 'leaves3d.wind', 'leaves3d.shiver',
+          'leaves3d.lightAngle', 'leaves3d.lightHeight', 'leaves3d.shade', 'leaves3d.shine', 'leaves3d.underside'],
+      },
+      {
+        id: 'falling', title: 'Falling leaves',
+        keys: ['look.leafFall', 'look.leafRegrow', 'look.gravity', 'falling.speed', 'falling.sway', 'falling.spin', 'falling.flutter', 'falling.time',
+          'falling.variety', 'falling.dropSeconds', 'falling.dropVariety', 'falling.dropSpeed'],
+      },
+    ],
+    advanced: ['look.themeFrom'],
+    catchSections: ['leaves3d', 'falling'],
+  },
+  {
+    id: 'colours', tab: 'look', title: 'Colours',
+    keys: ['look.tint', 'look.tintAmount', 'look.variety', 'look.depthShade', 'look.dryColour'],
     sub: [
       { id: 'colBranch', title: 'Branches', keys: ROLE('colBranch') },
       { id: 'colLeaf', title: 'Leaves', keys: ROLE('colLeaf') },
@@ -64,7 +102,7 @@ export const FOLDERS: FolderSpec[] = [
         keys: ['palette.from', 'palette.list', 'palette.pick', 'palette.seed'],
       },
       {
-        id: 'palette', title: 'My take colours (kept across presets)',
+        id: 'palette', title: 'My take colours', note: 'kept across presets',
         keys: ['colours.lock', 'colours.live', 'colours.take1', 'colours.take2', 'colours.take3', 'colours.take4', 'colours.take5',
           'colours.take6', 'colours.take7', 'source.useTrackColours'],
       },
@@ -72,27 +110,12 @@ export const FOLDERS: FolderSpec[] = [
     catchSections: ['colBranch', 'colLeaf', 'colAccent', 'colHalo', 'colours', 'palette'],
   },
   {
-    id: 'theme', tab: 'look', title: 'Theme & leaves',
-    keys: ['look.theme', 'look.density', 'look.decoSize', 'look.variety', 'look.depthShade', 'look.buds', 'look.dryColour',
-      'look.woodStays', 'look.leafSheen', 'look.sheenColour'],
-    sub: [
-      {
-        id: 'leaves3d', title: '3D leaves',
-        keys: ['look.leaf3d', 'leaves3d.fold', 'leaves3d.cup', 'leaves3d.arch', 'leaves3d.turn', 'leaves3d.tilt', 'leaves3d.wind', 'leaves3d.shiver',
-          'leaves3d.lightAngle', 'leaves3d.lightHeight', 'leaves3d.shade', 'leaves3d.shine', 'leaves3d.underside'],
-      },
-      {
-        id: 'falling', title: 'Falling leaves',
-        keys: ['look.leafFall', 'look.leafRegrow', 'falling.speed', 'falling.sway', 'falling.spin', 'falling.flutter', 'falling.time',
-          'falling.dropSeconds', 'falling.dropVariety', 'falling.dropSpeed'],
-      },
-    ],
-    advanced: ['look.themeFrom'],
-  },
-  {
     id: 'shape', tab: 'look', title: 'Tree shape',
-    keys: ['growth.reach', 'growth.flatten', 'growth.branching', 'growth.lowBranches', 'plants.originLimbs', 'plants.trunk', 'plants.trunkLean', 'growth.spread', 'plants.lift', 'plants.wildness', 'plants.taper',
-      'plants.twist', 'plants.gnarl', 'plants.curl', 'plants.strands'],
+    keys: ['growth.reach', 'growth.flatten', 'growth.spread', 'plants.lift', 'plants.wildness', 'growth.branching', 'growth.lowBranches',
+      'plants.originLimbs', 'plants.taper', 'plants.trunk', 'plants.trunkLean'],
+    sub: [
+      { id: 'twist', title: 'Twist & rope', keys: ['plants.twist', 'plants.gnarl', 'plants.curl', 'plants.strands'] },
+    ],
     advanced: ['plants.clearance', 'plants.tipWidth', 'plants.maxWidth', 'plants.twistLength', 'plants.twistTighten', 'plants.twistTwigs',
       'plants.knots', 'plants.twistDepth', 'plants.strandLay'],
   },
@@ -113,47 +136,49 @@ export const FOLDERS: FolderSpec[] = [
     catchSections: ['layout', 'plants', 'growth', 'look', 'halo', 'glow'],
   },
   // ---------------- Reaction (reactivity preset) ----------------
+  // One voice first (singing, silence, loudness, note starts, tone, held notes), then two voices,
+  // then what happens to a whole take.
   {
-    id: 'phrases', tab: 'reaction', title: 'Singing & phrases: growing', open: true,
+    id: 'phrases', tab: 'reaction', title: 'Growing', note: 'while you sing', open: true,
     keys: ['growth.secondsToFull', 'growth.newTreeEachPhrase', 'growth.branchEachPhrase', 'growth.fillSpace', 'response.phraseGap',
       'growth.restBrightness', 'response.release'],
     advanced: ['response.variety', 'plants.moodShaping', 'growth.branchesKept', 'growth.branchOrder', 'growth.branchSymmetry', 'growth.branchWitherSeconds', 'growth.branchDroopDeg',
       'growth.branchFallSeconds'],
   },
   {
-    id: 'pauses', tab: 'reaction', title: 'Pauses & endings: ungrow, fade, fall',
+    id: 'pauses', tab: 'reaction', title: 'Pauses & endings', note: 'ungrow, fade, fall',
     keys: ['growth.witherEffect', 'growth.witherFromTips', 'growth.onPause', 'growth.witherDepth', 'growth.onPhraseEnd', 'growth.fadeAfter', 'growth.onStop', 'growth.dieAfter',
       'growth.fadeSeconds', 'growth.shed', 'growth.fallDirection'],
     advanced: ['growth.witherSeconds', 'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.twigFadeSeconds', 'growth.regrowSpeed'],
   },
   {
-    id: 'harmony', tab: 'reaction', title: 'Harmony: two voices together',
+    id: 'loud', tab: 'reaction', title: 'Loudness', note: 'brightness, glow, wind, halo',
+    keys: ['response.brightness', 'glow.levelGain', 'glow.travel', 'motion.swayDeg', 'motion.idle', 'halo.singSpeed', 'halo.sproutRate'],
+    advanced: ['halo.idleSpeed', 'motion.flutterDeg', 'motion.speed'],
+  },
+  {
+    id: 'onsets', tab: 'reaction', title: 'Note starts', note: 'flash, push',
+    keys: ['glow.onsetGain'],
+    advanced: ['motion.kickDeg', 'motion.springiness', 'motion.twigs', 'glow.front', 'halo.sproutGrow'],
+  },
+  {
+    id: 'timbre', tab: 'reaction', title: 'Pitch, effort & softness',
+    keys: ['response.pitchSteer', 'glow.pitchShine', 'response.effortWidth', 'look.thornEffort', 'glow.softGlow', 'plants.softDroop', 'plants.twistVoice'],
+  },
+  {
+    id: 'held', tab: 'reaction', title: 'Held notes & vibrato', note: 'blossoms, shiver',
+    keys: ['look.blossoms', 'look.blossomHold', 'motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity', 'motion.writhe', 'motion.writheVoice', 'motion.leafShake'],
+    catchSections: ['motion', 'response'],
+  },
+  {
+    id: 'harmony', tab: 'reaction', title: 'Harmony', note: 'two voices together',
     keys: ['harmony.colour', 'harmony.colourMode', 'harmony.colourValue', 'harmony.colourMix', 'harmony.waveLead', 'harmony.waveFrom',
       'harmony.waveLength', 'harmony.waveSpeed', 'harmony.cross', 'harmony.blossoms', 'harmony.glow'],
     advanced: ['harmony.minSeconds', 'harmony.attack', 'harmony.unison'],
     catchSections: ['harmony'],
   },
   {
-    id: 'loud', tab: 'reaction', title: 'Loudness: brightness, wind, halo speed',
-    keys: ['response.brightness', 'glow.levelGain', 'glow.travel', 'motion.swayDeg', 'motion.idle', 'halo.singSpeed', 'halo.sproutRate'],
-    advanced: ['halo.idleSpeed', 'motion.flutterDeg', 'motion.speed'],
-  },
-  {
-    id: 'onsets', tab: 'reaction', title: 'Note starts: flash',
-    keys: ['glow.onsetGain'],
-    advanced: ['motion.kickDeg', 'motion.springiness', 'motion.twigs', 'glow.front', 'halo.sproutGrow'],
-  },
-  {
-    id: 'timbre', tab: 'reaction', title: 'Pitch, effort and softness',
-    keys: ['response.pitchSteer', 'glow.pitchShine', 'response.effortWidth', 'look.thornEffort', 'glow.softGlow', 'plants.softDroop', 'plants.twistVoice'],
-  },
-  {
-    id: 'held', tab: 'reaction', title: 'Held notes & vibrato: blossoms, shiver',
-    keys: ['look.blossoms', 'look.blossomHold', 'motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity', 'motion.writhe', 'motion.writheVoice', 'motion.leafShake'],
-    catchSections: ['motion', 'response'],
-  },
-  {
-    id: 'commit', tab: 'reaction', title: 'Planting a take & removal',
+    id: 'commit', tab: 'reaction', title: 'Planting & removing takes',
     keys: ['commit.enabled', 'commit.duration', 'commit.limbs'],
     advanced: ['transitions.liveEndSeconds', 'transitions.pruneSeconds', 'transitions.lookChangeSeconds', 'halo.spawnSeconds'],
     catchSections: ['commit', 'transitions'],
@@ -168,9 +193,10 @@ export const FOLDERS: FolderSpec[] = [
     catchSections: ['avatar'],
   },
   {
-    id: 'detect', tab: 'setup', title: 'Voice detection',
-    keys: ['detect.vibratoMinNote', 'detect.vibratoMinSemitones', 'detect.vibratoFullSemitones', 'detect.vibratoMinHz', 'detect.vibratoMaxHz'],
-    catchSections: ['detect'],
+    id: 'connection', tab: 'setup', title: 'Connection & sync',
+    keys: ['source.mode', 'source.syncSettings', 'source.holdSeconds'],
+    advanced: ['source.port'],
+    catchSections: ['source'],
   },
   {
     id: 'perf', tab: 'setup', title: 'Performance',
@@ -179,19 +205,23 @@ export const FOLDERS: FolderSpec[] = [
     catchSections: ['perf'],
   },
   {
-    id: 'connection', tab: 'setup', title: 'Connection & sync',
-    keys: ['source.mode', 'source.syncSettings', 'source.holdSeconds'],
-    advanced: ['source.port'],
-    catchSections: ['source'],
+    id: 'detect', tab: 'setup', title: 'Voice detection',
+    keys: ['detect.vibratoMinNote', 'detect.vibratoMinSemitones', 'detect.vibratoFullSemitones', 'detect.vibratoMinHz', 'detect.vibratoMaxHz'],
+    catchSections: ['detect'],
   },
   {
-    id: 'test', tab: 'setup', title: 'Test & preview (this viewer only)',
-    keys: ['scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds', 'scene.backdrop', 'scene.showAvatar', 'avatar.opacity',
-      'avatar.useImage', 'avatar.imageX', 'avatar.imageY', 'avatar.imageHeight', 'scene.paused', 'scene.timeScale', 'scene.layers',
-      'fake.liveTracks', 'fake.recording', 'fake.voices', 'fake.harmony', 'fake.together'],
-    advanced: ['fake.seed', 'fake.phraseMin', 'fake.phraseMax', 'fake.gapMin', 'fake.gapMax', 'fake.highNotes', 'fake.noteMax', 'fake.longNotes', 'fake.fullStopEvery', 'fake.fullStopSeconds', 'fake.autoCommit'],
-    catchSections: ['scene', 'fake'],
+    id: 'test', tab: 'setup', title: 'Preview', note: 'this viewer only',
+    keys: ['scene.showScope', 'scene.scopeLayer', 'scene.scopeSeconds', 'scene.backdrop', 'scene.paused', 'scene.timeScale',
+      'scene.showAvatar', 'avatar.opacity', 'avatar.useImage', 'avatar.imageX', 'avatar.imageY', 'avatar.imageHeight'],
+    catchSections: ['scene'],
   },
+  {
+    id: 'fake', tab: 'setup', title: 'Fake singer', note: 'this viewer only',
+    keys: ['scene.layers', 'fake.liveTracks', 'fake.recording', 'fake.voices', 'fake.harmony', 'fake.together'],
+    advanced: ['fake.seed', 'fake.phraseMin', 'fake.phraseMax', 'fake.gapMin', 'fake.gapMax', 'fake.highNotes', 'fake.noteMax', 'fake.longNotes', 'fake.fullStopEvery', 'fake.fullStopSeconds', 'fake.autoCommit'],
+    catchSections: ['fake'],
+  },
+  { id: 'backup', tab: 'setup', title: 'Backup & reset', keys: [] },
 ];
 
 /** Combined sliders (D.2): not settings; each writes several existing keys along a line through
@@ -245,7 +275,7 @@ export const MOVEMENTS: { label: string; tip: string; values: Record<string, unk
 
 export const LABELS: Record<string, string> = {
   'growth.reach': 'size', 'growth.spread': 'arch', 'growth.flatten': 'flatten', 'growth.branching': 'density of branches', 'growth.lowBranches': 'branches start low', 'plants.originLimbs': 'limbs from the origin (0 = auto)', 'plants.trunk': 'trunk length', 'plants.trunkLean': 'trunk lean (deg)',
-  'growth.fallDirection': 'falling pieces go',
+  'growth.fallDirection': 'falling pieces go', 'look.gravity': 'gravity of this look',
   'plants.lift': 'tips up / droop', 'plants.clearance': 'gap between branches', 'plants.maxWidth': 'trunk width',
   'plants.tipWidth': 'tip width', 'plants.softDroop': 'droop when soft', 'plants.moodShaping': 'shaped by the phrase',
   'growth.secondsToFull': 'grow time (s)', 'growth.fadeAfter': 'tree stays after singing (s)', 'growth.fadeSeconds': 'an ending takes (s)',
@@ -253,7 +283,7 @@ export const LABELS: Record<string, string> = {
   'growth.onPause': 'short pause: outer twigs', 'growth.onPhraseEnd': 'phrase end: whole tree', 'growth.onStop': 'full stop: whole tree',
   'falling.speed': 'fall speed', 'falling.sway': 'sway', 'falling.spin': 'turning', 'falling.flutter': 'flutter in the wind',
   'falling.time': 'time before gone',
-  'falling.dropSeconds': 'straight drop first (s)', 'falling.dropVariety': 'drop differs per leaf', 'falling.dropSpeed': 'drop speed',
+  'falling.variety': 'leaves differ in how they fall', 'falling.dropSeconds': 'straight drop first (s)', 'falling.dropVariety': 'drop differs per leaf', 'falling.dropSpeed': 'drop speed',
   'harmony.colour': 'colours come together', 'harmony.colourMode': 'shared colour', 'harmony.colourValue': 'harmony colour',
   'harmony.colourMix': 'colours blend', 'harmony.waveLead': 'waves start', 'harmony.waveFrom': 'halo waves start from',
   'harmony.waveLength': 'wave length', 'harmony.waveSpeed': 'wave speed',
@@ -291,7 +321,7 @@ export const LABELS: Record<string, string> = {
   'layout.downGap': 'gap behind body (deg)', 'layout.shrinkPerTake': 'shrink per extra take',
   'layout.spinSpeed': 'carousel speed (deg/s)', 'layout.spinFrom': 'carousel from N takes',
   'layout.tierFrom': 'two rows from N takes', 'layout.innerScale': 'inner row size', 'plants.overlap': 'interleave at seams',
-  'scene.viewRadius': 'zoom out', 'scene.layers': 'fake takes + 1', 'scene.showScope': 'voice scope (G)',
+  'scene.viewRadius': 'zoom out', 'scene.layers': 'layers (halo + takes)', 'scene.showScope': 'voice scope (G)',
   'scene.scopeLayer': 'scope follows (0 = halo)', 'scene.scopeSeconds': 'scope history (s)',
   'source.useTrackColours': 'use DAW track colours', 'source.holdSeconds': 'dropout hold (s)',
   'avatar.avoid': 'keep leaves off the avatar', 'avatar.opacity': 'placeholder opacity',
@@ -358,6 +388,7 @@ export const TIPS: Record<string, string> = {
   'falling.spin': 'How much falling leaves turn and rock as they fall (1 = as before).',
   'falling.flutter': 'How much the wind still flutters a leaf about its stalk while it falls (1 = as much as on its twig, 0 = not at all).',
   'falling.time': 'How long a falling leaf lasts before it is gone (1 = about 1.1 to 1.7 s).',
+  'falling.variety': 'How differently each falling leaf behaves. 0 = they all fall alike. Up to 1: each has its own speed, swing width and rhythm (a flutterer tilts into each swing and rises a little at its ends, like a pendulum), and some tumble end over end, fall faster and slide away to one side.',
   'falling.dropSeconds': 'A leaf that lets go first drops straight down for about this long, then slows and starts to sway and rock, like a real leaf catching the air. 0 = every leaf sways from the moment it lets go.',
   'falling.dropVariety': 'How much the straight drop differs from leaf to leaf, so they do not all start swaying at the same moment. 0 = all alike; 1 = some sway at once, others drop up to twice as long.',
   'falling.dropSpeed': 'How much faster a leaf falls during its straight drop than once it sways (1 = the same speed).',
@@ -403,7 +434,8 @@ export const TIPS: Record<string, string> = {
   'plants.originLimbs': 'How many limbs leave the origin point behind your neck (or the top of the trunk): the tree divides into this many there. 0 = automatic, by the size of the tree’s share of the canopy (usually 2 to 7). More = a fuller fan right from the start.',
   'plants.trunk': 'A trunk from behind your body up into the point every limb fans out from (its length). One for the whole scene, shared by every take. 0 = no trunk: every limb leaves from one point behind your neck.',
   'plants.trunkLean': 'Tilt of the trunk, in degrees: + = its top to the right.',
-  'growth.fallDirection': 'Where branches, leaves and petals that let go end up. Down: they fall with gravity, turning so their loose end hangs down. Away: no gravity; they drift straight out, away from the point the tree grows from.',
+  'growth.fallDirection': 'Where branches, leaves and petals that let go end up. Down: they fall with gravity, turning so their loose end hangs down. Away: no gravity; they drift straight out, away from the point the tree grows from. Up: they float up, old branches turning toward the sky. A look can bring its own (Look → gravity of this look), which then wins.',
+  'look.gravity': 'Where what lets go goes with this look: as the reaction says (Reaction → falling pieces go), or always down, away from the origin, or up, whatever the reaction. Changing it on the way does not jump: what is in the air carries on and turns the new way.',
   'growth.lowBranches': 'Where the limbs start to fork and sprout. 0 = they run out bare from behind your head and branch toward their ends (top-heavy); 1 = right where they leave your head, so the tree fills in close to you.',
   'growth.spread': 'Low = limbs run straight out from behind your neck; high = they arch out more.',
   'plants.wildness': 'How much the branches wander, how ragged the outline is, and one longer "hero" branch.',
@@ -596,7 +628,7 @@ Object.assign(TIPS, {
 
 /** Labels for the restructured panel (D.4). */
 Object.assign(LABELS, {
-  'look.tint': 'lean everything toward', 'look.tintAmount': 'how far',
+  'look.tint': 'overall tint', 'look.tintAmount': 'overall tint amount',
   'look.theme': 'theme', 'look.themeFrom': 'per-track settings',
   'glow.tint': 'glow colour', 'glow.tintAmount': 'glow colour amount',
   'look.blossomHold': 'blossoms after holding (s)', 'look.blossoms': 'blossom amount',
@@ -611,24 +643,22 @@ for (const r of ['colBranch', 'colLeaf', 'colAccent', 'colHalo'])
   Object.assign(LABELS, {
     [`${r}.source`]: 'colour from', [`${r}.gradient`]: 'gradient', [`${r}.takeMix`]: 'take colour mixed in',
     [`${r}.along`]: 'spread root to tip', [`${r}.speed`]: 'flow speed', [`${r}.voice`]: 'voice moves it',
-    [`${r}.voiceAmount`]: 'how far', [`${r}.perTake`]: 'shift per take', [`${r}.scatter`]: 'random per leaf',
+    [`${r}.voiceAmount`]: 'voice moves it by', [`${r}.perTake`]: 'shift per take', [`${r}.scatter`]: 'random per leaf',
   });
 LABELS['colHalo.along'] = 'spread round the ring';
-
-Object.assign(FOLDER_HINTS, {
-  colours: 'What colours everything. Each part takes its colour from the take, from the theme\'s natural colours, or from a gradient that can move with time, along the branch, or with your voice. Your own take colours are kept across presets.',
-  theme: 'Which decorations grow on the branches and the halo, how many and how big.',
-  loud: 'Everything your loudness drives.',
-  onsets: 'What happens at the start of every note.',
-  timbre: 'What high notes, full singing and soft, breathy singing change.',
-  held: 'What a long held note and vibrato do.',
-  phrases: 'How the trees grow while you sing, and what a phrase is.',
-  pauses: 'What short pauses do to the outer twigs.',
-  colBranch: 'Colour of the take trees\' branches.',
-  colLeaf: 'Colour of leaves, thorns and needles.',
-  colAccent: 'Colour of blossoms and berries.',
-  colHalo: 'Colour of the halo ring and its vine.',
-  palette: 'Your own colours: the live halo and one per take. Presets never change them.',
+// Every row has a label in plain words (none shows its key in the code).
+Object.assign(LABELS, {
+  'colours.live': 'live halo', 'colours.take1': 'take 1', 'colours.take2': 'take 2', 'colours.take3': 'take 3', 'colours.take4': 'take 4',
+  'colours.take5': 'take 5', 'colours.take6': 'take 6', 'colours.take7': 'take 7',
+  'layout.ease': 'glide speed', 'plants.step': 'segment length', 'plants.maxNodes': 'most branch points per tree',
+  'scene.showGuides': 'show guides', 'scene.centerX': 'move left / right', 'scene.centerY': 'move up / down',
+  'avatar.headX': 'head centre x', 'avatar.headY': 'head centre y', 'avatar.headR': 'head radius',
+  'avatar.bodyTopY': 'body top', 'avatar.bodyBottomY': 'body bottom', 'avatar.bodyR': 'body half-width',
+  'source.mode': 'voice from', 'source.syncSettings': 'sync settings to other viewers', 'source.port': 'Sprout.exe port',
+  'scene.backdrop': 'background', 'scene.paused': 'paused (P)', 'scene.timeScale': 'playback speed', 'scene.showAvatar': 'show avatar',
+  'fake.liveTracks': 'live tracks', 'fake.recording': 'recording', 'fake.seed': 'song (another number, another song)',
+  'fake.phraseMin': 'shortest phrase (s)', 'fake.phraseMax': 'longest phrase (s)', 'fake.gapMin': 'shortest pause (s)',
+  'fake.gapMax': 'longest pause (s)', 'fake.highNotes': 'high notes', 'fake.noteMax': 'longest note (s)',
 });
 
 /** Tooltips for the colour role settings (same in every role). */

@@ -182,12 +182,14 @@ changed are saved in the browser, so improved defaults still reach the rest. The
 to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
 
 - **Panel:** every value in `src/params.ts` has a control, grouped for the artist
-  (`src/panel-layout.ts`) on three tabs: **Look** (colours, theme & leaves, tree shape, live halo,
-  glow, many takes), **Reaction** (singing & phrases, pauses, loudness, note starts, pitch / effort /
-  softness, held notes & vibrato, planting) and **Setup** (fit to avatar, voice detection,
-  performance, connection, test & preview). Rarely needed values sit in each folder's Advanced
-  fold ("show advanced"). Hover a row for its description. **H** hides the panel, **/** lists the
-  keys. Typed numbers may go past a slider's ends (the slider stretches), within hard limits where
+  (`src/panel-layout.ts`) on three tabs: **Look** (theme & leaves, colours, tree shape, live halo,
+  glow, many takes), **Reaction** (growing, pauses & endings, loudness, note starts, pitch / effort /
+  softness, held notes & vibrato, harmony, planting) and **Setup** (fit to avatar, connection,
+  performance, voice detection, preview, fake singer, backup & reset). The head of the panel stays
+  in view: status, the test buttons, a search field (**S**) that finds any setting or button and
+  scrolls to it, and the tabs. Rarely needed values sit in each folder's Advanced fold (the
+  Advanced switch in the title bar). Hover a row for its description. **H** hides the panel, **/**
+  lists the keys. Drag the panel's left edge to change its width. Typed numbers may go past a slider's ends (the slider stretches), within hard limits where
   the viewer would break.
 - **Presets** come in three kinds, one per tab, picked independently:
   **Look** (Sprout, Lush ivy, Winter branches, Festive wreath, Red bramble, Minimal, Neon stage,
@@ -196,10 +198,10 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
   away, Writhing, Nocturne) and **Setup** testing presets (fake singer and preview, this browser only).
   None of them touches the fit to the avatar, your own take colours or the taps. Changed rows get a
   **↺** button: click returns the value to the active preset, Shift-click to the factory default;
-  folders with changes show a dot. *Save as new preset* stores your own (in this browser); Export /
+  folders with changes show a dot. *Save as…* stores your own (in this browser); Export /
   Import move them as .json. Switching away from unsaved tweaks keeps them as "Unsaved tweaks".
   The dev page's console lists settings no built-in preset uses yet.
-- **Voice scope:** **G** (or Test & preview → voice scope) shows rolling graphs of the followed
+- **Voice scope:** **G** (or Setup → Preview → voice scope) shows rolling graphs of the followed
   layer: loudness, pitch, effort / breath / softness, vibrato, note starts and phrases, growth.
   Thin lines are what the tap sends, bold lines what the viewer makes of it. Header buttons
   switch between the live halo and each take, change the history length, freeze and close;
@@ -211,10 +213,10 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
 - **Tooltips:** hover any row or folder title in the panel. Settings driven by the voice say
   exactly how they read it ("Reads: …"). In the voice scope, hover a value on the right to see
   what it is and which settings use it; click one to open it in the panel.
-- **Your avatar picture:** Test & preview → Load avatar PNG shows your own picture (transparency
+- **Your avatar picture:** Setup → Preview → Load avatar PNG shows your own picture (transparency
   kept) instead of the grey shape, with picture x / y / height and the placeholder opacity. It is
   stored in this browser only and never shown in OBS.
-- **Guides:** Scene → showGuides draws the canopy outline split into each plant's territory, and the avatar keep-out.
+- **Guides:** Setup → Fit to avatar → show guides draws the canopy outline split into each plant's territory, and the avatar keep-out.
 - **OBS mode:** `?obs` hides the panel and the placeholder avatar and leaves a transparent background.
 - **Console:** `sprout.params`, `sprout.restart()`, `sprout.advance(60)` (fast-forward),
   `sprout.action('commit' | 'delete' | 'restart')`, `sprout.stats()`. `sprout.advance(3, 1/8)`
@@ -224,8 +226,8 @@ to Sprout.exe on `localhost:7777` (Audio source → port) when it's running.
 ## Colours, themes and the panel
 
 - **Panel tabs:** Look (Visual preset), Reaction (Reactivity preset, grouped by what the voice
-  does), Setup (fit, detection, performance, connection, test). "show advanced" shows the rarely
-  needed settings. Combined sliders (fullness, liveliness, pace) move several settings at once.
+  does), Setup (fit, connection, performance, detection, preview, fake singer). The Advanced switch shows
+  the rarely needed settings. Combined sliders (fullness, liveliness, pace) move several settings at once.
 - **Colours** (Look → Colours): branches, leaves, blossoms & berries and the halo each take their
   colour from the take colour, the theme's natural colours, or a **gradient** that can flow with
   time, run from root to tip, shift per take, follow the voice (pitch, loudness, effort, airiness,

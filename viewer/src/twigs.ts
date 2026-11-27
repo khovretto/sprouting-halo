@@ -46,7 +46,7 @@ export class TwigPool {
   /** Draw every piece still falling. downX, downY: world down in the layer's frame, per world unit.
    *  dry: the colour they turn toward. away: they drift straight out from (ox, oy), the point the
    *  tree grows from, with no gravity (growth.fallDirection). */
-  draw(out: Instances, layer: number, alpha: number, downX: number, downY: number, now: number, dry: RGB, away = false, ox = 0, oy = 0) {
+  draw(out: Instances, layer: number, alpha: number, downX: number, downY: number, now: number, dry: RGB, way = 0, ox = 0, oy = 0) {
     const d = this.d;
     let alive = 0;
     for (let k = 0; k < this.count; k++) {
@@ -64,15 +64,15 @@ export class TwigPool {
       const ax = d[o + 4] - px, ay = d[o + 5] - py, bx = d[o + 6] - px, by = d[o + 7] - py;
       // Which way it falls changed in flight (a preset): it carries on from where it is, with the
       // speed it had, and turns toward the new way from how far it had turned.
-      if (d[o + 23] !== (away ? 1 : 0)) {
+      if (d[o + 23] !== way) {
         if (d[o + 23] >= 0) {
-          const f = this.flight(o, age, d[o + 23] === 1, downX, downY, ox, oy);
+          const f = this.flight(o, age, d[o + 23], downX, downY, ox, oy);
           d[o + 25] = f[0]; d[o + 26] = f[1]; d[o + 27] = f[2]; d[o + 28] = f[3]; d[o + 29] = f[4];
           d[o + 24] = age;
         }
-        d[o + 23] = away ? 1 : 0;
+        d[o + 23] = way;
       }
-      const f = this.flight(o, age, away, downX, downY, ox, oy);
+      const f = this.flight(o, age, way, downX, downY, ox, oy);
       const dx = f[0], dy = f[1];
       const th = f[4] + (h - 0.5) * 0.7 * age, c = Math.cos(th), s = Math.sin(th);
       const m = 0.5 * Math.min(1, age / 0.8);
@@ -91,10 +91,11 @@ export class TwigPool {
   /** Segment o at `age` in its current flight: how far it has come [dx, dy], its velocity, and how
    *  far it has turned toward the way it travels (its loose end, the segment's middle seen from
    *  the break, swings that way; the slow tumble comes on top). */
-  private flight(o: number, age: number, away: boolean, downX: number, downY: number, ox: number, oy: number) {
+  private flight(o: number, age: number, way: number, downX: number, downY: number, ox: number, oy: number) {
+    const away = way === 1;
     const d = this.d, h = d[o + 3], px = d[o + 1], py = d[o + 2];
     const t1 = d[o + 24], ox1 = d[o + 25], oy1 = d[o + 26], tau = Math.max(0, age - t1);
-    const [Dx, Dy] = fallDir(downX, downY, away, px + ox1, py + oy1, ox, oy);
+    const [Dx, Dy] = fallDir(downX, downY, way, px + ox1, py + oy1, ox, oy);
     const vT = away ? 0.4 + 0.2 * h : 0.75 + 0.3 * h, kk = away ? 1.4 : 2.5;
     const along = flightDist(vT, kk, tau), sp = flightSpeed(vT, kk, tau);
     const dr = (away ? 0.15 : 0.12) * (h - 0.5);

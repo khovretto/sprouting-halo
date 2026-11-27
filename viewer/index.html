@@ -40,20 +40,42 @@
       #gl, #overlay { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       #overlay { pointer-events: none; }
       #scope { position: fixed; left: 8px; bottom: 8px; inset: auto auto 8px 8px; display: none; border-radius: 6px; cursor: pointer; }
-      #panel { position: fixed; top: 8px; right: 8px; width: 300px; max-height: calc(100vh - 16px); overflow-y: auto; }
-      /* The scrollbar's room is always kept, so nothing moves when the panel gets long enough to scroll;
+      /* The settings panel: a fixed head over a scrolling body (built in ui.ts, which also holds the
+         styles of its parts). */
+      #panel { position: fixed; top: 8px; right: 8px; width: 340px; max-height: calc(100vh - 16px); display: flex;
+        flex-direction: column; overflow: hidden; border-radius: 9px; background: #1c1e24;
+        border: 1px solid rgba(255,255,255,0.07); box-shadow: 0 6px 24px rgba(0,0,0,0.5); box-sizing: border-box; }
+      /* The scrollbar's room is always kept, so nothing moves when a panel gets long enough to scroll;
          a thin dark one, so the kept room is a narrow strip. */
-      #panel, #theme-panel { scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #4a4e58 transparent; }
+      #theme-panel { scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #4a4e58 transparent; }
+      /* One skin for both panels (Tweakpane's theme variables): dark buttons, a plain readable font. */
+      #panel, #theme-panel {
+        --tp-base-background-color: #1c1e24; --tp-base-shadow-color: rgba(0,0,0,0.45);
+        --tp-base-font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+        --tp-base-border-radius: 7px; --tp-blade-border-radius: 4px; --tp-blade-value-width: 160px;
+        --tp-container-unit-size: 22px;
+        --tp-button-background-color: #363a45; --tp-button-background-color-hover: #424756;
+        --tp-button-background-color-focus: #4a5061; --tp-button-background-color-active: #535a6c;
+        --tp-button-foreground-color: #e6e9ee;
+        --tp-container-background-color: rgba(255,255,255,0.05); --tp-container-background-color-hover: rgba(255,255,255,0.08);
+        --tp-container-background-color-focus: rgba(255,255,255,0.1); --tp-container-background-color-active: rgba(255,255,255,0.13);
+        --tp-container-foreground-color: #d9dde5;
+        --tp-input-background-color: rgba(255,255,255,0.07); --tp-input-background-color-hover: rgba(255,255,255,0.1);
+        --tp-input-background-color-focus: rgba(255,255,255,0.13); --tp-input-background-color-active: rgba(255,255,255,0.16);
+        --tp-input-foreground-color: #e6e9ee; --tp-label-foreground-color: #a8aeba;
+        --tp-groove-foreground-color: rgba(255,255,255,0.13);
+      }
+      #panel .tp-rotv, #theme-panel .tp-rotv { font-size: 12px; font-weight: 400; }
+      #theme-panel { --tp-blade-value-width: 150px; }
+      /* Slider knobs light enough to find on the dark groove. */
+      #panel .tp-sldv_k::after, #theme-panel .tp-sldv_k::after { background-color: #aeb6c6; }
+      #panel .tp-sldv_t:hover .tp-sldv_k::after, #theme-panel .tp-sldv_t:hover .tp-sldv_k::after { background-color: #e1e6f0; }
       /* /controls: the panel and the voice scope only, nothing drawn. */
       html.controls body { background: #15161a; }
       html.controls #gl, html.controls #overlay { display: none; }
-      html.controls #panel { width: 420px; }
+      html.controls #panel { width: 420px; --tp-blade-value-width: 197px; }
       #theme-panel { position: fixed; top: 8px; left: 8px; width: 300px; max-height: calc(100vh - 16px); overflow-y: auto; }
-      .sprout-toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 4px 6px; }
-      .sprout-toolbar button { flex: 1 1 auto; font: 11px system-ui, sans-serif; color: #e6e9ee; background: #3a3d46;
-        border: 1px solid #4a4e59; border-radius: 3px; padding: 3px 6px; cursor: pointer; white-space: nowrap; }
-      .sprout-toolbar button:hover { background: #4a4e59; }
-      #error { position: fixed; left: 8px; bottom: 8px; right: 320px; color: #ff8080; font: 12px/1.4 monospace;
+      #error { position: fixed; left: 8px; bottom: 8px; right: 360px; color: #ff8080; font: 12px/1.4 monospace;
                white-space: pre-wrap; background: #000c; padding: 8px; display: none; }
     </style>
   </head>
