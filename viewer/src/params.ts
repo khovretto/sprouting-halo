@@ -47,6 +47,13 @@ export const defaults = {
     fillSpace: 0.5,
     /** Branches a take keeps before the oldest dries and falls. */
     branchesKept: 3,
+    /** Where each phrase's new branch grows on the take's tree: spread (the middle first, then far
+     *  jumps), random (a free place), top to bottom, or bottom to top (then round again). */
+    branchOrder: 'topDown' as 'spread' | 'random' | 'topDown' | 'bottomUp',
+    /** A new branch is a mirrored pair at the same height either side of straight up (one branch
+     *  over the top), so a tree over the head is never lopsided; a tree off to one side grows one
+     *  branch at that height. Its places are height bands, so top to bottom is exact. */
+    branchSymmetry: true,
     /** Seconds an old branch takes to dry out. */
     branchWitherSeconds: 2.5,
     /** How far an old branch droops while it dries (degrees). */

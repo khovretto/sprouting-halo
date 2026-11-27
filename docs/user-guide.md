@@ -236,7 +236,7 @@ DAW project.
 | Your voice | What happens (default Reaction) |
 | --- | --- |
 | Singing a phrase | The take's tree grows (about 3.5 s of full voice for a whole tree); the halo vine races round the ring. |
-| A new phrase | A new tree on a new seed (or, with "new branch each phrase", one new branch on the take's tree; the oldest dries, droops and falls). With "fill empty space", new branches reach into empty space beside them, and takes that have been away for a while leave their space to the others. |
+| A new phrase | A new tree on a new seed (or, with "new branch each phrase", one new branch on the take's tree; the oldest dries, droops and falls). Where it grows: "new branch grows" top to bottom (the default), bottom to top, at random, or spread out (the middle first, then far jumps); "symmetrical branches" (on by default) grows each one as a mirrored pair at the same height either side of straight up (over the top it is one branch), so a tree over the head is never lopsided; a tree off to one side grows one branch at that height. With "fill empty space", new branches reach into empty space beside them, and takes that have been away for a while leave their space to the others. |
 | Short pause (a breath) | The outer twigs grow back into the tree ("ungrow"); their leaves fall. They regrow when you sing again. |
 | The phrase ends (1 s of silence) | The tree stays whole until 3 s after you stopped singing, so it stands next to the tree the next phrase grows; then it ungrows, trunk and all. |
 | Full stop (4 s of silence) | Whatever is left of the tree goes the same way. The next phrase grows a new one. |

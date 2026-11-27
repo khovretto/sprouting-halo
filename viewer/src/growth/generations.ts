@@ -38,9 +38,13 @@ export interface Generation<T extends Structure> {
   /** 0..1 how far a pause has acted on the outer twigs (pauses, pitch dips); it recedes when the
    *  take sings again. */
   wither: number;
-  /** growth.branchEachPhrase: this tree is one bough of the take's tree, over [a, b] of its tips. */
+  /** growth.branchEachPhrase: this tree is one bough of the take's tree, over [a, b] (0..1) of the
+   *  take's places (growth.branchSymmetry: height bands from the top). */
   bough?: boolean;
   range?: [number, number];
+  /** Its place (0..places-1) as given (range may reach beyond it: growth.fillSpace). */
+  place?: number;
+  places?: number;
   /** A retired bough: 0..1 dried out, then 0..1 fallen. */
   dry?: number;
   fall?: number;
@@ -69,16 +73,105 @@ const ORDER: Record<number, number[]> = {
   3: [1, 0, 2], 4: [1, 3, 0, 2], 5: [2, 0, 4, 1, 3], 6: [2, 5, 0, 3, 1, 4], 7: [3, 0, 5, 2, 6, 1, 4],
 };
 const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
+const hash = (n: number) => {
+  const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return s - Math.floor(s);
+};
+
+/** Where a bough grows (growth.branchEachPhrase): the parts of the territory whose tips it grows
+ *  to, as world-angle intervals (radians, 0 = right, 90° = up); with growth.branchSymmetry two, at
+ *  the same height either side of straight up (one over the top). places: how many places the
+ *  territory has. */
+export interface BoughSlice {
+  ranges: [number, number][];
+  places: number;
+  mirror: boolean;
+}
+
+const UP = Math.PI / 2;
+const DEFAULT_FAN: [number, number] = [(-60 * Math.PI) / 180, (240 * Math.PI) / 180];
+
+/**
+ * The places of a territory [lo, hi] (world angles), along x = 0..1. Mirrored: x runs from the top
+ * down (how far from straight up), and a place is that height band on both sides where the
+ * territory has it (a tree off to one side has one side only). Otherwise x runs across the
+ * territory from lo to hi. ranges(a, b): the world-angle intervals of [a, b]; height(x): how high
+ * that point is (sin of its angle).
+ */
+function placesOf(lo: number, hi: number, mirror: boolean) {
+  if (!mirror) {
+    const at = (x: number) => lo + (hi - lo) * x;
+    return { ranges: (a: number, b: number): [number, number][] => [[at(a), at(b)]], height: (x: number) => Math.sin(at(x)) };
+  }
+  const inside = lo <= UP && UP <= hi;
+  const dLo = Math.abs(lo - UP), dHi = Math.abs(hi - UP);
+  const dMin = inside ? 0 : Math.min(dLo, dHi), dMax = Math.max(dLo, dHi);
+  const d = (x: number) => dMin + (dMax - dMin) * x;
+  const cut = (p: number, q: number): [number, number] => [Math.max(lo, p), Math.min(hi, q)];
+  return {
+    ranges: (a: number, b: number): [number, number][] => {
+      const d0 = d(a), d1 = d(b);
+      // The top place is one bough over straight up.
+      if (d0 <= 1e-6) return [cut(UP - d1, UP + d1)];
+      return [cut(UP - d1, UP - d0), cut(UP + d0, UP + d1)].filter(([p, q]) => q - p > 1e-6);
+    },
+    height: (x: number) => Math.cos(d(x)),
+  };
+}
 
 export class Generations<T extends Structure> {
   gens: Generation<T>[] = [];
   private nextSeed: number;
   private phrase = 0;
 
-  constructor(private make: (seed: number, slice: [number, number, number] | null) => T, firstSeed: number) {
+  /** The take's territory (world angles, radians, 0 = right, 90° = up; lo < hi), for
+   *  growth.branchOrder top to bottom / bottom to top. */
+  fan?: () => [number, number];
+  private phrase0: number;
+
+  constructor(private make: (seed: number, slice: BoughSlice | null) => T, firstSeed: number) {
     this.nextSeed = firstSeed;
     // Where the first bough grows comes from the seed too (a restart starts somewhere else).
-    this.phrase = Math.abs(Math.round(firstSeed)) % 97;
+    this.phrase = this.phrase0 = Math.abs(Math.round(firstSeed)) % 97;
+  }
+
+  /** The place (0..S-1) phrase n's bough grows in (growth.branchOrder). */
+  private placeFor(p: Params, S: number, height: (x: number) => number): number {
+    const order = p.growth.branchOrder ?? 'spread';
+    const n = this.phrase++;
+    if (order === 'spread') return ORDER[S][n % S];
+    // Places that no living bough holds (nor, if possible, one still drying or falling there).
+    const holds = (gens: Generation<T>[]) => {
+      const held = new Uint8Array(S);
+      for (const x of gens) {
+        if (!x.bough) continue;
+        if (x.place !== undefined && x.places === S) held[x.place] = 1;
+        // (one from other settings: by the middle of each place it covers)
+        else if (x.range) for (let j = 0; j < S; j++) if (x.range[0] <= (j + 0.5) / S && x.range[1] >= (j + 0.5) / S) held[j] = 1;
+      }
+      return held;
+    };
+    if (order === 'random') {
+      const live = holds(this.gens.filter((x) => !x.retired)), all = holds(this.gens);
+      let free = [...Array(S).keys()].filter((j) => !all[j]);
+      if (!free.length) free = [...Array(S).keys()].filter((j) => !live[j]);
+      if (!free.length) free = [...Array(S).keys()];
+      return free[Math.floor(hash(this.nextSeed * 1.37 + n) * free.length) % free.length];
+    }
+    // Top to bottom / bottom to top: the places by how high their middle is.
+    const heights = [...Array(S).keys()].map((j) => height((j + 0.5) / S));
+    const ranked = [...Array(S).keys()].sort((x, y) => (order === 'topDown' ? heights[y] - heights[x] : heights[x] - heights[y]));
+    // The next one in order that no living bough holds (the order carries on from there).
+    const live = holds(this.gens.filter((x) => !x.retired));
+    const i0 = (((n - this.phrase0) % S) + S) % S;
+    for (let k = 0; k < S; k++) {
+      const i = (i0 + k) % S;
+      if (!live[ranked[i]]) {
+        this.phrase = this.phrase0 + i + 1;
+        return ranked[i];
+      }
+    }
+    return ranked[i0];
   }
 
   get current(): Generation<T> | undefined {
@@ -92,14 +185,25 @@ export class Generations<T extends Structure> {
     const each = g.branchEachPhrase && !p.look.woodStays;
     if (!each) for (const x of this.gens) x.retired = true;
     else {
+      // Top to bottom / bottom to top: a tree with no boughs left (a full stop took them all)
+      // starts from the top (bottom) again.
+      const o = g.branchOrder;
+      if ((o === 'topDown' || o === 'bottomUp') && !this.gens.some((x) => x.bough && !x.retired)) this.phrase = this.phrase0;
       // The oldest living boughs start to wither, so at most `keep` stay with the new one.
       const alive = this.gens.filter((x) => !x.retired);
       while (alive.length >= keep) alive.shift()!.retired = true;
     }
-    const M = clamp(keep + 1, 3, 7);
-    let slice: [number, number, number] | null = null;
+    // One more place than boughs kept, so the next one is free. Symmetrical: a place is a height
+    // band, on both sides of straight up where the territory has both.
+    const S = clamp(keep + 1, 3, 7), M = S, top = 1;
+    const mirror = !!g.branchSymmetry;
+    const [lo, hi] = this.fan?.() ?? DEFAULT_FAN;
+    const places = placesOf(lo, hi, mirror);
+    let slice: BoughSlice | null = null;
+    let place = -1;
+    const last = { a: 0, b: 0 };
     if (each) {
-      const j = ORDER[M][this.phrase++ % M];
+      const j = (place = this.placeFor(p, S, places.height));
       let a = j / M, b = (j + 1) / M;
       // growth.fillSpace: the bough also reaches into the empty space beside its slice (up to one
       // more slice on each side), as far as the nearest living bough; where a living bough has
@@ -116,7 +220,7 @@ export class Generations<T extends Structure> {
           a = a0;
           b = b0;
         }
-        let left = a, right = 1 - b;
+        let left = a, right = top - b;
         for (const [oa, ob] of living) {
           if (ob <= a + 1e-9) left = Math.min(left, a - ob);
           else if (oa >= b - 1e-9) right = Math.min(right, oa - b);
@@ -129,14 +233,19 @@ export class Generations<T extends Structure> {
         a -= fill * Math.min(Math.max(0, left), 1 / M);
         b += fill * Math.min(Math.max(0, right), 1 / M);
       }
-      slice = [a, b, M];
+      last.a = Math.max(0, a);
+      last.b = Math.min(b, top);
+      slice = { ranges: places.ranges(Math.max(0, a), Math.min(b, top)), places: S, mirror };
     }
     const seed = this.nextSeed++;
     const tree = this.make(seed, slice);
     // look.woodStays: the tree is there in full at once.
     if (p.look.woodStays) (tree as unknown as { instant?: boolean }).instant = true;
+    // (range: along the places, 0..1; boughs from other settings are in another measure, still a
+    // fair guide to where they are)
     this.gens.push({ tree, seed, reveal: p.look.woodStays ? 1 : 0, alpha: 1, retired: false, idle: 0, wither: 0,
-      bough: !!slice, range: slice ? [slice[0], slice[1]] : undefined, dry: 0, fall: 0 });
+      bough: !!slice, range: slice ? [last.a, last.b] : undefined, dry: 0, fall: 0,
+      ...(slice ? { place, places: S } : {}) });
     const cap = Math.max(MAX_GENERATIONS, 2 * keep + 3);
     while (this.gens.length > cap) this.gens.shift();
   }
@@ -198,8 +307,9 @@ export class Generations<T extends Structure> {
     const cur = this.current;
     if (cur && d.voice) {
       // A bough is a fraction of a tree, so it grows faster.
-      const M = clamp(Math.round(g.branchesKept) + 1, 3, 7);
-      const k = cur.bough ? clamp(M / 2, 1.5, 3) : 1;
+      // (a mirrored pair is as much of the tree as one bough of S places)
+      const S = clamp(Math.round(g.branchesKept) + 1, 3, 7);
+      const k = cur.bough ? clamp(S / 2, 1.5, 3) : 1;
       cur.reveal = Math.min(1, cur.reveal + ((k * dt) / Math.max(0.05, g.secondsToFull)) * (0.4 + d.level));
       cur.idle = 0;
       // Singing again takes an ending back (the tree regrows, or brightens again).

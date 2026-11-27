@@ -26,6 +26,7 @@ import type { Params } from '../params';
 import { outlineOf, Placement, rOutAt, toLocal, toWorld } from '../layout';
 import { clamp, deg, hash1, lerp, noise1, rng, Rng } from '../math';
 import { bendFrames, NodeKind, Skeleton } from './skeleton';
+import type { BoughSlice } from './generations';
 
 type Blocked = (wx: number, wy: number) => boolean;
 
@@ -110,9 +111,9 @@ export class Plant {
   maxFlex = 1;
   /** Set by the creator before the first build (the phrase that grows this tree). */
   mood: Mood = NEUTRAL_MOOD;
-  /** growth.branchEachPhrase: build only one bough, over [a, b] (0..1) of the territory's tips;
-   *  M = how many slices the territory has (a bough is at least one of them). */
-  slice: [number, number, number] | null = null;
+  /** growth.branchEachPhrase: build only one bough, to the tips in its parts of the territory
+   *  (one limb from the hub for each part). */
+  slice: BoughSlice | null = null;
   /** Share of the reveal taken by the hidden part (trunk, primaries behind the avatar). */
   private trunkFrac = 0;
   /** Per-node growth 0..1 along its segment (computeReveal). */
@@ -228,7 +229,7 @@ export class Plant {
       pl.kind, Math.round(pl.sectorLo * 1000), Math.round(pl.sectorHi * 1000), pl.lengthMul ?? 1,
       g.branching, g.lowBranches, g.reach, g.flatten, g.spread, pp.lift, pp.wildness, pp.taper, pp.clearance, pp.softDroop,
       pp.moodShaping, pp.step, pp.tipWidth, pp.maxWidth, pp.maxNodes, L.decoSize, L.variety, L.depthShade,
-      p.layout.midOriginY, p.layout.spinSpeed !== 0, this.slice ? this.slice.join('/') : '',
+      p.layout.midOriginY, p.layout.spinSpeed !== 0, this.slice ? this.slice.ranges.map((x) => x.map((v) => v.toFixed(4)).join(':')).join(',') : '',
       pp.originLimbs, pp.twist, pp.twistLength, pp.gnarl, pp.knots, pp.curl, pp.twistTighten, pp.twistTwigs, pp.twistDepth, pp.strandLay, pp.twistVoice,
       a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
@@ -734,21 +735,30 @@ export class Plant {
       }
     }
     const gTip = lerp(0.6, 0.28, branching);
-    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), this.slice ? Math.max(3, this.slice[2]) : 3, 20);
+    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), this.slice ? Math.max(3, this.slice.places * (this.slice.mirror ? 2 : 1)) : 3, 20);
     const kE = clamp(1.05 - 0.4 * g.spread * lerp(0.85, 1.2, mood.effort), 0.3, 1);
     const hero = Math.floor(nTip * (0.25 + 0.5 * rs()));
     const droop = 8 * deg * mood.soft * pp.softDroop;
-    interface Tip { phiE: number; x: number; y: number }
+    interface Tip { phiE: number; phiT: number; x: number; y: number; part: number }
     const tips: Tip[] = [];
-    for (let i = 0; i < nTip; i++) {
-      let phiT = f.lo + (W * (i + 0.5 + (r() - 0.5) * 0.35)) / nTip;
+    // Where the tips aim (world angles). A bough (branch per phrase): only inside its parts of the
+    // territory, each part its share of nTip (at least one), so each part grows where it was placed.
+    const aims: { phi: number; part: number }[] = [];
+    if (this.slice)
+      this.slice.ranges.forEach(([p0, p1], part) => {
+        const k = Math.max(1, Math.round((nTip * (p1 - p0)) / Math.max(1e-6, W)));
+        for (let j = 0; j < k; j++) aims.push({ phi: p0 + ((p1 - p0) * (j + 0.5 + (r() - 0.5) * 0.35)) / k, part });
+      });
+    else for (let i = 0; i < nTip; i++) aims.push({ phi: f.lo + (W * (i + 0.5 + (r() - 0.5) * 0.35)) / nTip, part: 0 });
+    for (let i = 0; i < aims.length; i++) {
+      let phiT = aims[i].phi;
       phiT += Math.cos(phiT) >= 0 ? -droop : droop; // soft singing: both halves turn away from the top
       phiT = clamp(phiT, f.lo, f.hi);
       if (!usable(phiT)) continue;
       const rag = (1 - 0.28 * wild * r()) * (i % 2 ? 0.92 : 1) * (i === hero ? 1.06 : 1);
       const R = Math.max(f.rIn(phiT) + 0.35, rOut(phiT) * rag);
       const hT = hOf(phiT);
-      tips.push({ phiE: f.mid + (phiT - f.mid) * kE, x: f.cx + Math.sin(hT) * R, y: f.cy + Math.cos(hT) * R });
+      tips.push({ phiE: f.mid + (phiT - f.mid) * kE, phiT, x: f.cx + Math.sin(hT) * R, y: f.cy + Math.cos(hT) * R, part: aims[i].part });
     }
 
     // 3. Sector subdivision: each limb takes the middle tip of its group and hands the tips on
@@ -785,10 +795,13 @@ export class Plant {
     const nPrim = !tips.length ? 0 : this.slice ? 1 : want > 0 ? clamp(want, 1, tips.length)
       : clamp(Math.round((sIn * kE) / 0.2), Math.min(2, tips.length), Math.min(tips.length, 7));
     if (this.slice && tips.length) {
-      const [a, b] = this.slice;
-      const from = Math.min(tips.length - 1, Math.max(0, Math.floor(a * tips.length + 1e-9)));
-      const to = Math.min(tips.length, Math.max(from + 1, Math.floor(b * tips.length + 1e-9)));
-      subdivide(hub, tips.slice(from, to), 0, wPrim, null, 0);
+      // One limb from the hub for each part of the bough's place, to the tips aimed into it (a part
+      // whose tips are all hidden behind the avatar grows nothing).
+      let k = 0;
+      for (let part = 0; part < this.slice.ranges.length; part++) {
+        const group = tips.filter((tp) => tp.part === part);
+        if (group.length) subdivide(hub, group, 0, wPrim, null, k++);
+      }
     } else
       for (let k = 0; k < nPrim; k++) {
         const from = Math.round((k * tips.length) / nPrim), to = Math.round(((k + 1) * tips.length) / nPrim);

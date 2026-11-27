@@ -63,6 +63,8 @@ interface Slot {
   awayFor?: number;
   /** The territory the take's living boughs were built for (growth.fillSpace). */
   growFrozen?: [number, number];
+  /** The territory a tree built now grows into (growLo..growHi, else the sector). */
+  fanNow?: [number, number];
   /** Seconds its trees have been built for other shape settings than now (a look change waits for
    *  the settings to rest). */
   staleFor?: number;
@@ -1217,6 +1219,11 @@ function start() {
         plant.mood = { effort: d.effort, pitch: d.pitch, soft: d.softness, vibrato: d.vibrato };
         return plant;
       }, seed0);
+      // growth.branchOrder top / bottom: the territory the next bough is built in (the boughs of a
+      // take share one until all of them are gone, as below).
+      slot.gens.fan = () =>
+        (slot.growFrozen && slot.gens.gens.some((x) => x.bough && !x.retired && x.tree.built) ? slot.growFrozen : undefined)
+        ?? slot.fanNow ?? [slot.place.growLo ?? slot.place.sectorLo, slot.place.growHi ?? slot.place.sectorHi];
       const c = commits.find((x) => x.slotId === id);
       if (c) {
         slot.commit = c;
@@ -1233,6 +1240,7 @@ function start() {
     const ease = 1 - Math.exp(-params.layout.ease * realDt);
     slots.forEach((s, k) => {
       const tg = targets[k], pl = s.place;
+      s.fanNow = [tg.growLo ?? tg.sectorLo, tg.growHi ?? tg.sectorHi];
       pl.ox = lerp(pl.ox, tg.ox, ease);
       pl.oy = lerp(pl.oy, tg.oy, ease);
       pl.angle = angleLerp(pl.angle, tg.angle, ease);
@@ -1290,7 +1298,7 @@ function start() {
         const replaced = (params.growth.newTreeEachPhrase || params.growth.branchEachPhrase) && !params.look.woodStays;
         if (!replaced) tgB = { ...tg, growLo: undefined, growHi: undefined };
         else if (g.bough) {
-          if (!s.growFrozen || !s.gens.gens.some((x) => x.bough && !x.retired && x.tree.built && x !== g))
+          if (!s.growFrozen || (!frozen && !s.gens.gens.some((x) => x.bough && !x.retired && x.tree.built && x !== g)))
             s.growFrozen = [tg.growLo ?? tg.sectorLo, tg.growHi ?? tg.sectorHi];
           tgB = { ...tg, growLo: s.growFrozen[0], growHi: s.growFrozen[1] };
         }
@@ -1410,9 +1418,18 @@ function start() {
           const path = g.tree.limbPaths[0];
           let ox = pl.ox, oy = pl.oy;
           if (path) {
-            const q0 = g.tree.limbAt(0, path.base), q1 = g.tree.limbAt(0, path.length);
+            const q0 = g.tree.limbAt(0, path.base);
             const [px, py] = toWorld(q0.x, q0.y, pl, spinA);
-            const [tx, ty] = toWorld(q1.x, q1.y, pl, spinA);
+            // A mirrored pair (growth.branchSymmetry): one half on each side, so it cannot droop by
+            // turning about the hub; it dries where it is, then falls (or drifts out between them).
+            const pair = g.tree.limbPaths.length > 1;
+            let tx = 0, ty = 0;
+            for (let k = 0; k < (pair ? 2 : 1); k++) {
+              const q1 = g.tree.limbAt(k, g.tree.limbPaths[k].length);
+              const [wx, wy] = toWorld(q1.x, q1.y, pl, spinA);
+              tx += wx / (pair ? 2 : 1);
+              ty += wy / (pair ? 2 : 1);
+            }
             // Down: it droops toward the ground while it dries, then lets go and keeps turning that
             // way as it falls. Away (growth.fallDirection): no gravity, no droop; it drifts straight
             // out, away from the point it grew from.
@@ -1421,9 +1438,9 @@ function start() {
             let toT = Math.atan2(Math.sin(-Math.PI / 2 - dirA), Math.cos(-Math.PI / 2 - dirA));
             // Pointing straight up: turn outward, away from the head.
             if (Math.abs(toT) > 2.8) toT = Math.abs(toT) * (tx >= params.avatar.headX ? -1 : 1);
-            const droop = away ? 0 : Math.min(Math.abs(toT), params.growth.branchDroopDeg * deg);
+            const droop = away || pair ? 0 : Math.min(Math.abs(toT), params.growth.branchDroopDeg * deg);
             const e = dry * dry; // slow start
-            const delta = away ? 0 : Math.sign(toT) * (droop * (0.85 * e + 0.15 * gfall) + (Math.abs(toT) - droop) * 0.6 * smooth(gfall));
+            const delta = away || pair ? 0 : Math.sign(toT) * (droop * (0.85 * e + 0.15 * gfall) + (Math.abs(toT) - droop) * 0.6 * smooth(gfall));
             const c = Math.cos(delta), s2 = Math.sin(delta);
             const fs = gfall * params.growth.branchFallSeconds; // seconds falling
             const ux = Math.cos(dirA), uy = Math.sin(dirA); // along the bough: away from where it grew

@@ -37,7 +37,7 @@ const REACTIVE = new Set([
   'growth.witherEffect', 'growth.witherFromTips', 'growth.onPause', 'growth.onPhraseEnd', 'growth.onStop', 'growth.dieAfter', 'plants.twistVoice', 'motion.leafShake',
   'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
   'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed', 'growth.shed', 'growth.fallDirection', 'growth.fillSpace', 'growth.branchEachPhrase',
-  'growth.branchesKept', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
+  'growth.branchesKept', 'growth.branchOrder', 'growth.branchSymmetry', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
   'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine', 'glow.softGlow', 'glow.front',
   'halo.idleSpeed', 'halo.singSpeed', 'halo.sproutRate', 'halo.sproutGrow', 'halo.spawnSeconds',
   'plants.softDroop', 'plants.moodShaping', 'look.blossoms', 'look.blossomHold', 'look.thornEffort',

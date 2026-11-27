@@ -139,6 +139,7 @@ const RANGES: Record<string, Spec> = {
   'plants.originLimbs': { min: 0, max: 16, step: 1 },
   'plants.trunkLean': { min: -45, max: 45 },
   'growth.fillSpace': { min: 0, max: 1 },
+  'growth.branchOrder': { options: { 'Spread out': 'spread', Random: 'random', 'Top to bottom': 'topDown', 'Bottom to top': 'bottomUp' } },
   'growth.fallDirection': { options: { 'Down (gravity)': 'down', 'Away from the origin (no gravity)': 'away' } },
   'plants.gnarl': { min: 0, max: 1 },
   'plants.curl': { min: 0, max: 1 },
@@ -1133,7 +1134,7 @@ Shift-click: factory default ${fmt(d)}`));
     hide('palette.seed', !pal || p.palette.pick !== 'random');
     // Branch per phrase replaces "new tree each phrase"; its own settings only while on.
     hide('growth.newTreeEachPhrase', p.growth.branchEachPhrase);
-    for (const k of ['branchesKept', 'branchWitherSeconds', 'branchDroopDeg', 'branchFallSeconds']) hide(`growth.${k}`, !p.growth.branchEachPhrase);
+    for (const k of ['branchesKept', 'branchOrder', 'branchSymmetry', 'branchWitherSeconds', 'branchDroopDeg', 'branchFallSeconds']) hide(`growth.${k}`, !p.growth.branchEachPhrase);
     for (const e of editors) e.ed.el.style.display = e.binding.hidden ? 'none' : '';
     hide('growth.witherDipSemitones', !p.growth.witherOnPitchDip);
     hide('growth.witherDepth', !p.growth.onPause && !p.growth.witherOnPitchDip);
