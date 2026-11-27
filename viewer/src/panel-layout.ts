@@ -79,7 +79,7 @@ export const FOLDERS: FolderSpec[] = [
   },
   {
     id: 'shape', tab: 'look', title: 'Tree shape',
-    keys: ['growth.reach', 'growth.flatten', 'growth.branching', 'growth.spread', 'plants.lift', 'plants.wildness', 'plants.taper',
+    keys: ['growth.reach', 'growth.flatten', 'growth.branching', 'growth.lowBranches', 'plants.originLimbs', 'plants.trunk', 'plants.trunkLean', 'growth.spread', 'plants.lift', 'plants.wildness', 'plants.taper',
       'plants.twist', 'plants.gnarl', 'plants.curl', 'plants.strands'],
     advanced: ['plants.clearance', 'plants.tipWidth', 'plants.maxWidth', 'plants.twistLength', 'plants.twistTighten', 'plants.twistTwigs',
       'plants.knots', 'plants.twistDepth', 'plants.strandLay'],
@@ -103,7 +103,7 @@ export const FOLDERS: FolderSpec[] = [
   // ---------------- Reaction (reactivity preset) ----------------
   {
     id: 'phrases', tab: 'reaction', title: 'Singing & phrases: growing', open: true,
-    keys: ['growth.secondsToFull', 'growth.newTreeEachPhrase', 'growth.branchEachPhrase', 'response.phraseGap',
+    keys: ['growth.secondsToFull', 'growth.newTreeEachPhrase', 'growth.branchEachPhrase', 'growth.fillSpace', 'response.phraseGap',
       'growth.restBrightness', 'response.release'],
     advanced: ['response.variety', 'plants.moodShaping', 'growth.branchesKept', 'growth.branchWitherSeconds', 'growth.branchDroopDeg',
       'growth.branchFallSeconds'],
@@ -111,7 +111,7 @@ export const FOLDERS: FolderSpec[] = [
   {
     id: 'pauses', tab: 'reaction', title: 'Pauses & endings: ungrow, fade, fall',
     keys: ['growth.onPause', 'growth.witherDepth', 'growth.onPhraseEnd', 'growth.fadeAfter', 'growth.onStop', 'growth.dieAfter',
-      'growth.fadeSeconds', 'growth.shed'],
+      'growth.fadeSeconds', 'growth.shed', 'growth.fallDirection'],
     advanced: ['growth.witherSeconds', 'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.twigFadeSeconds', 'growth.regrowSpeed'],
   },
   {
@@ -141,16 +141,15 @@ export const FOLDERS: FolderSpec[] = [
   },
   {
     id: 'commit', tab: 'reaction', title: 'Planting a take & removal',
-    keys: ['commit.enabled', 'commit.duration', 'commit.limbs', 'commit.impact', 'commit.burst', 'commit.shockRing'],
-    advanced: ['commit.plunge', 'commit.spinTurns', 'commit.stampReveal', 'commit.syncToOnset', 'commit.syncWindow',
-      'transitions.liveEndSeconds', 'transitions.pruneSeconds', 'halo.spawnSeconds'],
+    keys: ['commit.enabled', 'commit.duration', 'commit.limbs'],
+    advanced: ['transitions.liveEndSeconds', 'transitions.pruneSeconds', 'halo.spawnSeconds'],
     catchSections: ['commit', 'transitions'],
   },
   // ---------------- Setup (rig and this viewer) ----------------
   {
     id: 'fit', tab: 'setup', title: 'Fit to avatar', open: true,
     keys: ['scene.showGuides', 'scene.viewRadius', 'scene.centerX', 'scene.centerY', 'halo.restRadius', 'halo.restY',
-      'halo.openRadius', 'halo.openY', 'halo.restX', 'halo.squish', 'halo.tilt', 'layout.lowOriginY', 'layout.midOriginY',
+      'halo.openRadius', 'halo.openY', 'halo.restX', 'halo.squish', 'halo.tilt', 'layout.midOriginY',
       'layout.downGap', 'avatar.avoid'],
     advanced: ['avatar.headX', 'avatar.headY', 'avatar.headR', 'avatar.bodyTopY', 'avatar.bodyBottomY', 'avatar.bodyR'],
     catchSections: ['avatar'],
@@ -194,15 +193,15 @@ export interface MacroSpec {
 export const MACROS: MacroSpec[] = [
   {
     id: 'fullness', tab: 'look', label: 'fullness',
-    tip: 'Sparse to overgrown: branch density, leaf amount and permanent halo leaves together. Moves the real settings, which stay editable.',
-    targets: [{ path: 'growth.branching', at: [0.3, 0.6, 0.95] }, { path: 'look.density', at: [0.3, 0.55, 0.85] },
+    tip: 'Sparse to overgrown: branch density, how low the branches start, leaf amount and permanent halo leaves together. Moves the real settings, which stay editable.',
+    targets: [{ path: 'growth.branching', at: [0.3, 0.6, 0.95] }, { path: 'growth.lowBranches', at: [0.3, 0.6, 1] }, { path: 'look.density', at: [0.3, 0.55, 0.85] },
       { path: 'halo.alwaysLeaves', at: [0.2, 0.4, 0.7] }],
   },
   {
     id: 'liveliness', tab: 'reaction', label: 'liveliness',
     tip: 'How strongly everything answers the voice: brightness, glow, flash and sway together.',
     targets: [{ path: 'response.brightness', at: [0.5, 0.7, 1] }, { path: 'glow.levelGain', at: [0.5, 0.8, 1.6] },
-      { path: 'glow.onsetGain', at: [0.3, 0.7, 1.8] }, { path: 'motion.swayDeg', at: [4, 8, 12] }],
+      { path: 'glow.onsetGain', at: [0.15, 0.35, 0.9] }, { path: 'motion.swayDeg', at: [4, 8, 12] }],
   },
   {
     id: 'pace', tab: 'reaction', label: 'pace',
@@ -232,7 +231,8 @@ export const MOVEMENTS: { label: string; tip: string; values: Record<string, unk
 ];
 
 export const LABELS: Record<string, string> = {
-  'growth.reach': 'size', 'growth.spread': 'arch', 'growth.flatten': 'flatten', 'growth.branching': 'density of branches',
+  'growth.reach': 'size', 'growth.spread': 'arch', 'growth.flatten': 'flatten', 'growth.branching': 'density of branches', 'growth.lowBranches': 'branches start low', 'plants.originLimbs': 'limbs from the origin (0 = auto)', 'plants.trunk': 'trunk length', 'plants.trunkLean': 'trunk lean (deg)',
+  'growth.fallDirection': 'falling pieces go',
   'plants.lift': 'tips up / droop', 'plants.clearance': 'gap between branches', 'plants.maxWidth': 'trunk width',
   'plants.tipWidth': 'tip width', 'plants.softDroop': 'droop when soft', 'plants.moodShaping': 'shaped by the phrase',
   'growth.secondsToFull': 'grow time (s)', 'growth.fadeAfter': 'tree stays after singing (s)', 'growth.fadeSeconds': 'an ending takes (s)',
@@ -265,7 +265,7 @@ export const LABELS: Record<string, string> = {
   'halo.vineWidth': 'vine width', 'halo.sproutWidth': 'shoot width', 'halo.ringSpacing': 'nested halo spacing', 'halo.tailDeg': 'vine length (deg)', 'halo.alwaysLeaves': 'permanent leaves',
   'halo.spawnSeconds': 'appear time (s)', 'halo.restRadius': 'idle halo size', 'halo.restY': 'idle halo height',
   'halo.openRadius': 'recording halo size', 'halo.openY': 'recording halo height',
-  'layout.lowOriginY': 'hub height (1 take)', 'layout.midOriginY': 'hub height (2+ takes)',
+  'layout.midOriginY': 'hub height',
   'layout.downGap': 'gap behind body (deg)', 'layout.shrinkPerTake': 'shrink per extra take',
   'layout.spinSpeed': 'carousel speed (deg/s)', 'layout.spinFrom': 'carousel from N takes',
   'layout.tierFrom': 'two rows from N takes', 'layout.innerScale': 'inner row size', 'plants.overlap': 'interleave at seams',
@@ -284,16 +284,13 @@ export const LABELS: Record<string, string> = {
   'fake.longNotes': 'long held notes', 'fake.fullStopEvery': 'full stop every n phrases', 'fake.fullStopSeconds': 'full stop length (s)',
   'perf.fps': 'max fps', 'perf.idleFps': 'fps when silent', 'perf.backgroundFps': 'preview fps in background',
   'perf.maxMegapixels': 'max picture size (MP)', 'perf.renderScale': 'render scale',
-  'commit.enabled': 'plant the halo', 'commit.duration': 'pace', 'commit.impact': 'impact',
-  'commit.burst': 'leaves thrown', 'commit.shockRing': 'shock ring', 'commit.plunge': 'plunge depth',
-  'growth.shed': 'leaves let go when twigs go', 'growth.branchEachPhrase': 'new branch each phrase',
+  'commit.enabled': 'plant the halo', 'commit.duration': 'slowness',
+  'growth.shed': 'leaves let go when twigs go', 'growth.branchEachPhrase': 'new branch each phrase', 'growth.fillSpace': 'fill empty space',
   'growth.branchesKept': 'branches kept', 'growth.branchWitherSeconds': 'old branch dries (s)',
   'growth.branchDroopDeg': 'old branch droops (deg)', 'growth.branchFallSeconds': 'old branch falls (s)',
   'commit.limbs': 'halo divides into', 'look.buds': 'bud size', 'look.dryColour': 'withered colour',
   'palette.from': 'take colours from', 'palette.list': "this look's colours", 'palette.pick': 'pick', 'palette.seed': 'shuffle',
   'colours.lock': 'always use my take colours', 'fake.autoCommit': 'plant a take every (s)',
-  'commit.spinTurns': 'spin (turns)', 'commit.stampReveal': 'tree grown at impact',
-  'commit.syncToOnset': 'land on the next note', 'commit.syncWindow': 'wait up to (s)',
   'transitions.liveEndSeconds': 'halo fade when not live (s)', 'transitions.pruneSeconds': 'deleted take fade (s)',
   'plants.twist': 'twist', 'plants.gnarl': 'gnarl', 'plants.curl': 'curling tips', 'plants.strands': 'strands',
   'plants.twistLength': 'turn length', 'plants.twistTighten': 'tighter toward tips', 'plants.twistTwigs': 'twig twist',
@@ -314,7 +311,7 @@ export const LOCAL_KEYS = new Set([
 export const RIG_KEYS = new Set([
   'scene.viewRadius', 'scene.centerX', 'scene.centerY', 'halo.restRadius', 'halo.restY', 'halo.openRadius', 'halo.openY',
   'halo.squish', 'halo.tilt', 'halo.restX',
-  'layout.lowOriginY', 'layout.midOriginY', 'layout.downGap', 'colours.live', 'colours.take1', 'colours.take2',
+  'layout.midOriginY', 'layout.downGap', 'colours.live', 'colours.take1', 'colours.take2',
   'colours.take3', 'colours.take4', 'colours.take5', 'colours.take6', 'colours.take7', 'colours.lock', 'source.useTrackColours',
   'source.holdSeconds',
 ]);
@@ -359,6 +356,11 @@ export const TIPS: Record<string, string> = {
   'growth.reach': 'How big the canopy of trees behind you is (its width; the height follows flatten).',
   'growth.flatten': '0 = a round canopy, 1 = wide and flat (about 40 % as tall as it is wide).',
   'growth.branching': 'Few bold limbs (0) up to a dense, ivy-like tangle of shoots (1).',
+  'plants.originLimbs': 'How many limbs leave the origin point behind your neck (or the top of the trunk): the tree divides into this many there. 0 = automatic, by the size of the tree’s share of the canopy (usually 2 to 7). More = a fuller fan right from the start.',
+  'plants.trunk': 'A trunk from behind your body up into the point every limb fans out from (its length). One for the whole scene, shared by every take. 0 = no trunk: every limb leaves from one point behind your neck.',
+  'plants.trunkLean': 'Tilt of the trunk, in degrees: + = its top to the right.',
+  'growth.fallDirection': 'Where branches, leaves and petals that let go end up. Down: they fall with gravity, turning so their loose end hangs down. Away: no gravity; they drift straight out, away from the point the tree grows from.',
+  'growth.lowBranches': 'Where the limbs start to fork and sprout. 0 = they run out bare from behind your head and branch toward their ends (top-heavy); 1 = right where they leave your head, so the tree fills in close to you.',
   'growth.spread': 'Low = limbs run straight out from behind your neck; high = they arch out more.',
   'plants.wildness': 'How much the branches wander, how ragged the outline is, and one longer "hero" branch.',
   'plants.clearance': 'Gap a side shoot keeps from other branches, so they spread out instead of bunching.',
@@ -380,10 +382,6 @@ export const TIPS: Record<string, string> = {
   'glow.inkMask': 'Keeps the glow around the branches and leaves rather than on top of them, so they stay crisp.',
   'glow.front': 'Extra glow on the tips that are growing right now.',
   // Take commit (plain wording)
-  'commit.syncToOnset': 'Before planting, the halo waits a moment for your next note start so the hit lands on the music.',
-  'commit.stampReveal': 'How much of the new tree is already grown at the moment it is planted.',
-  'commit.spinTurns': 'How many turns the halo at least spins while it winds up.',
-  'commit.plunge': 'How far the rolled-up halo drives into the root behind you.',
   'layout.spinSpeed': 'Carousel: the trees slowly circle round you (degrees per second; 0 = off).',
   // Connection / test (plain wording)
   'source.mode': 'Auto: live taps whenever Sprout.exe is running, otherwise the fake singer. Live: live taps only. Fake singer: always the built-in test singer.',
@@ -418,9 +416,7 @@ export const TIPS: Record<string, string> = {
   // Wind & shiver
   'motion.shiverDeg': 'How far twigs and leaves shimmer at full vibrato (degrees). See tremble sensitivity for how easily it starts.',
   // Take commit
-  'commit.enabled': 'When a take finishes recording, its halo winds up and is planted as the new tree. Off: the halo simply fades and the tree grows in.',
-  'commit.shockRing': 'A ring of light spreading from behind you at the moment the tree is planted.',
-  'commit.syncWindow': 'Longest the planting waits for the next note start (seconds), so the hit lands on the music.',
+  'commit.enabled': 'When a take finishes recording, its halo curls up, moves to where the new tree starts and unrolls into it, fully grown. Off: the halo simply fades and the tree grows in.',
   // Many takes
   'layout.spinFrom': 'The carousel spin (if its speed is not 0) starts from this many takes.',
   'layout.tierFrom': 'From this many takes, the trees form two rows: an outer one and a smaller inner one.',
@@ -431,7 +427,6 @@ export const TIPS: Record<string, string> = {
   'scene.viewRadius': 'Preview zoom: how much of the scene fits the window (higher = further away).',
   'scene.centerX': 'Moves the whole picture left or right in the frame.',
   'scene.centerY': 'Moves the whole picture up or down in the frame.',
-  'layout.lowOriginY': 'With one take, the height its trunk starts from (hidden behind the body).',
   'avatar.avoid': 'Keep branches, shoots and leaves off the region of your head and body below.',
   'avatar.headX': 'Head centre, left / right (the keep-out circle).',
   'avatar.headY': 'Head centre height (the keep-out circle).',
@@ -461,8 +456,10 @@ export const TIPS: Record<string, string> = {
   'fake.voices': 'Fake singer: how the voices (the live track and the takes) relate. Independent: each has its own phrases, pauses and notes, like takes of different parts. Duet: they trade phrases, one alone, then another, and some together. Together: every voice sings every phrase at a fixed interval (stacked takes of one part).',
   'fake.harmony': 'Fake singer: how often a second voice joins the first in harmony (a third, fourth, fifth or sixth apart) rather than clashing with it. 0 = never in harmony, 1 = always.',
   'fake.together': 'Fake singer, duet: share of the phrases that all voices sing together (in harmony); the others are sung by one voice alone, in turn.',
+  'growth.fillSpace': 'Empty space gets filled. With “new branch each phrase”, a new branch also reaches into the empty space beside it, up to the nearest living branch. And a take that has been away for a while (silent, nothing of its tree left) leaves its space to the new trees of the takes that are here; it gets it back as soon as it sings. Only where trees are replaced as the song goes on (a new tree each phrase, or a new branch each phrase), so a tree that stays for good never keeps a neighbour’s space. 0 = everyone keeps their own space.',
   'growth.branchEachPhrase': "Each phrase grows one new branch on the take's tree; when there are more than \u201cbranches kept\u201d, the oldest dries, droops, drops its leaves and falls. Replaces \u201cnew tree each phrase\u201d while on.",
   'commit.limbs': 'The halo breaks into this many pieces, and each unrolls along one main limb of the new tree. 1 = a single frond.',
+  'commit.duration': 'How slowly the planting goes. 1 = about a second to curl up, a second to move to the tree and one and a half to unroll; 2 = twice as long.',
   'look.buds': 'Closed blossoms show as small buds of this size (relative to the open flower); 0 = nothing until it opens.',
   'look.dryColour': 'Falling leaves and old, drying branches turn toward this colour.',
   'palette.from': "Where take colours come from: your own (My take colours, kept across presets) or this look's list.",
@@ -506,9 +503,9 @@ Object.assign(TIPS, {
   'response.release': 'After a phrase ends: seconds for the halo to close and the trees to dim to their rest brightness.\nReads: the phrase ends after “pause that ends a phrase” of silence; this is the time constant from there.',
   'response.pitchSteer': 'High notes grow the upper side of a tree first, low notes the lower side.\nReads: the held pitch shifts the reveal order by up to ±0.35 × this toward the top or bottom. pitch: the sung note (detected over 43 ms); C3 = 0 up to F6 = 1, the last note is held through pauses (smoothed ~0.1 s).',
   'response.effortWidth': 'Branches get thicker with vocal effort and thinner when you sing softly.\nReads: width = 1 + this × (effort − 0.5) × 1.6 (never below 25 %). effort: energy in the overtones (2nd harmonic up to 5 kHz) against the fundamental, plus loudness, both compared with your own running average, so 0.5 = how you usually sing and mic gain does not matter (smoothed ~0.2 s).',
-  'response.brightness': 'Brightness follows how loud you sing (0 = constant).\nReads: brightness = 0.45 + 0.75 × energy (×1.3, capped) + 0.3 × note-start flash, mixed in by this amount; below 1 it shows as see-through, not dark. energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s); note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
+  'response.brightness': 'Brightness follows how loud you sing (0 = constant).\nReads: brightness = 0.45 + 0.75 × energy (×1.3, capped) + 0.12 × note-start flash, mixed in by this amount; below 1 it shows as see-through, not dark. energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s); note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
   'glow.levelGain': 'Extra glow with loudness.\nReads: glow += this × energy. energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s).',
-  'glow.onsetGain': 'A flash of glow on every note start.\nReads: glow += this × flash; the flash jumps to 1 on a note start and fades with a 0.25 s time constant. note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
+  'glow.onsetGain': 'A flash of glow on every note start.\nReads: glow += this × flash; the flash swells in on a note start (reaching about 1 after about 80 ms) and fades with a 0.25 s time constant. note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
   'glow.pitchShine': 'High, loud notes shine brighter.\nReads: glow += this × pitch × energy. pitch: the sung note (detected over 43 ms); C3 = 0 up to F6 = 1, the last note is held through pauses (smoothed ~0.1 s); energy: the loudness Sprout.exe measures (last 10 ms, −55 dB = 0 up to −10 dB = 1), smoothed again (rises in about 30 ms, falls in about 0.2 s).',
   'glow.softGlow': 'Soft singing glows more diffusely.\nReads: glow += this × softness × energy. softness = 0.7 × (1 − effort) + 0.3 × airiness (soft, airy singing = high); effort: energy in the overtones (2nd harmonic up to 5 kHz) against the fundamental, plus loudness, both compared with your own running average, so 0.5 = how you usually sing and mic gain does not matter (smoothed ~0.2 s); airiness: how breathy the singing is (air noise between the harmonics, a less clear pitch), only while a note is sung; clean singing ≈ 0, clearly breathy singing ≈ 0.6–0.7; inhales, whispers and consonants do not count.',
   'glow.front': 'Extra glow on the branches that are growing right now.\nReads: only while a segment is still growing (the growth itself follows grow time and loudness).',
@@ -531,8 +528,6 @@ Object.assign(TIPS, {
   'look.thornEffort': 'Thorns grow with vocal effort (thorns theme).\nReads: thorn size × (0.6 + this × effort). effort: energy in the overtones (2nd harmonic up to 5 kHz) against the fundamental, plus loudness, both compared with your own running average, so 0.5 = how you usually sing and mic gain does not matter (smoothed ~0.2 s).',
   'plants.softDroop': 'How much soft, breathy singing makes a new tree droop.\nReads: when a tree is created, its tips bend down by up to this × softness of the phrase that grows it. softness = 0.7 × (1 − effort) + 0.3 × airiness (soft, airy singing = high).',
   'plants.moodShaping': 'Each new tree takes its character from the phrase that grows it.\nReads: read once when the tree starts: effort makes it 5 % smaller to 8 % bigger and more spread, pitch lifts the tips, softness droops them, vibrato makes it wilder. effort: energy in the overtones (2nd harmonic up to 5 kHz) against the fundamental, plus loudness, both compared with your own running average, so 0.5 = how you usually sing and mic gain does not matter (smoothed ~0.2 s); pitch: the sung note (detected over 43 ms); C3 = 0 up to F6 = 1, the last note is held through pauses (smoothed ~0.1 s); softness = 0.7 × (1 − effort) + 0.3 × airiness (soft, airy singing = high); vibrato depth: from the last ~0.6 s of one held note; needs a 3.5–9 Hz wobble of at least ±0.08 semitone; ±0.08 = 0 up to ±0.58 semitone = 1 (smoothed ~0.15 s).',
-  'commit.syncToOnset': 'When a take is planted, the rolled-up halo waits for your next note start so the hit lands on the music.\nReads: any track\'s note start while it is louder than 0.1. note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
-  'commit.syncWindow': 'Longest the planting waits for that note start (seconds); then it lands anyway.\nReads: note start: the last 10 ms is 3× louder than the last 0.3 s on average (and above −49 dB), at most every 0.12 s.',
 });
 
 /** Voice detection (Sprout.exe): what each threshold does to the vibrato reading. */

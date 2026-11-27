@@ -3,7 +3,7 @@
 // falls. One pool per plant, in the plant's local frame, so they fade and die with it.
 
 import type { Instances } from './render/renderer';
-import { lerp, RGB } from './math';
+import { fallDir, lerp, RGB } from './math';
 
 const MAX = 512; // room for showers (look.leafFall)
 const N = 20; // floats per particle
@@ -16,6 +16,10 @@ export interface ShedStyle {
   /** World down in the layer's frame (per world unit). */
   downX: number;
   downY: number;
+  /** growth.fallDirection "away": they drift straight out from (originX, originY), no gravity. */
+  fallAway?: boolean;
+  originX?: number;
+  originY?: number;
 }
 
 const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -60,13 +64,15 @@ export class ShedPool {
       const life = 1.1 + 0.6 * h;
       if (age < 0 || age >= life) continue;
       alive++;
-      const blossom = d[o + 5] === 5;
-      const vT = blossom ? 0.35 : 0.55, kk = 3; // terminal speed (world units / s), how fast it is reached
+      const blossom = d[o + 5] === 5, away = !!st.fallAway;
+      // terminal speed (world units / s), how fast it is reached
+      const vT = away ? (blossom ? 0.25 : 0.35) : blossom ? 0.35 : 0.55, kk = away ? 2 : 3;
       const fallD = vT * (age - (1 - Math.exp(-kk * age)) / kk); // closed form: any frame rate places it alike
       const sway = 0.05 * Math.sin(age * (5 + 3 * h) + h * 6.28) * Math.min(1, age * 2);
-      const x = d[o + 1] + st.downX * fallD - st.downY * sway;
-      const y = d[o + 2] + st.downY * fallD + st.downX * sway;
-      const ang = d[o + 3] + (h - 0.5) * 6 * age + 0.6 * Math.sin(age * 4 + h * 9);
+      const [Dx, Dy] = fallDir(st.downX, st.downY, away, d[o + 1], d[o + 2], st.originX, st.originY);
+      const x = d[o + 1] + Dx * fallD - Dy * sway;
+      const y = d[o + 2] + Dy * fallD + Dx * sway;
+      const ang = d[o + 3] + (h - 0.5) * 6 * age + 0.6 * (Math.sin(age * 4 + h * 9) - Math.sin(h * 9));
       const u = age / life;
       const a = d[o + 12] * st.alpha * (u < 0.5 ? 1 : 1 - smooth((u - 0.5) * 2));
       if (a <= 0.01) continue;

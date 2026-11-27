@@ -25,6 +25,10 @@ export interface Placement {
   /** World-angle territory this plant fills (radians, lo < hi; may exceed pi). */
   sectorLo: number;
   sectorHi: number;
+  /** The territory a tree built now grows into (growth.fillSpace: wider while a neighbouring take
+   *  has been away for a while). Only new trees use it; unset = sectorLo..sectorHi. */
+  growLo?: number;
+  growHi?: number;
 }
 
 /** The arc the plants share (radians): everything except downGap straight down. */
@@ -33,7 +37,13 @@ export function plantArc(p: Params): [number, number] {
   return [(-90 + gap / 2) * deg, (270 - gap / 2) * deg];
 }
 
-export function layoutTakes(n: number, p: Params): Placement[] {
+/**
+ * presence (per take, 0..1, optional): 1 = here; toward 0 = away for a while (no tree, silent).
+ * With growth.fillSpace, the takes that are here get wider territories for the trees they build
+ * next (Placement.growLo / growHi), taking over the space of the ones that are away. The
+ * placements themselves (angle, sectorLo / sectorHi) do not change, so nothing rebuilds or turns.
+ */
+export function layoutTakes(n: number, p: Params, presence?: ArrayLike<number>): Placement[] {
   const L = p.layout;
   const out: Placement[] = [];
   if (n <= 0) return out;
@@ -42,16 +52,22 @@ export function layoutTakes(n: number, p: Params): Placement[] {
     const m = 0.25 * clamp(p.plants.overlap) * (hi - lo);
     return { sectorLo: Math.max(arcLo, lo - m), sectorHi: Math.min(arcHi, hi + m) };
   };
+  /** Territories [lo, hi] (no overlap yet), in order from arcHi down, of one tier, and their takes. */
+  const groups: { lo: number; hi: number; k: number }[][] = [];
 
   if (n === 1) {
-    out.push({ ox: 0, oy: L.lowOriginY, angle: 90 * deg, scale: 1, tierDir: 1, kind: 'crown', ...widen(arcLo, arcHi) });
+    // The hub is the origin (plants.trunk grows a trunk into it from below).
+    out.push({ ox: 0, oy: L.midOriginY, angle: 90 * deg, scale: 1, tierDir: 1, kind: 'crown', ...widen(arcLo, arcHi) });
     return out;
   }
   if (n === 2) {
+    const g: { lo: number; hi: number; k: number }[] = [];
     for (const [lo, hi] of [[90 * deg, arcHi], [arcLo, 90 * deg]]) {
+      g.push({ lo, hi, k: out.length });
       out.push({ ox: 0, oy: L.midOriginY, angle: (lo + hi) / 2, scale: 1, tierDir: 1, kind: 'wing', ...widen(lo, hi) });
     }
-    return out;
+    groups.push(g);
+    return fillSpace(out, groups, p, presence, widen);
   }
 
   // 3+: equal territories across the arc, clockwise from the left. 7+: two tiers; the inner tier
@@ -60,9 +76,12 @@ export function layoutTakes(n: number, p: Params): Placement[] {
   const shrink = Math.max(0.5, 1 - L.shrinkPerTake * (n - 3));
   tiers.forEach((m, ti) => {
     const step = (arcHi - arcLo) / m;
+    const g: { lo: number; hi: number; k: number }[] = [];
+    groups.push(g);
     for (let k = 0; k < m; k++) {
       const phi = arcHi - (k + 0.5) * step - (ti === 0 ? 0 : step / 2);
       const lo = Math.max(arcLo, phi - step / 2), hi = Math.min(arcHi, phi + step / 2);
+      g.push({ lo, hi, k: out.length });
       out.push({
         ox: 0, oy: L.midOriginY, angle: Math.max(arcLo, Math.min(arcHi, phi)),
         scale: shrink * (ti === 0 ? 1 : L.innerScale), tierDir: ti === 0 ? 1 : -1, kind: 'wedge',
@@ -70,6 +89,30 @@ export function layoutTakes(n: number, p: Params): Placement[] {
       });
     }
   });
+  return fillSpace(out, groups, p, presence, widen);
+}
+
+/** growth.fillSpace: within each tier, the takes that are here share the arc of the ones away. */
+function fillSpace(out: Placement[], groups: { lo: number; hi: number; k: number }[][], p: Params,
+                   presence: ArrayLike<number> | undefined,
+                   widen: (lo: number, hi: number) => { sectorLo: number; sectorHi: number }): Placement[] {
+  const fill = clamp(p.growth.fillSpace ?? 0);
+  if (!presence || fill <= 0) return out;
+  for (const g of groups) {
+    if (g.length < 2) continue;
+    // Each territory's weight: its width, shrunk toward nothing while its take is away.
+    const w = g.map((t) => (t.hi - t.lo) * Math.max(0.02, 1 - fill * (1 - clamp(presence[t.k] ?? 1))));
+    const total = g.reduce((a, t) => a + (t.hi - t.lo), 0), sum = w.reduce((a, b) => a + b, 0);
+    if (sum <= 0 || Math.abs(sum - total) < 1e-6) continue; // everyone is here: as laid out
+    let hi = g[0].hi;
+    g.forEach((t, j) => {
+      const lo = hi - (total * w[j]) / sum;
+      const e = widen(lo, hi);
+      out[t.k].growLo = e.sectorLo;
+      out[t.k].growHi = e.sectorHi;
+      hi = lo;
+    });
+  }
   return out;
 }
 

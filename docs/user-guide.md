@@ -69,8 +69,10 @@ names and colours come from the DAW where it reports them.
 ### Recording flow in REAPER
 
 1. Arm a track and record: the halo opens with your first phrase and grows a vine round the ring.
-2. Stop and disarm it: the halo winds up, travels to the new take's place, unrolls along the new
-   tree's main limb and drives into its root. The tree grows from then on whenever the take sings.
+2. Stop and disarm it: the halo curls up like a fern frond, moves to where the new take's tree
+   starts and unrolls along its main limbs into the fully grown tree. From then on it is a tree
+   whose phrase has just ended: it rests and ends the way "phrase end: tree" says, and the take's
+   playback grows new ones.
 3. Arm the next track and sing the next layer over the playback: the old take's tree reacts to
    its own playback, the new halo to your live voice.
 4. Delete or mute a take: after a short hold its tree fades out and its leaves fall.
@@ -145,8 +147,8 @@ The panel has three tabs. Each has a preset of its own at the top.
   factory default. Folders with changes show a dot.
 - Type any number into a slider's box, even past the slider's ends: the slider stretches to fit.
   Only a few settings have hard limits where the overlay would break (for example layers 1–17).
-- The **toolbar** under the status rows: Fake singer ⇄ live, Restart, Halo → tree, End phrase,
-  and the key list. Press **/** for all keys.
+- The **toolbar** under the status rows: Fake singer ⇄ live, Restart (the song starts over, with
+  new trees each time), Halo → tree, End phrase, and the key list. Press **/** for all keys.
 
 ## 8. Presets: Look, Reaction, Setup
 
@@ -156,12 +158,12 @@ The three kinds are picked independently: any Look works with any Reaction.
 stage, Rainbow, Cherry blossom, Autumn, Dark & twisted, Black briar.
 
 **Reaction presets:** Responsive, Calm (ballad), Punchy (stage), Subtle, Vibrato-sensitive, Branch
-by branch, Blossom ballad, Falling leaves, Falling away, Duet (harmony), Steady (no withering),
+by branch, Blossom ballad, Falling leaves, Falling away, Drifting away, Duet (harmony), Steady (no withering),
 Fade away (nothing dies), Writhing, Nocturne.
 
 **Setup (testing) presets** only change the fake singer and the preview in this browser: Normal
-song, Ballad, Fast pop, Six takes, Not recording, Two live tracks, Duet: trading phrases, Stacked
-takes, Slow-motion study, Held notes, Short phrases with long pauses, On a light background, Full
+song, Ballad, Fast pop, Six takes, Not recording, Two live tracks, Duet: trading phrases, Independent
+voices, Slow-motion study, Held notes, Short phrases with long pauses, On a light background, Full
 stops, Pitch jumps, Planting loop.
 
 Some pairings made for each other: **Black briar + Nocturne** (black ink stays solid when you're
@@ -234,13 +236,13 @@ DAW project.
 | Your voice | What happens (default Reaction) |
 | --- | --- |
 | Singing a phrase | The take's tree grows (about 3.5 s of full voice for a whole tree); the halo vine races round the ring. |
-| A new phrase | A new tree on a new seed (or, with "new branch each phrase", one new branch on the take's tree; the oldest dries, droops and falls). |
+| A new phrase | A new tree on a new seed (or, with "new branch each phrase", one new branch on the take's tree; the oldest dries, droops and falls). With "fill empty space", new branches reach into empty space beside them, and takes that have been away for a while leave their space to the others. |
 | Short pause (a breath) | The outer twigs grow back into the tree ("ungrow"); their leaves fall. They regrow when you sing again. |
 | The phrase ends (1 s of silence) | The tree stays whole until 3 s after you stopped singing, so it stands next to the tree the next phrase grows; then it ungrows, trunk and all. |
 | Full stop (4 s of silence) | Whatever is left of the tree goes the same way. The next phrase grows a new one. |
-| Two tracks in harmony | Their colours run into each other, their branches crisscross, everything glows a little more. |
+| Two tracks in harmony | Their colours run into each other and everything glows a little more (with the Duet reaction, the branches also crisscross). |
 | Loudness | Brightness, glow, wind in the branches. |
-| Note starts | A flash of glow. They do not move the plants (an optional push that swings back is under Reaction → Note starts, advanced; off by default). |
+| Note starts | A soft swell of glow. They do not move the plants (an optional push that swings back is under Reaction → Note starts, advanced; off by default). |
 | Pitch | High notes grow the upper side first and can shift the colours. |
 | Effort (pressed, full voice) | Thicker branches, bigger thorns. Soft singing: thinner, drooping, a wider softer glow. |
 | Vibrato | Twigs and leaves shimmer at your vibrato rate. With "leaves fall" (Autumn) it shakes leaves loose. |
@@ -267,6 +269,10 @@ on the outer twigs, the **phrase end** and the **full stop** on the whole tree.
 - **Leaves let go when twigs go** (on by default): leaves and petals fall whenever their twig
   ungrows, fades or falls. Off: they go the way of the twig, so they shrink back with it, fade with
   it, and fall only when it falls.
+- **Falling pieces go** down with gravity (they turn so their loose end hangs down as they fall),
+  or **away from the origin**: no gravity, they drift straight out from the point the tree grows
+  from. It covers branch pieces, old branches (new branch each phrase), and the leaves and petals
+  that let go with them.
 - "Leaves fall on their own" (Look → Theme & leaves) is something else: a steady trickle of
   falling leaves that grow back, whatever the branches do.
 
@@ -283,8 +289,9 @@ together:
 - **Colours come together:** both voices' colours move toward a shared colour and back. The
   shared colour is a gradient from one voice's colour to the other's, the mix of the two, or a
   colour you pick.
-- **Branches crisscross:** the branches weave across each other and the two trees lean into one
-  another; each branch keeps its course and the tree its outline. The halo ring braids.
+- **Branches crisscross** (off by default; the Duet reaction turns it on): the branches weave
+  across each other and the two trees lean into one another; each branch keeps its course and the
+  tree its outline. The halo ring braids.
 - **Blossoms open in harmony**, and **glow in harmony**.
 - Theme parts can open in harmony (section 9).
 

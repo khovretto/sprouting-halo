@@ -20,6 +20,12 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
   goes the way "phrase end: tree" says. With "new branch each phrase" every phrase grows one
   branch of the take's tree and the oldest dries, droops and falls once more than "branches kept"
   are there. Off: one tree keeps growing and rests dimmer between phrases.
+- **Fill empty space** (growth.fillSpace): a new branch (new branch each phrase) also reaches into
+  the empty space beside its slice, up to the nearest living branch; and a take that has been away
+  for a while (silent, nothing of its tree left) leaves its territory to the new trees of the takes
+  that are here (layout.ts fillSpace, Placement.growLo/growHi), and gets it back as soon as it sings.
+  Only trees built afterwards use the new territory, so nothing turns or rebuilds; only where trees
+  are replaced as the song goes on.
 - **Pauses and endings** (Reaction → Pauses & endings): three lengths of silence, each with its
   own action. A short pause (growth.onPause) acts on the outer twigs within witherDepth of the
   tips; the phrase end (growth.onPhraseEnd, growth.fadeAfter seconds after the take stopped singing and
@@ -33,7 +39,7 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
   tracks; two voices a third, fourth, fifth or sixth apart (any octave, within half a semitone)
   for harmony.minSeconds are in harmony. Effects, each with its own amount: colours move to a
   shared colour (a gradient between the two, their mix, or one colour), branches weave across each
-  other and the trees lean together (the halo ring braids), blossoms open, extra glow. Theme parts
+  other and the trees lean together (the halo ring braids; harmony.cross, 0 by default), blossoms open, extra glow. Theme parts
   with opens "harmony" show only then.
 - **Tree shape (docs/fable-consult-2.md):** all take plants grow from one hub behind the neck
   and end on one shared, flattened canopy outline, so several takes read as one wide canopy that
@@ -43,7 +49,10 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
   so the density stays level instead of bunching. Ivy side shoots are only placed into free space
   and stop short of other branches (Take plants → clearance). Leaves keep a guaranteed spacing
   (density = how close), the inside of a plant is dimmer than its rim, and some leaves sit dim
-  under the branches for depth. Sliders (Look → Tree shape): branching, reach (canopy size),
+  under the branches for depth. Sliders (Look → Tree shape): branching, branches start low (forks and shoots
+  right where a limb leaves the head instead of toward its end), trunk length and lean (one
+  trunk for the whole scene, from behind the body up into the point every take's limbs fan out
+  from; 0 = no trunk, just that point), reach (canopy size),
   flatten (round … flat), spread (how much limbs arch out), lift (tips up / droop), wildness,
   overlap (how far neighbours interleave at the seams), taper, clearance; "shaped by the phrase"
   (Reaction) gives each new tree the character of its phrase.
@@ -77,6 +86,12 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
   what sprouts: loudness = how often, effort = longer/thicker shoots, softness = curlier tendrils,
   pitch = outward (high) or inward (low). Leaf amount on the vine is divided by the number of
   origins. A share of the ring's leaves is always there, spread evenly (alwaysLeaves).
+- **Growing:** all main limbs of a tree set off together, so a young tree is a fan, and leaves come
+  in a little behind each growing tip (they used to wait until the whole branch had finished).
+- **Falling** (growth.fallDirection): branch pieces, old boughs and the leaves that let go with them
+  fall down, turning so their loose end swings the way they travel, or drift straight out from the
+  point the tree grows from, with no gravity (the Drifting away reaction). With new branch each
+  phrase, pauses act on all living boughs alike.
 - **Wind, push and shiver** (docs/fable-consult-3-motion.md): the plants move like plants, not
   like a wave. Wind is a vector in the world, so the whole canopy leans the same way instead of
   turning about its root; trunks are stiff, limbs flex, every shoot bends on its own about where it
@@ -91,12 +106,14 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
   stops (the tap reports the DAW's record state; the fake singer has fake.recording).
 - **Several live tracks** get concentric halos (the first outermost, Live halo → ringSpacing),
   each in its own colour (hue-shifted from the live colour unless the track colour is used).
-- **Recording finished → the halo is planted** (docs/fable-consult.md, Part B): the ring winds up
-  and travels round the head to the new take's place, unrolls along the tree's main limb like a
-  fern crozier, pulls back, waits up to 0.3 s for the next note start and drives into the root.
-  On the impact the new tree flashes, jolts and grows out fast, a shock ring spreads from behind
-  the avatar and the halo's leaves fly out along the branches. Panel: Reaction → Planting a take & removal
-  (turn it off with "plant the halo" to get the plain fade).
+- **Recording finished → the halo is planted** (growth/commit.ts): the ring is cut into one piece
+  per main limb (commit.limbs); each piece rolls up in place into a fern-like spiral, the spirals
+  glide round the head to where their limbs start and unroll along them. The take's tree then
+  takes over fully grown (the rest grows out from the limbs quickly) and behaves like a tree whose
+  phrase has just ended. The strand is drawn in the tree's own colours and theme from the start
+  (its colour comes over from the halo's while it curls and moves), so nothing changes at the
+  hand-over. commit.duration sets the pace. Panel: Reaction → Planting a take & removal (turn it off
+  with "plant the halo" to get the plain fade).
 - **Take deleted:** after a short hold (Setup → Connection & sync → hold) the plant flashes and fades
   away while its leaves fall.
 - **Looks per track:** Theme, Leaves and Colour in each track's **Sprout Tap window** start on
@@ -260,7 +277,7 @@ your output size.
 | `src/presets.ts` | Built-in presets, saved presets, apply / compare. |
 | `src/scope.ts` | Voice scope: rolling graphs of features and drives. |
 | `src/motion.ts` | Wind clock and per-layer springs (push, sway, shiver phase). |
-| `src/growth/commit.ts` | The commit animation: wind-up, unfurl, plunge, impact. |
+| `src/growth/commit.ts` | The planting animation: curl, move, unroll, hand-over. |
 | `src/features.ts` | `FeatureFrame`: the audio features per layer that drive everything. |
 | `src/drive.ts` | Per-layer phrase detection, halo open envelope, energy, flash, effort/softness. |
 | `src/growth/generations.ts` | Trees per layer: grow with the voice, new tree per phrase, pauses and endings per length of silence. |

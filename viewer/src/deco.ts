@@ -7,7 +7,7 @@ import type { Params } from './params';
 import type { Theme } from './features';
 import type { Instances } from './render/renderer';
 import type { Skeleton } from './growth/skeleton';
-import { clamp, hash1, lerp, RGB } from './math';
+import { clamp, fallDir, hash1, lerp, RGB } from './math';
 import { Ink, inkAt } from './colour';
 import { customDef, MOVES, pivotOf, shapeId, SHAPE_PIVOT, ThemeDef, ThemePart } from './themes';
 import { bakeGradient } from './gradient';
@@ -26,6 +26,8 @@ const enum Shape {
 // Natural colours of the built-in parts (used when a colour role's source is "theme").
 const LEAF: RGB = [0.32, 0.78, 0.34];
 const PETAL: RGB = [1.0, 0.82, 0.9];
+/** Leaves on a growing branch come in this far (plant units) behind its growing tip. */
+const LEAF_BEHIND = 0.12;
 const THORN: RGB = [0.92, 0.86, 0.7];
 const PINE: RGB = [0.16, 0.55, 0.3];
 const HOLLY: RGB = [0.1, 0.45, 0.2];
@@ -56,6 +58,10 @@ export interface DecoStyle {
   /** World "down" expressed in the layer's local frame (per world unit). */
   downX: number;
   downY: number;
+  /** growth.fallDirection "away": what lets go drifts straight out from (originX, originY). */
+  fallAway?: boolean;
+  originX?: number;
+  originY?: number;
   intensity: number;
   /** Sim time and the voice's pitch 0..1 (a theme's moving natural gradient). */
   time?: number;
@@ -144,9 +150,10 @@ class Placer {
     const st = this.st;
     let a = st.alpha * this.nodeAlpha;
     if (st.fall > 0) {
-      const d = st.fall * st.fall * (0.5 + 0.9 * h) * 1.2;
-      x += st.downX * d;
-      y += st.downY * d;
+      const d = st.fall * st.fall * (0.5 + 0.9 * h) * (st.fallAway ? 0.8 : 1.2);
+      const [Dx, Dy] = fallDir(st.downX, st.downY, !!st.fallAway, x, y, st.originX, st.originY);
+      x += Dx * d;
+      y += Dy * d;
       angle += st.fall * (h - 0.5) * 8;
       a *= 1 - st.fall;
     }
@@ -186,6 +193,8 @@ export interface TreeExtras {
   /** Take plants: per-node branch id and per-branch "has finished growing" (leaves only then). */
   branchId?: ArrayLike<number>;
   branchDone?: ArrayLike<number>;
+  /** Per branch: the flex its growing tip has reached; leaves come in LEAF_BEHIND behind it. */
+  branchFront?: ArrayLike<number>;
   /** Motion: per-node branch order and bend frames (4 floats per node). */
   order?: ArrayLike<number>;
   bend?: ArrayLike<number>;
@@ -366,8 +375,8 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
 
     if (custom) {
       // A user theme: its parts, placed by the same rules as the built-in themes.
-      const bId = extras.branchId, bDone = extras.branchDone;
-      const allowed = !rank || (!letGo && f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1));
+      const bId = extras.branchId, bDone = extras.branchDone, bFront = extras.branchFront;
+      const allowed = !rank || (!letGo && f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1 || (!!bFront && bFront[bId[i]] - flex >= LEAF_BEHIND)));
       const visTip = !!rank && allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
       // Which spaced part owns this node (-1: none), and whether it is there now (one presence per node).
       let owner = -1, pres = 0;
@@ -469,11 +478,11 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (rank) {
       // Take plants: spaced leaves, with size and tint variety and a dim under-layer. Leaves sit
       // at the visible end of a growing or withering twig.
-      // Only on branches that have finished growing, and only where the twig is fully there: no
-      // leaves riding along a growing tip. A finished branch that withers back keeps the leaves on
-      // what is left (and buds where its shoots were).
-      const bId = extras.branchId, bDone = extras.branchDone;
-      const allowed = !letGo && f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1);
+      // Only where the twig is fully there and a little behind the growing tip (they fade in as
+      // the tip moves on): no leaves riding along a growing tip. A finished branch that withers
+      // back keeps the leaves on what is left (and buds where its shoots were).
+      const bId = extras.branchId, bDone = extras.branchDone, bFront = extras.branchFront;
+      const allowed = !letGo && f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1 || (!!bFront && bFront[bId[i]] - flex >= LEAF_BEHIND));
       const visTip = allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
       const has = allowed && !faded && !bloomSite[i] && !(gone && gone[i] > 0) && (rank[i] <= dens || (visTip && dens > 0.1)) && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
       const pxv = x, pyv = y;

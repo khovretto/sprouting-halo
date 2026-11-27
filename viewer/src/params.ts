@@ -41,6 +41,10 @@ export const defaults = {
     /** Each phrase grows one new branch on the take's tree; older ones dry, droop and fall
      *  (consult 6, 3). Replaces newTreeEachPhrase while on. */
     branchEachPhrase: false,
+    /** Empty space gets filled: a new branch (new branch each phrase) also reaches into the empty
+     *  space beside it, and takes that have been away for a while (silent, no tree) leave their
+     *  space to the new trees of the takes that are here. 0 = everyone keeps their own space. */
+    fillSpace: 0.5,
     /** Branches a take keeps before the oldest dries and falls. */
     branchesKept: 3,
     /** Seconds an old branch takes to dry out. */
@@ -56,6 +60,10 @@ export const defaults = {
     secondsToFull: 3.5,
     /** 0 = a few limbs; 1 = dense, ivy-like: tips closer together, more and deeper side shoots. */
     branching: 0.6,
+    /** Where the limbs start to fork and sprout: 0 = they run out bare from behind the head and
+     *  branch toward their ends (top-heavy, as it was); 1 = right where they leave the head, so the
+     *  tree fills in close to you. */
+    lowBranches: 0.6,
     /** Canopy size: half-width of the shared outline = 2.15 × reach. */
     reach: 1.0,
     /** 0 = round canopy, 1 = flat: height 40 % of the half-width. */
@@ -86,6 +94,9 @@ export const defaults = {
     fadeAfter: 3,
     /** Seconds an ending takes (the phrase end's or the full stop's). */
     fadeSeconds: 2.5,
+    /** Where branches, leaves and petals that let go go: down (gravity), or away: no gravity, they
+     *  drift straight out, away from the point the tree grows from. */
+    fallDirection: 'down' as 'down' | 'away',
     /** A drop in pitch (a dip of witherDipSemitones or more) also withers the outer twigs. */
     witherOnPitchDip: false,
     witherDipSemitones: 3,
@@ -291,6 +302,14 @@ export const defaults = {
     tilt: 0,
   },
   plants: {
+    /** How many limbs leave the origin point (the tree divides into this many there). 0 = auto,
+     *  by the size of the tree's share of the canopy (usually 2 to 7). */
+    originLimbs: 0,
+    /** A trunk from behind the body up into the point every limb fans out from (world units), one
+     *  for the whole scene (main.ts drawTrunk). 0 = every limb leaves from one point. */
+    trunk: 0,
+    /** Tilt of the trunk (degrees; + = its top to the right). */
+    trunkLean: 0,
     /** Branches wind from side to side like a corkscrew instead of running straight (consult 7).
      *  The tree keeps its size, outline and limbs. 0 = straight. */
     twist: 0,
@@ -335,7 +354,6 @@ export const defaults = {
     maxNodes: 2600,
   },
   layout: {
-    lowOriginY: -0.35,
     /** Height of the hub behind the neck that every plant grows from. */
     midOriginY: 0.05,
     /** Degrees left free straight down (behind the body); the plants share the rest of the circle.
@@ -350,27 +368,14 @@ export const defaults = {
     spinSpeed: 0,
     ease: 2.5,
   },
-  /** A live take that finishes recording winds into a staff and is planted as its tree. */
+  /** A live take that finishes recording is planted as its tree (growth/commit.ts): the halo
+   *  curls up, the coil moves to where the tree starts and unrolls into the fully grown tree. */
   commit: {
     enabled: true,
     /** The halo breaks into this many pieces; each unrolls along one main limb of the new tree. */
     limbs: 3,
-    /** Overall pace (1 = about 1.4 s to the impact). */
+    /** Overall pace (1 = about 1 s to curl, 1 s to move, 1.5 s to unroll). */
     duration: 1,
-    /** Flash, shock ring and quiver at the impact. */
-    impact: 1,
-    /** How much of the tree the stamp leaves grown. */
-    stampReveal: 0.6,
-    /** Leaves thrown along the tree at the impact. */
-    burst: 36,
-    /** The staff waits (up to syncWindow s) for the next note start, so the hit lands on the music. */
-    syncToOnset: true,
-    syncWindow: 0.3,
-    /** How far the staff drives into the root (world units). */
-    plunge: 0.28,
-    /** Minimum spin of the winding ring (turns). */
-    spinTurns: 0.75,
-    shockRing: true,
   },
   transitions: {
     /** A live track stopped being live (recording done): its halo fades out (s). */
@@ -439,7 +444,7 @@ export const defaults = {
     wide: 0.8,
     base: 0.3,
     levelGain: 0.8,
-    onsetGain: 0.7,
+    onsetGain: 0.35,
     pitchShine: 0.4,
     /** Extra glow on the growing edge of the construct. */
     front: 0.8,
@@ -471,8 +476,9 @@ export const defaults = {
     colourMode: 'gradient' as 'gradient' | 'mix' | 'colour',
     colourValue: '#ffe9a8',
     /** Branches weave from side to side across each other, and the trees of the two voices lean
-     *  into one another; every branch keeps its course and the tree its outline. */
-    cross: 0.6,
+     *  into one another; every branch keeps its course and the tree its outline. A moving wave, so
+     *  off (0) unless a look or reaction wants it (the Duet preset). */
+    cross: 0,
     /** Blossoms (and theme parts that open "on long held notes") also open in harmony. */
     blossoms: 0,
     /** Extra glow while in harmony. */
@@ -532,7 +538,7 @@ export const defaults = {
     /** How the fake voices relate. independent: each has its own phrases, pauses and notes.
      *  duet: they trade phrases, one alone, then another, some together. together: every voice
      *  sings every phrase at a fixed interval. */
-    voices: 'independent' as 'independent' | 'duet' | 'together',
+    voices: 'together' as 'independent' | 'duet' | 'together',
     /** How often a second voice joins the first in harmony (a third, fourth, fifth or sixth)
      *  rather than clashing with it. */
     harmony: 0.7,

@@ -15,7 +15,7 @@ import { Ink, inkAt, newInk, ringS, setInk } from './colour';
 import { LABELS } from './panel-layout';
 import { clearAvatarImage, loadAvatarImage, pickAvatarImage } from './avatar-image';
 import { LayerMotion, Wind } from './motion';
-import { CommitAnimation, CommitHooks, CommitTarget, HaloSnapshot, StrandLook } from './growth/commit';
+import { CommitAnimation, CommitHooks, CommitTarget, HaloSnapshot } from './growth/commit';
 import { FakeSource } from './sources/fake';
 import { bakeGradient, parseGradient } from './gradient';
 import { addHotkeys, installHotkeys, toggleSheet } from './hotkeys';
@@ -25,7 +25,7 @@ import { Plant, Wilt } from './growth/plant';
 import { plantMetrics } from './debug';
 import { inkMetrics, pixelMetrics } from './debug-ink';
 import { Generations } from './growth/generations';
-import { Skeleton } from './growth/skeleton';
+import { NodeKind, Skeleton } from './growth/skeleton';
 import { Drive } from './drive';
 import { HarmonyTracker } from './harmony';
 import { decorateRing, decorateTree, DecoStyle } from './deco';
@@ -50,6 +50,12 @@ interface Slot {
   motion: LayerMotion;
   /** Harmony (harmony.cross): radians this tree leans toward the voice it harmonises with. */
   lean?: number;
+  /** growth.fillSpace: 1 = here; falls to 0 once the take has had no tree and been silent for a
+   *  while (its neighbours' new trees then take over its space). Seconds it has been away. */
+  presence?: number;
+  awayFor?: number;
+  /** The territory the take's living boughs were built for (growth.fillSpace). */
+  growFrozen?: [number, number];
 }
 
 /** A deleted take: fades away while its leaves fall (no ungrowing). */
@@ -169,7 +175,6 @@ function start() {
   let endingHalos: LiveHalo[] = [];
   let commits: CommitAnimation[] = [];
   const wind = new Wind();
-  const commitDrive = new Drive();
   const harmony = new HarmonyTracker();
 
   function newHalo(id: string): LiveHalo {
@@ -195,13 +200,17 @@ function start() {
   }
 
   let lastAutoCommit = 0;
-  function restart() {
+  /** Mixed into every tree's seed: a restart from the panel picks a new one, so it shows new trees
+   *  (the fake song stays the same). Sent with the restart, so every open viewer agrees. */
+  let treeSalt = 0;
+  function restart(salt = treeSalt) {
+    treeSalt = salt;
     lastAutoCommit = 0;
     t = 0;
     spin = 0;
     plantSeed = 1;
-    haloSeed = params.fake.seed * 31;
-    fake.reset(params.fake.seed);
+    haloSeed = params.fake.seed * 31 + salt * 7;
+    fake.reset(params.fake.seed + salt); // a new restart: new trees and a new song
     harmony.clear();
     halos = [];
     endingHalos = [];
@@ -308,8 +317,14 @@ function start() {
     } else if (msg.type === 'action') runAction(String(msg.name), false);
   };
   function runAction(name: string, broadcast: boolean) {
-    if (name === 'restart') restart();
-    else if (name === 'commit') fake.commit(params);
+    if (name === 'restart' || name.startsWith('restart:')) {
+      // restart:<salt> from another viewer; a restart here picks a new salt (new trees).
+      const salt = name.startsWith('restart:') ? Number(name.slice(8)) || 0 : 1 + Math.floor(Math.random() * 99999);
+      restart(salt);
+      if (broadcast) sendAction('restart:' + salt);
+      return;
+    }
+    if (name === 'commit') fake.commit(params);
     else if (name === 'delete') fake.deleteLast(params);
     else if (name === 'phraseEnd') fake.endPhrase();
     if (broadcast) sendAction(name);
@@ -534,12 +549,12 @@ function start() {
   /** Look values derived from a drive. */
   function lookOf(d: Drive): Look {
     const g = params.glow, r = params.response;
-    const intensity = lerp(1, 0.45 + 0.75 * clamp(d.energy * 1.3) + 0.3 * d.flash, r.brightness);
+    const intensity = lerp(1, 0.45 + 0.75 * clamp(d.energy * 1.3) + 0.12 * d.flash, r.brightness);
     return {
       intensity,
       glow: g.base + g.levelGain * d.energy + g.onsetGain * d.flash + g.pitchShine * d.pitch * d.energy + g.softGlow * d.softness * d.energy
         + params.harmony.glow * d.harmony,
-      shine: clamp(0.2 * d.flash + 0.25 * d.pitch * d.energy),
+      shine: clamp(0.08 * d.flash + 0.25 * d.pitch * d.energy),
       width: Math.max(0.25, 1 + r.effortWidth * (d.effort - 0.5) * 1.6),
       // Blossoms open on a held note, and (harmony.blossoms) in harmony.
       bloom: Math.max(d.bloom, clamp(params.harmony.blossoms) * d.harmony),
@@ -702,6 +717,37 @@ function start() {
   }
   const strandOrder: number[] = [];
 
+  // ---- The trunk (plants.trunk): one for the scene, from behind the body up into the point every
+  // take's limbs fan out from. Upright in the world (plants.trunkLean tilts it), so it does not turn
+  // with a take's layer; coloured like the first take's branches at their base; there while any take
+  // has a tree. ------------------------------------------------------------------------------------
+  const trunkSk = new Skeleton(32);
+  let trunkVis = new Float32Array(32);
+  /** Draws into layer L; false = nothing drawn (L stays free). */
+  function drawTrunk(L: number): boolean {
+    const len = Math.max(0, params.plants.trunk ?? 0);
+    if (len < 0.02 || !slots.length || L >= MAX_LAYERS) return false;
+    let a = 0;
+    for (const s of slots) for (const g of s.gens.gens) a = Math.max(a, s.alpha * g.alpha * (g.dim ?? 1) * clamp(g.reveal * 4));
+    if (a <= 0.005) return false;
+    const s0 = slots[0];
+    layerU.set(L, s0.place.ox, s0.place.oy, Math.PI / 2, 1, STILL);
+    const lean = (params.plants.trunkLean ?? 0) * deg, ux = Math.sin(lean), uy = Math.cos(lean);
+    const N = 16, w0 = params.plants.maxWidth, w1 = params.plants.maxWidth * 0.5;
+    trunkSk.reset();
+    if (trunkVis.length < N + 1) trunkVis = new Float32Array(N + 1);
+    for (let j = 0; j <= N; j++) {
+      const u = j / N;
+      // flex 0 all along: the colour of the branches' base.
+      trunkSk.add(-ux * len * (1 - u), -uy * len * (1 - u), j - 1, 0, lerp(w0, w1, u), NodeKind.Branch);
+      trunkVis[j] = 1;
+    }
+    trunkSk.computeChildren();
+    const inks = inksFor(L, hexToRgb(s0.colour), 0, s0.drive, false, s0.ink, s0.id);
+    pushTree(back, trunkSk, trunkVis, L, inks.stroke, lookOf(s0.drive), a, 1, 0, undefined, undefined, undefined, undefined, 1, false, branchRgb(s0.theme));
+    return true;
+  }
+
   let dryKey = '', dryRgb: RGB = [0.54, 0.44, 0.27];
   /** look.dryColour as RGB (cached). */
   const dryRgbOf = () => {
@@ -797,7 +843,7 @@ function start() {
     return {
       theme, density, layer, leaf: inks.leaf, accent: inks.accent, sScale, alpha: alpha * fadeOf(look), glow: look.glow * params.look.decoGlow, unit, seed, effort: d.effort,
       bloom: look.bloom * params.look.blossoms, fall, downX, downY, intensity: brighten(look), time: t, pitch: d.pitch,
-      harmony: d.harmony,
+      harmony: d.harmony, fallAway: params.growth.fallDirection === 'away',
     };
   }
 
@@ -841,6 +887,7 @@ function start() {
       sizeMul: Math.pow(clamp(h.R / Math.max(0.05, params.halo.openRadius), 0.25, 1), 0.7),
       idle: 1 - smooth(clamp(h.open)),
       mood: { effort: h.drive.effort, pitch: h.drive.pitch, soft: h.drive.softness, vibrato: h.drive.vibrato },
+      look: lookOf(h.drive),
     };
   }
 
@@ -854,67 +901,41 @@ function start() {
     return { place: s.place, spinAngle: spin * s.place.tierDir, plant: g.tree, layer, colour: tinted(hexToRgb(s.colour)), view };
   }
 
-  /** A strand look as a regular Look (multipliers on a moderately loud voice). */
-  const strandLook = (sl: StrandLook): Look => ({
-    intensity: 1, glow: (params.glow.base + 0.5 * params.glow.levelGain) * sl.glow, shine: sl.shine, width: sl.width, bloom: 0,
+  const mixLook = (a: Look, b: Look, k: number): Look => ({
+    intensity: lerp(a.intensity, b.intensity, k), glow: lerp(a.glow, b.glow, k), shine: lerp(a.shine, b.shine, k),
+    width: lerp(a.width, b.width, k), bloom: lerp(a.bloom, b.bloom, k),
   });
 
-  /** The flying halo / strand is one colour (it changes from live to take colour on the way). */
-  const commitInks = (L: number, colour: RGB) => {
-    const pool = inkPool[Math.max(0, Math.min(inkPool.length - 1, L))];
-    for (const ink of pool) {
-      ink.lut = null;
-      ink.natural = false;
-      ink.loop = false;
-      ink.take = colour;
-      ink.takeMix = 1;
-      ink.tintK = 0;
-      ink.mixK = 0;
-      ink.mid = [colour[0], colour[1], colour[2]];
-    }
-    return { stroke: pool[0], leaf: pool[1], accent: pool[2] };
+  /**
+   * The planting strand (growth/commit.ts) is drawn with the take tree's own colours and theme, so
+   * nothing changes at the hand-over: its take colour comes over from the halo's while it curls and
+   * moves (the branch colour leans toward the halo's until then), and its look eases from the
+   * halo's to the tree's.
+   */
+  const commitHooks: CommitHooks = {
+    strand(sk, vis, lineAlpha, decoAlpha, ids, L, snap, unit, st) {
+      const s = slots.find((x) => x.commit && x.commit.snap === snap);
+      if (!s) return;
+      const tree = s.gens.current?.tree ?? s.gens.gens[s.gens.gens.length - 1]?.tree;
+      const own = hexToRgb(s.colour), from = snap.colour;
+      const take: RGB = [lerp(from[0], own[0], st.colour), lerp(from[1], own[1], st.colour), lerp(from[2], own[2], st.colour)];
+      const inks = inksFor(L, take, Math.max(0, slots.indexOf(s)), s.drive, false, s.ink, s.id);
+      if (st.colour < 1) {
+        inks.stroke.mix = from;
+        inks.stroke.mixAlong = 0;
+        inks.stroke.mixK = Math.max(inks.stroke.mixK, 1 - st.colour);
+      }
+      const look = mixLook(snap.look ?? lookOf(s.drive), lookOf(s.drive), st.look);
+      const sScale = 1 / Math.max(1e-3, tree?.maxFlex ?? 1);
+      pushTree(back, sk, vis, L, inks.stroke, look, 1, 1, params.glow.front, lineAlpha, undefined, undefined, undefined, sScale,
+        false, branchRgb(s.theme));
+      const [dx, dy] = localDown(s.place.angle + spin * s.place.tierDir, s.place.scale);
+      // Leaves keep the halo's size while it curls, then take the tree's.
+      const style = styleOf(L, inks, look, 1, lerp(unit, 1, st.look), snap.seed, s.drive, 0, dx, dy, s.theme, s.density, sScale);
+      style.sizeMul = lerp(snap.sizeMul, 1, st.look);
+      decorateTree(sk, vis, params, style, backDeco, { ids, alpha: decoAlpha });
+    },
   };
-
-  function commitHooks(fxLayer: number, nextLayer: () => number): CommitHooks {
-    return {
-      ring(snap, cx, cy, R, rot, look, ringAlpha, nodeAlpha, windE) {
-        const L = nextLayer();
-        if (L < 0) return;
-        // It starts with the halo's squish and tilt and turns round as it winds up and spins.
-        const k = (snap.idle ?? 1) * (1 - windE);
-        const sq = 1 - clamp(params.halo.squish, 0, 0.95) * k;
-        layerU.set(L, cx, cy, Math.PI / 2 + rot + params.halo.tilt * deg * k, R, STILL, sq);
-        const lk = strandLook(look);
-        const inks = commitInks(L, look.colour);
-        pushRing(front, L, inks.stroke, lk, ringAlpha * look.alpha, R, 0);
-        pushTree(front, snap.sk, snap.vis, L, inks.stroke, lk, look.alpha, R, params.glow.front, nodeAlpha);
-        const st = styleOf(L, inks, lk, look.alpha, R, snap.seed, commitDrive, 0, 0, -1 / R, snap.theme, snap.density);
-        st.sizeMul = snap.sizeMul;
-        decorateTree(snap.sk, snap.vis, params, st, frontDeco, { ids: snap.ids, alpha: nodeAlpha });
-      },
-      strand(sk, vis, nodeAlpha, ids, L, look, snap, unit) {
-        const lk = strandLook(look);
-        const inks = commitInks(L, look.colour);
-        pushTree(back, sk, vis, L, inks.stroke, lk, look.alpha, 1, params.glow.front, nodeAlpha);
-        const s = slots.find((x) => x.commit && x.commit.snap === snap);
-        const [dx, dy] = s ? localDown(s.place.angle + spin * s.place.tierDir, s.place.scale) : [0, -1];
-        const st = styleOf(L, inks, lk, look.alpha, unit, snap.seed, commitDrive, 0, dx, dy, snap.theme, snap.density);
-        st.sizeMul = snap.sizeMul;
-        decorateTree(sk, vis, params, st, backDeco, { ids, alpha: nodeAlpha });
-      },
-      stroke(L, ax, ay, bx, by, ra, rb, fa, fb, look) {
-        const c = look.colour, sh = look.shine;
-        back.stroke(ax, ay, bx, by, ra * look.width, rb * look.width, fa, fb,
-          lerp(c[0], 1, sh), lerp(c[1], 1, sh), lerp(c[2], 1, sh), look.alpha, strandLook(look).glow, L);
-      },
-      fxStroke(ax, ay, bx, by, w, rgb, a, glow) {
-        if (fxLayer >= 0) front.stroke(ax, ay, bx, by, w, w, 0, 0, rgb[0], rgb[1], rgb[2], a, glow, fxLayer);
-      },
-      fxSprite(x, y, angle, size, shape, rgb, a, seed) {
-        if (fxLayer >= 0) frontDeco.sprite(x, y, angle, size, shape, 0, seed, rgb[0], rgb[1], rgb[2], a, 0.6, fxLayer);
-      },
-    };
-  }
 
   // ---- Simulation ------------------------------------------------------------------------------
   const pauseWilt: Wilt = { action: 'keep', amount: 0 }, endWilt: Wilt = { action: 'keep', amount: 0 };
@@ -932,7 +953,12 @@ function start() {
     const lives = ff.layers.filter((l) => l.role === 'live' && l.id !== 'live-none');
     const takes = ff.layers.filter((l) => l.role === 'take').slice(0, 16);
     const n = takes.length;
-    const targets = layoutTakes(n, params);
+    // growth.fillSpace: how present each take is (a take singing now is here at once).
+    const presence = takes.map((l) => {
+      const s = slots.find((x) => x.id === l.id);
+      return !s || l.level > 0.05 ? 1 : s.presence ?? 1;
+    });
+    const targets = layoutTakes(n, params, presence);
     const ids = takes.map((l) => l.id);
 
     // Halos: one per live track, matched by id. With no live track a resting halo stays on the head
@@ -958,7 +984,7 @@ function start() {
       }
     }
     // A new resting halo would sit exactly where the departing ring winds up: let it wait.
-    if (started) for (const h of nextHalos) if (!halos.includes(h)) h.spawnT0 = t + 0.5;
+    if (started) for (const h of nextHalos) if (!halos.includes(h)) h.spawnT0 = t + 1.7 * Math.max(0.3, params.commit.duration);
     halos = nextHalos;
 
     const hp = params.halo;
@@ -1001,7 +1027,7 @@ function start() {
     const next: Slot[] = ids.map((id, k) => {
       const existing = slots.find((s) => s.id === id);
       if (existing) return existing;
-      const seed0 = params.fake.seed * 1000 + plantSeed++ * 97;
+      const seed0 = params.fake.seed * 1000 + plantSeed++ * 97 + treeSalt * 7919;
       const slot: Slot = {
         id, gens: undefined as unknown as Generations<Plant>,
         place: { ...targets[k] }, drive: new Drive(), motion: new LayerMotion(seed0), alpha: 0, colour: takeColour(id, takes[k]), ...themeOf(takes[k]),
@@ -1047,11 +1073,25 @@ function start() {
       const pending = !!s.commit && s.commit.stampedAt < 0;
       if (!pending) s.gens.update(s.drive, dt, params);
       for (const g of s.gens.gens) {
-        g.tree.boost = s.stampT !== undefined ? 1 + 3 * Math.exp(-(t - s.stampT) / 0.35) : 1;
+        // Just planted: the rest of the tree grows out from the limbs quickly, then as usual.
+        g.tree.boost = s.stampT !== undefined ? 1 + 2.5 * Math.exp(-(t - s.stampT) / 0.8) : 1;
         // One new tree built per step: when several takes start a phrase together, the others wait
         // a frame (invisible) instead of making one long frame the growth then catches up on.
         if (!g.tree.built && newBuilds >= 1) continue;
-        if (g.tree.ensureBuilt(tg, params, blocked, n)) newBuilds++;
+        // growth.fillSpace across takes: a tree grows into the territory of its take as handed out
+        // now (wider while a neighbour is away), but only where trees are replaced as the song goes
+        // on (a tree that stays for good would keep the space when the neighbour comes back). The
+        // boughs of a take share one territory until all of them are gone (their slices are
+        // fractions of it).
+        let tgB = tg;
+        const replaced = (params.growth.newTreeEachPhrase || params.growth.branchEachPhrase) && !params.look.woodStays;
+        if (!replaced) tgB = { ...tg, growLo: undefined, growHi: undefined };
+        else if (g.bough) {
+          if (!s.growFrozen || !s.gens.gens.some((x) => x.bough && !x.retired && x.tree.built && x !== g))
+            s.growFrozen = [tg.growLo ?? tg.sectorLo, tg.growHi ?? tg.sectorHi];
+          tgB = { ...tg, growLo: s.growFrozen[0], growHi: s.growFrozen[1] };
+        }
+        if (g.tree.ensureBuilt(tgB, params, blocked, n, g.reveal < 0.03 && !g.retired)) newBuilds++;
         // A replaced tree keeps its withered twigs while it ends (they no longer grow back).
         const stays = params.look.woodStays;
         // The wood stays: pauses and endings touch nothing (pauses shake leaves loose below instead).
@@ -1071,28 +1111,32 @@ function start() {
         }
       }
       s.alpha = pending ? 0 : Math.min(1, s.alpha + realDt * 2);
+      // Away: silent, nothing of its tree left, no planting under way. After 2 s away its space
+      // starts to go to its neighbours (growth.fillSpace), over 1.5 s; back at once when it sings.
+      const here = s.drive.voice || pending || s.gens.gens.some((g) =>
+        g.retired ? g.alpha * (g.dim ?? 1) > 0.02 : !((g.end ?? 0) >= 1 && g.endAction !== undefined && g.endAction !== 'keep'));
+      s.awayFor = here ? 0 : (s.awayFor ?? 0) + dt;
+      s.presence = 1 - smooth(clamp((s.awayFor - 2) / 1.5));
       s.colour = takeColour(s.id, f);
       s.ink = inkOf(f);
       Object.assign(s, themeOf(f));
     });
     if (n >= params.layout.spinFrom) spin += params.layout.spinSpeed * deg * dt;
 
-    // Commit animations: plunge timing, impact.
-    const onsetAny = ff.layers.some((l) => l.onset && l.level > 0.1);
+    // Planting: the hand-over from the unrolled fronds to the tree.
     for (const c of commits) {
       const s = slots.find((x) => x.id === c.slotId);
-      if (c.step(t, s ? targetOf(s, 0) : undefined, onsetAny) && s) {
-        s.alpha = 1;
+      if (c.step(t, s ? targetOf(s, 0) : undefined) && s) {
         s.stampT = t;
-        // The impact jolts the new tree: a push up and to one side, then it springs back.
-        const j = 12 * deg * params.commit.impact;
-        s.motion.push((hash1(t * 7.3) < 0.5 ? -0.5 : 0.5) * j, j);
         const g = s.gens.current ?? s.gens.gens[s.gens.gens.length - 1];
         if (g) {
-          g.stamped = true;
-          g.reveal = Math.max(g.reveal, params.commit.stampReveal);
+          // Fully grown: the limbs the fronds lie on are there, the rest grows out from them.
+          g.reveal = 1;
           c.revealLimbs(g.tree);
         }
+        // From here it is a tree whose phrase has just ended: lit, then resting, then ending the
+        // way growth.onPhraseEnd says (its take singing again starts a new tree, as usual).
+        s.drive.silentFor = 0;
       }
     }
     commits = commits.filter((c) => {
@@ -1155,22 +1199,32 @@ function start() {
         const dry = g.dry ?? 0, gfall = g.fall ?? 0;
         if (g.bough && dry > 0 && layer < MAX_LAYERS - 5) {
           // An old bough (branch per phrase) in its own layer: it dries, droops about the point
-          // where it leaves the avatar, then drops and fades (consult 6, 3.4).
+          // where it starts (leaves the hub), then drops and fades (consult 6, 3.4).
           L = ++layer;
           const spinA = spin * pl.tierDir;
           const path = g.tree.limbPaths[0];
           let ox = pl.ox, oy = pl.oy;
           if (path) {
-            const q0 = g.tree.limbAt(0, path.clear), q1 = g.tree.limbAt(0, path.length);
+            const q0 = g.tree.limbAt(0, path.base), q1 = g.tree.limbAt(0, path.length);
             const [px, py] = toWorld(q0.x, q0.y, pl, spinA);
             const [tx, ty] = toWorld(q1.x, q1.y, pl, spinA);
-            const toDown = Math.atan2(Math.sin(-Math.PI / 2 - Math.atan2(ty - py, tx - px)), Math.cos(-Math.PI / 2 - Math.atan2(ty - py, tx - px)));
+            // Down: it droops toward the ground while it dries, then lets go and keeps turning that
+            // way as it falls. Away (growth.fallDirection): no gravity, no droop; it drifts straight
+            // out, away from the point it grew from.
+            const away = params.growth.fallDirection === 'away';
+            const dirA = Math.atan2(ty - py, tx - px);
+            let toT = Math.atan2(Math.sin(-Math.PI / 2 - dirA), Math.cos(-Math.PI / 2 - dirA));
+            // Pointing straight up: turn outward, away from the head.
+            if (Math.abs(toT) > 2.8) toT = Math.abs(toT) * (tx >= params.avatar.headX ? -1 : 1);
+            const droop = away ? 0 : Math.min(Math.abs(toT), params.growth.branchDroopDeg * deg);
             const e = dry * dry; // slow start
-            const delta = Math.sign(toDown) * Math.min(Math.abs(toDown), params.growth.branchDroopDeg * deg) * (0.85 * e + 0.15 * gfall);
+            const delta = away ? 0 : Math.sign(toT) * (droop * (0.85 * e + 0.15 * gfall) + (Math.abs(toT) - droop) * 0.6 * smooth(gfall));
             const c = Math.cos(delta), s2 = Math.sin(delta);
             const fs = gfall * params.growth.branchFallSeconds; // seconds falling
-            ox = px + c * (pl.ox - px) - s2 * (pl.oy - py) + 0.06 * Math.sign(tx - px) * gfall;
-            oy = py + s2 * (pl.ox - px) + c * (pl.oy - py) - 0.5 * 1.8 * fs * fs; // gravity 1.8 units / s²
+            const ux = Math.cos(dirA), uy = Math.sin(dirA); // along the bough: away from where it grew
+            const out = 0.25 * fs + 0.25 * fs * fs;
+            ox = px + c * (pl.ox - px) - s2 * (pl.oy - py) + (away ? ux * out : 0.06 * Math.sign(tx - px) * gfall);
+            oy = py + s2 * (pl.ox - px) + c * (pl.oy - py) + (away ? uy * out : -0.5 * 1.8 * fs * fs); // gravity 1.8 units / s²
             ang = angle + delta;
           }
           layerU.set(L, ox, oy, ang, pl.scale, s.motion);
@@ -1194,33 +1248,26 @@ function start() {
           });
         // Pieces that broke off (fall away): taken over with the colours they had, then drawn falling.
         takeDrops(g.tree, sk, gInks.stroke, look, a, sScale, branchRgb(s.theme));
-        g.tree.twigs.draw(back, L, a * fadeOf(look), dx, dy, t, dryRgbOf());
+        const [hx, hy] = g.tree.originLocal();
+        g.tree.twigs.draw(back, L, a * fadeOf(look), dx, dy, t, dryRgbOf(), params.growth.fallDirection === 'away', hx, hy);
         decorateTree(sk, g.tree.vis, params,
-          styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), backDeco,
+          { ...styleOf(L, gInks, look, a, 1, g.seed, s.drive, fall, dx, dy, s.theme, s.density, sScale), originX: hx, originY: hy }, backDeco,
           { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.swing, bend: g.tree.bend,
-            leafState: g.tree.leafState, leafGone: params.look.leafFall > 0 ? g.tree.leafGone : undefined, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone,
+            leafState: g.tree.leafState, leafGone: params.look.leafFall > 0 ? g.tree.leafGone : undefined, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone, branchFront: g.tree.branchFront,
             shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry, dropped: g.tree.dropped });
       }
     };
 
-    // Take plants. A plant being planted by a commit is not drawn until the impact; just after it,
-    // it flashes and quivers.
+    // Take plants. A plant being planted is not drawn until the hand-over; then it fades in under
+    // the fading strand.
+    if (drawTrunk(layer)) layer++;
     const slotLayer = new Map<string, number>();
     slots.forEach((s) => {
       if (layer >= MAX_LAYERS) return;
       const pl = s.place;
-      const since = s.stampT !== undefined ? t - s.stampT : Infinity;
-      const imp = params.commit.impact;
       layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir + (s.lean ?? 0), pl.scale, s.motion);
       slotLayer.set(s.id, layer);
-      if (!(s.commit && s.commit.stampedAt < 0)) {
-        let look = lookOf(s.drive);
-        if (since < 1) {
-          const e = Math.exp(-since / 0.12) * imp;
-          look = { ...look, shine: Math.max(look.shine, Math.min(1, 0.8 * e)), glow: look.glow * (1 + 2 * e), width: look.width * (1 + 0.8 * e) };
-        }
-        drawPlant(s, s.alpha, look, 0);
-      }
+      if (!(s.commit && s.commit.stampedAt < 0)) drawPlant(s, s.alpha, lookOf(s.drive), 0);
       layer++;
     });
     plantLayerCount = layer;
@@ -1231,7 +1278,7 @@ function start() {
       const u = clamp((t - d.t0) / Math.max(0.05, params.transitions.pruneSeconds));
       const pl = d.slot.place;
       layerU.set(layer, pl.ox, pl.oy, pl.angle + spin * pl.tierDir, pl.scale, d.slot.motion);
-      const look = { ...lookOf(d.slot.drive), glow: params.glow.base + 1.2 * Math.max(0, 1 - u * 4) };
+      const look = { ...lookOf(d.slot.drive), glow: params.glow.base + 0.5 * Math.max(0, 1 - u * 4) };
       drawPlant(d.slot, 1 - smooth(u), look, Math.min(1, u * 1.2));
       layer++;
     });
@@ -1261,16 +1308,11 @@ function start() {
       layer++;
     };
     halos.forEach((h) => drawHalo(h, 1));
-    // Commit animations: their own layers for the flying ring, one identity layer for effects.
-    if (commits.length) {
-      const fxLayer = layer < MAX_LAYERS ? layer++ : -1;
-      if (fxLayer >= 0) layerU.set(fxLayer, 0, 0, Math.PI / 2, 1, STILL);
-      const hooks = commitHooks(fxLayer, () => (layer < MAX_LAYERS ? layer++ : -1));
-      for (const c of commits) {
-        const s = slots.find((x) => x.id === c.slotId);
-        const L = s ? slotLayer.get(s.id) : undefined;
-        c.draw(t, s && L !== undefined ? targetOf(s, L) : undefined, hooks);
-      }
+    // Planting: the strand is drawn in its take's layer.
+    for (const c of commits) {
+      const s = slots.find((x) => x.id === c.slotId);
+      const L = s ? slotLayer.get(s.id) : undefined;
+      c.draw(t, s && L !== undefined ? targetOf(s, L) : undefined, commitHooks);
     }
     endingHalos.forEach((h) => drawHalo(h, 1 - smooth(clamp((t - (h.endT0 ?? t)) / Math.max(0.05, params.transitions.liveEndSeconds)))));
 
@@ -1483,7 +1525,7 @@ function start() {
       endingHalos: endingHalos.length,
       plants: slots.map((s) => ({ id: s.id, theme: s.theme, gens: s.gens.gens.map((g) => ({ seed: g.seed, reveal: +g.reveal.toFixed(2), alpha: +g.alpha.toFixed(2), retired: g.retired, idle: +g.idle.toFixed(1), wither: +g.wither.toFixed(2), nodes: g.tree.sk.n })) })),
       dying: dying.length,
-      commits: commits.map((c) => ({ slot: c.slotId, plungeAt: +c.plungeAt.toFixed(2), stampedAt: +c.stampedAt.toFixed(2), aborted: c.abortedAt >= 0 })),
+      commits: commits.map((c) => ({ slot: c.slotId, handedOverAt: +c.stampedAt.toFixed(2), aborted: c.abortedAt >= 0 })),
       instances: { backUnder: backUnder.count, back: back.count, backDeco: backDeco.count, front: front.count, frontDeco: frontDeco.count },
     }),
   };

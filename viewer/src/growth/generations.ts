@@ -36,11 +36,9 @@ export interface Generation<T extends Structure> {
   /** 0..1 how far a pause has acted on the outer twigs (pauses, pitch dips); it recedes when the
    *  take sings again. */
   wither: number;
-  /** Planted by the commit animation: it does not end while idle, and the take's first phrase
-   *  keeps growing it instead of starting a new tree. */
-  stamped?: boolean;
-  /** growth.branchEachPhrase: this tree is one bough of the take's tree. */
+  /** growth.branchEachPhrase: this tree is one bough of the take's tree, over [a, b] of its tips. */
   bough?: boolean;
+  range?: [number, number];
   /** A retired bough: 0..1 dried out, then 0..1 fallen. */
   dry?: number;
   fall?: number;
@@ -69,8 +67,10 @@ export class Generations<T extends Structure> {
   private nextSeed: number;
   private phrase = 0;
 
-  constructor(private make: (seed: number, slice: [number, number] | null) => T, firstSeed: number) {
+  constructor(private make: (seed: number, slice: [number, number, number] | null) => T, firstSeed: number) {
     this.nextSeed = firstSeed;
+    // Where the first bough grows comes from the seed too (a restart starts somewhere else).
+    this.phrase = Math.abs(Math.round(firstSeed)) % 97;
   }
 
   get current(): Generation<T> | undefined {
@@ -89,13 +89,46 @@ export class Generations<T extends Structure> {
       while (alive.length >= keep) alive.shift()!.retired = true;
     }
     const M = clamp(keep + 1, 3, 7);
-    const slice = each ? ([ORDER[M][this.phrase++ % M], M] as [number, number]) : null;
+    let slice: [number, number, number] | null = null;
+    if (each) {
+      const j = ORDER[M][this.phrase++ % M];
+      let a = j / M, b = (j + 1) / M;
+      // growth.fillSpace: the bough also reaches into the empty space beside its slice (up to one
+      // more slice on each side), as far as the nearest living bough; where a living bough has
+      // already reached into its slice, it gives that part up (at least half a slice stays).
+      const fill = clamp(g.fillSpace ?? 0, 0, 1);
+      if (fill > 0) {
+        const living = this.gens.filter((x) => x.bough && !x.retired && x.range).map((x) => x.range!);
+        const a0 = a, b0 = b;
+        for (const [oa, ob] of living) {
+          if (oa <= a + 1e-9 && ob > a) a = Math.min(Math.max(a, ob), a0 + 0.5 / M); // covers its start
+          if (ob >= b - 1e-9 && oa < b) b = Math.max(Math.min(b, oa), b0 - 0.5 / M); // covers its end
+        }
+        if (b - a < 0.5 / M) {
+          a = a0;
+          b = b0;
+        }
+        let left = a, right = 1 - b;
+        for (const [oa, ob] of living) {
+          if (ob <= a + 1e-9) left = Math.min(left, a - ob);
+          else if (oa >= b - 1e-9) right = Math.min(right, oa - b);
+          else {
+            // still overlapping (a bough inside this slice): no widening on that side
+            if (oa <= a + 1e-9) left = 0;
+            if (ob >= b - 1e-9) right = 0;
+          }
+        }
+        a -= fill * Math.min(Math.max(0, left), 1 / M);
+        b += fill * Math.min(Math.max(0, right), 1 / M);
+      }
+      slice = [a, b, M];
+    }
     const seed = this.nextSeed++;
     const tree = this.make(seed, slice);
     // look.woodStays: the tree is there in full at once.
     if (p.look.woodStays) (tree as unknown as { instant?: boolean }).instant = true;
     this.gens.push({ tree, seed, reveal: p.look.woodStays ? 1 : 0, alpha: 1, retired: false, idle: 0, wither: 0,
-      bough: !!slice, dry: 0, fall: 0 });
+      bough: !!slice, range: slice ? [slice[0], slice[1]] : undefined, dry: 0, fall: 0 });
     const cap = Math.max(MAX_GENERATIONS, keep + 3);
     while (this.gens.length > cap) this.gens.shift();
   }
@@ -105,8 +138,9 @@ export class Generations<T extends Structure> {
     const stays = p.look.woodStays;
     if (d.voice) {
       if (!this.current) this.regrow(p);
-      else if (stays) this.current.stamped = false; // one tree for good: phrases do not replace it
-      else if (this.current.stamped) this.current.stamped = false; // the first phrase grows the planted tree
+      else if (stays) {
+        // one tree for good: phrases do not replace it
+      }
       // A new bough only when the current one is at least half grown (a short phrase keeps growing it).
       else if (d.newPhrase && (g.branchEachPhrase ? this.current.reveal > 0.5 : g.newTreeEachPhrase && this.current.reveal > 0.05)) this.regrow(p);
       // Its ending took all of it away: the phrase starts a new tree.
@@ -124,19 +158,20 @@ export class Generations<T extends Structure> {
       cur.end = 0;
       cur.endAction = 'keep';
     }
-    if (cur) {
-      // Pauses act on the outer twigs gradually (growth.onPause); a pitch dip at once. Singing
-      // lets them grow back.
-      if (g.onPause !== 'keep' && !d.voice && d.silentFor > 0.12) cur.wither = Math.min(1, cur.wither + dt / Math.max(0.05, g.witherSeconds));
-      if (g.witherOnPitchDip && d.pitchDip) cur.wither = Math.min(1, cur.wither + 0.6);
-      if (d.voice) cur.wither = Math.max(0, cur.wither - dt / 1.2);
+    // Pauses act on the outer twigs gradually (growth.onPause); a pitch dip at once. Singing lets
+    // them grow back. The living boughs of "new branch each phrase" are one tree: all of them (an
+    // older bough used to keep the twigs a pause had taken, and looked half dead).
+    for (const x of this.gens) {
+      if (x !== cur && !(x.bough && !x.retired)) continue;
+      if (g.onPause !== 'keep' && !d.voice && d.silentFor > 0.12) x.wither = Math.min(1, x.wither + dt / Math.max(0.05, g.witherSeconds));
+      if (g.witherOnPitchDip && d.pitchDip) x.wither = Math.min(1, x.wither + 0.6);
+      if (d.voice) x.wither = Math.max(0, x.wither - dt / 1.2);
     }
 
-    // A full stop (a long silence) ends every tree by growth.onStop; the next phrase starts a new
-    // one. Trees planted by the commit animation wait for their first phrase instead.
+    // A full stop (a long silence) ends every tree by growth.onStop; the next phrase starts a new one.
     if (g.dieAfter > 0 && g.onStop !== 'keep' && !stays && !d.voice && d.silentFor > g.dieAfter)
       for (const x of this.gens)
-        if (!x.stamped && !x.ending) {
+        if (!x.ending) {
           x.retired = true;
           x.ending = true;
         }
@@ -166,14 +201,13 @@ export class Generations<T extends Structure> {
       // Brightness: full while its take is in a phrase, resting between.
       const lit = gen.bough ? d.voice || !d.phraseOver(p) : growing || (gen === cur && !d.phraseOver(p));
       const target = lit ? 1 : g.restBrightness;
-      if (gen.stamped) gen.alpha = Math.max(gen.alpha, g.restBrightness);
-      else gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
+      gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
       if (gen.bough) continue; // living boughs are one tree: no ending of their own
 
       // Which ending acts on it: the full stop's, or the phrase end's once its phrase is over. A
       // replaced tree has to go: it takes the other ending if this one keeps it, else it fades.
       let act: EndAction = 'keep';
-      if (!gen.stamped && !growing && !(stays && gen === cur)) {
+      if (!growing && !(stays && gen === cur)) {
         if (gen.ending) act = g.onStop;
         else if (gen.idle > phraseOver) act = g.onPhraseEnd;
         if (act === 'keep' && gen.retired && gen.idle > phraseOver)

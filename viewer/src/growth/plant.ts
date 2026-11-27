@@ -102,8 +102,9 @@ export class Plant {
   maxFlex = 1;
   /** Set by the creator before the first build (the phrase that grows this tree). */
   mood: Mood = NEUTRAL_MOOD;
-  /** growth.branchEachPhrase: build only one bough, in slice [j, of M] of the territory. */
-  slice: [number, number] | null = null;
+  /** growth.branchEachPhrase: build only one bough, over [a, b] (0..1) of the territory's tips;
+   *  M = how many slices the territory has (a bough is at least one of them). */
+  slice: [number, number, number] | null = null;
   /** Share of the reveal taken by the hidden part (trunk, primaries behind the avatar). */
   private trunkFrac = 0;
   /** Per-node growth 0..1 along its segment (computeReveal). */
@@ -121,6 +122,16 @@ export class Plant {
   leafGone = new Float32Array(0);
   /** look.woodStays: every segment shows at once (no growing). */
   instant = false;
+  /** The territory (growLo/growHi, milliradians) this tree was built for. */
+  private territory = '';
+  /** The node the limbs fan out from (behind the neck). */
+  private hubNode = 0;
+
+  /** The origin point (the hub) in the plant's frame. */
+  originLocal(): [number, number] {
+    return this.sk.n > this.hubNode ? [this.sk.x[this.hubNode], this.sk.y[this.hubNode]] : [0, 0];
+  }
+
   /** Per-node leaf presence 0..1 (eased by decorateTree, so leaves fade in and out). */
   leafState = new Float32Array(0);
   /** Per-node blossom open amount shown (deco.ts), -1 after its petals fell. */
@@ -159,6 +170,8 @@ export class Plant {
   /** Per branch: its last node, and 1 once it has finished growing (leaves are only drawn then). */
   private branchLast = new Int32Array(0);
   branchDone = new Uint8Array(0);
+  /** Per branch: the flex its growing tip has reached (leaves come in a little behind it). */
+  branchFront = new Float32Array(0);
   private branchRand = new Float32Array(0);
   /** Build-time reveal threshold per node. */
   private baseThr = new Float32Array(0);
@@ -171,7 +184,9 @@ export class Plant {
   private r: Rng;
   /** One path per primary limb, in primary order: root -> hub -> that primary (the planting
    *  animation's fronds, consult 6, 2.3). `clear`: arc length where it leaves the avatar. */
-  limbPaths: { idx: Int32Array; cum: Float32Array; length: number; clear: number }[] = [];
+  /** Per primary limb: the path from the root through the hub along it; `base` = arc length where
+   *  the limb leaves the hub (its start), `clear` = where it leaves the avatar. */
+  limbPaths: { idx: Int32Array; cum: Float32Array; length: number; clear: number; base: number }[] = [];
   /** The spine (Part B commit): root -> hub -> the territory's middle primary limb. */
   private spine = new Int32Array(0);
   private spineCum = new Float32Array(0);
@@ -193,18 +208,23 @@ export class Plant {
    * Build for this placement, or rebuild after a shape setting or the territory changed. The
    * placement's angle, origin and scale are not part of the signature: re-layout never rebuilds.
    */
-  ensureBuilt(pl: Placement, p: Params, blocked: Blocked, takeCount = 1) {
+  ensureBuilt(pl: Placement, p: Params, blocked: Blocked, takeCount = 1, loose = false) {
     const pp = p.plants, g = p.growth, a = p.avatar, L = p.look;
     const sig = [
       pl.kind, Math.round(pl.sectorLo * 1000), Math.round(pl.sectorHi * 1000), pl.lengthMul ?? 1,
-      g.branching, g.reach, g.flatten, g.spread, pp.lift, pp.wildness, pp.taper, pp.clearance, pp.softDroop,
+      g.branching, g.lowBranches, g.reach, g.flatten, g.spread, pp.lift, pp.wildness, pp.taper, pp.clearance, pp.softDroop,
       pp.moodShaping, pp.step, pp.tipWidth, pp.maxWidth, pp.maxNodes, L.decoSize, L.variety, L.depthShade,
       p.layout.midOriginY, p.layout.spinSpeed !== 0, this.slice ? this.slice.join('/') : '',
-      pp.twist, pp.twistLength, pp.gnarl, pp.knots, pp.curl, pp.twistTighten, pp.twistTwigs, pp.twistDepth, pp.strandLay, pp.twistVoice,
+      pp.originLimbs, pp.twist, pp.twistLength, pp.gnarl, pp.knots, pp.curl, pp.twistTighten, pp.twistTwigs, pp.twistDepth, pp.strandLay, pp.twistVoice,
       a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
-    if (sig === this.signature) return false;
+    // growth.fillSpace: the territory to grow into (growLo / growHi) is fixed once the tree is
+    // built, except while it has not shown yet (loose): then it follows, so takes that come back
+    // together share the space fairly.
+    const terr = Math.round((pl.growLo ?? pl.sectorLo) * 1000) + '/' + Math.round((pl.growHi ?? pl.sectorHi) * 1000);
+    if (sig === this.signature && !(loose && terr !== this.territory)) return false;
     this.signature = sig;
+    this.territory = terr;
     this.buildGesture(pl, p, blocked, takeCount);
     return true;
   }
@@ -398,6 +418,17 @@ export class Plant {
   private markDone() {
     const last = this.branchLast, done = this.branchDone;
     for (let b = 0; b < done.length; b++) if (!done[b] && this.vis[last[b]] >= 0.999) done[b] = 1;
+    // How far each branch has grown (its tip, as drawn).
+    const sk = this.sk, fr = this.branchFront, bid = this.branchId;
+    if (fr.length !== done.length) this.branchFront = new Float32Array(done.length);
+    const front = this.branchFront;
+    front.fill(0);
+    for (let i = 1; i < sk.n; i++) {
+      const v = this.vis[i];
+      if (v <= 0) continue;
+      const pa = sk.parent[i], f = sk.flex[pa] + v * (sk.flex[i] - sk.flex[pa]);
+      if (f > front[bid[i]]) front[bid[i]] = f;
+    }
   }
 
   /** Point, unit tangent and width at arc length d along the spine (extended straight past both ends). */
@@ -508,10 +539,12 @@ export class Plant {
     const [hx, hy] = toLocal(p.avatar.headX, p.avatar.headY, pl);
     const o = outlineOf(p, lerp(0.95, 1.08, mood.effort), pl.lengthMul ?? 1);
     // A world angle phi is the local heading pl.angle - phi; direction = (sin h, cos h).
+    // The territory to grow into: wider while a neighbour is away (growth.fillSpace).
+    const lo0 = pl.growLo ?? pl.sectorLo, hi0 = pl.growHi ?? pl.sectorHi;
     const N = 49;
     const table = new Float32Array(N);
     for (let k = 0; k < N; k++) {
-      const h = pl.angle - lerp(pl.sectorLo, pl.sectorHi, k / (N - 1));
+      const h = pl.angle - lerp(lo0, hi0, k / (N - 1));
       const dx = Math.sin(h), dy = Math.cos(h);
       let last = 0.2;
       for (let r = 0; r <= 1.6; r += 0.02) {
@@ -520,16 +553,16 @@ export class Plant {
       }
       table[k] = last;
     }
-    const span = Math.max(1e-6, pl.sectorHi - pl.sectorLo);
+    const span = Math.max(1e-6, hi0 - lo0);
     const rIn = (phi: number) => {
-      const x = clamp((phi - pl.sectorLo) / span) * (N - 1);
+      const x = clamp((phi - lo0) / span) * (N - 1);
       const i = Math.min(N - 2, Math.floor(x));
       return lerp(table[i], table[i + 1], x - i);
     };
     return {
       upX, upY, detail: clamp(1.25 - 0.07 * takeCount, 0.35, 1),
       hx, hy, headR: p.avatar.headR / Math.max(1e-3, pl.scale), cx, cy,
-      lo: pl.sectorLo, hi: pl.sectorHi, mid: (pl.sectorLo + pl.sectorHi) / 2, ...o, rIn,
+      lo: lo0, hi: hi0, mid: (lo0 + hi0) / 2, ...o, rIn,
     };
   }
 
@@ -546,6 +579,9 @@ export class Plant {
     const step = Math.max(0.01, pp.step);
     const wild = pp.wildness * (1 + 0.5 * mood.vibrato);
     const branching = clamp(g.branching);
+    // growth.lowBranches: forks and shoots start nearer where a limb leaves the head (0 = as before).
+    const low = clamp(g.lowBranches ?? 0);
+    const moat = lerp(MOAT, 0.04, low);
     const lift = (pp.lift + 0.5 * (mood.pitch - 0.5) - 0.9 * mood.soft * pp.softDroop) * 0.9; // rad per unit
     const hUp = Math.atan2(f.upX, f.upY);
 
@@ -578,7 +614,7 @@ export class Plant {
     const inBand = (x: number, y: number) => {
       const [rr, phi] = polar(x, y);
       if (phi < f.lo - seam || phi > f.hi + seam) return false;
-      return rr >= f.rIn(phi) + MOAT && rr <= rOut(phi) * 1.04 && !hidden(x, y);
+      return rr >= f.rIn(phi) + moat && rr <= rOut(phi) * 1.04 && !hidden(x, y);
     };
     /** Free here, with `clearance` to both sides of the direction of travel. */
     const free = (x: number, y: number, h: number, self: number, host: number) => {
@@ -595,7 +631,9 @@ export class Plant {
 
     const limbs: Limb[] = [];
     const order: number[] = [0], tAlong: number[] = [0], limbOf: number[] = [0];
-    sk.add(0, 0, -1, 0, pp.maxWidth, NodeKind.Branch);
+    // 1. The root is the hub behind the neck: every limb leaves from this one point. (A trunk
+    //    below it, plants.trunk, is drawn once for the whole scene by main.ts, not by each tree.)
+    sk.add(f.cx, f.cy, -1, 0, pp.maxWidth, NodeKind.Branch);
     const headingAt = (node: number) => {
       const pa = sk.parent[node];
       if (pa < 0) return 0;
@@ -604,7 +642,7 @@ export class Plant {
 
     // Heading h is measured from +Y, positive toward +X: direction = (sin h, cos h).
     const grow = (parent: number, h: number, len: number, ord: number, w0: number,
-                  noiseSeed: number, aim?: { x: number; y: number }, host = -1, prim = -1): Limb => {
+                  noiseSeed: number, aim?: { x: number; y: number }, host = -1, prim = -1, steady = false): Limb => {
       const n = Math.max(2, Math.ceil(len / step));
       const ds = len / n;
       let x = sk.x[parent], y = sk.y[parent], prev = parent, arc = 0;
@@ -626,21 +664,23 @@ export class Plant {
             const w = smooth01(emerge + 0.05, emerge + 0.3, arc);
             dh += wrap(Math.atan2(aim.x - x, aim.y - y) - h) * clamp((1.6 * ds) / Math.max(rem, 0.2), 0, 0.5) * w;
           }
-          dh += wild * 0.25 * noise1(t * 2.5 + noiseSeed, this.seed) * ds; // wander
-          dh += lift * ds * (0.3 + 0.7 * t) * Math.sin(hUp - h); // tips toward the sky
+          if (!steady) {
+            dh += wild * 0.25 * noise1(t * 2.5 + noiseSeed, this.seed) * ds; // wander
+            dh += lift * ds * (0.3 + 0.7 * t) * Math.sin(hUp - h); // tips toward the sky
+          }
         }
         h += clamp(dh, -kMax * ds, kMax * ds);
         // Safety net: a limb leaving the head's outline does so steeply.
         const dhd = Math.hypot(x - f.hx, y - f.hy);
         const leaving = Math.sin(h) * (x - f.hx) + Math.cos(h) * (y - f.hy) > 0;
-        if (leaving && dhd > f.headR * 0.9 && dhd < f.headR + 0.35) {
+        if (!steady && leaving && dhd > f.headR * 0.9 && dhd < f.headR + 0.35) {
           const hr = Math.atan2(x - f.hx, y - f.hy);
           const max = lerp(28, 70, smooth01(f.headR, f.headR + 0.35, dhd)) * deg;
           h = hr + clamp(wrap(h - hr), -max, max);
         }
         // Far out: never more than 75° off radial from the hub.
         const [rr] = polar(x, y);
-        if (emerge >= 0 && rr > 0.3) {
+        if (!steady && emerge >= 0 && rr > 0.3) {
           const hr = Math.atan2(x - f.cx, y - f.cy);
           h = hr + clamp(wrap(h - hr), -75 * deg, 75 * deg);
         }
@@ -660,11 +700,9 @@ export class Plant {
       return limb;
     };
 
-    // 1. Hidden trunk: root -> hub (the crown only; for wings and wedges the hub is the root).
-    let hub = 0;
-    const trunkLen = Math.hypot(f.cx, f.cy);
-    if (trunkLen > 2 * step) hub = grow(0, Math.atan2(f.cx, f.cy), trunkLen, 0, pp.maxWidth, 0).last;
-    else limbs.push({ id: 0, first: 0, last: 0, order: 0, len: 0, attach: 0, emerge: 0, prim: -1 });
+    const hub = 0;
+    limbs.push({ id: 0, first: 0, last: 0, order: 0, len: 0, attach: 0, emerge: 0, prim: -1 });
+    this.hubNode = hub;
 
     // 2. Tip targets: evenly spaced along the outline, stratified jitter, ragged radius.
     const W = f.hi - f.lo;
@@ -678,7 +716,7 @@ export class Plant {
       }
     }
     const gTip = lerp(0.6, 0.28, branching);
-    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), this.slice ? Math.max(3, this.slice[1]) : 3, 20);
+    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), this.slice ? Math.max(3, this.slice[2]) : 3, 20);
     const kE = clamp(1.05 - 0.4 * g.spread * lerp(0.85, 1.2, mood.effort), 0.3, 1);
     const hero = Math.floor(nTip * (0.25 + 0.5 * rs()));
     const droop = 8 * deg * mood.soft * pp.softDroop;
@@ -714,19 +752,24 @@ export class Plant {
       branchLimbs.push(limb);
       for (const side of [group.slice(0, m), group.slice(m + 1)]) {
         if (!side.length || limb.last < limb.first) continue;
-        // Fork in the visible part, later for deeper forks: where the gap to the neighbours has opened.
+        // Fork in the visible part, later for deeper forks: where the gap to the neighbours has opened
+        // (growth.lowBranches: soon after the limb leaves the head).
         const e = clamp(limb.emerge / Math.max(0.05, limb.len));
-        const u = e + (1 - e) * clamp(lerp(0.25, 0.55, r()) + 0.08 * depth, 0.2, 0.75);
+        const u = e + (1 - e) * clamp(lerp(lerp(0.25, 0.06, low), lerp(0.55, 0.3, low), r()) + lerp(0.08, 0.05, low) * depth,
+          lerp(0.2, 0.04, low), 0.75);
         const node = limb.first + Math.round(u * (limb.last - limb.first));
         subdivide(node, side, depth + 1, sk.w[node] * 0.8, limb);
       }
     };
     // One bough (branch per phrase): only the tips of this tree's slice, as a single primary.
-    const nPrim = !tips.length ? 0 : this.slice ? 1 : clamp(Math.round((sIn * kE) / 0.2), Math.min(2, tips.length), Math.min(tips.length, 7));
+    // plants.originLimbs: how many limbs leave the origin (0 = by the size of the territory).
+    const want = Math.round(pp.originLimbs ?? 0);
+    const nPrim = !tips.length ? 0 : this.slice ? 1 : want > 0 ? clamp(want, 1, tips.length)
+      : clamp(Math.round((sIn * kE) / 0.2), Math.min(2, tips.length), Math.min(tips.length, 7));
     if (this.slice && tips.length) {
-      const [j, M] = this.slice;
-      const from = Math.min(tips.length - 1, Math.floor((j * tips.length) / M));
-      const to = Math.max(from + 1, Math.floor(((j + 1) * tips.length) / M));
+      const [a, b] = this.slice;
+      const from = Math.min(tips.length - 1, Math.max(0, Math.floor(a * tips.length + 1e-9)));
+      const to = Math.min(tips.length, Math.max(from + 1, Math.floor(b * tips.length + 1e-9)));
       subdivide(hub, tips.slice(from, to), 0, wPrim, null, 0);
     } else
       for (let k = 0; k < nPrim; k++) {
@@ -744,7 +787,7 @@ export class Plant {
       const sites: { host: Limb; node: number; side: number; u: number; key: number }[] = [];
       for (const host of hosts) {
         if (host.last < host.first) continue;
-        const e = clamp((host.emerge + 0.1) / Math.max(0.05, host.len));
+        const e = clamp((host.emerge + lerp(0.1, 0.02, low)) / Math.max(0.05, host.len));
         const count = Math.floor(((host.len * Math.max(0, 0.95 - e)) / (shootGap * gapMul)) * f.detail);
         let s = r() < 0.5 ? -1 : 1;
         for (let j = 0; j < count; j++) {
@@ -920,7 +963,8 @@ export class Plant {
       const b = this.branchId[i], lb = limbs[b];
       if (i === lb.first && b > 0) {
         if (lb.prim >= 0) {
-          start[b] = 0.1 + 0.05 * Math.abs(lb.prim - (nPrim - 1) / 2);
+          // All primaries set off together, so a young tree is a fan, not one stem.
+          start[b] = 0.1 + 0.01 * Math.abs(lb.prim - (nPrim - 1) / 2);
           span[b] = 0.45 * Math.sqrt(lb.len / aRef);
         } else if (lb.order === 1) {
           start[b] = thr[lb.attach] + 0.03;
@@ -953,12 +997,12 @@ export class Plant {
       for (const lb of limbs)
         if (lb.prim >= 0 && lb.last >= lb.first && (!best || Math.abs(lb.prim - (nPrim - 1) / 2) < Math.abs(best.prim - (nPrim - 1) / 2))) best = lb;
       const path: number[] = [];
-      for (let i = hub; i >= 0; i = sk.parent[i]) path.unshift(i);
+      for (let i = best ? best.attach : hub; i >= 0; i = sk.parent[i]) path.unshift(i);
       if (best) for (let i = best.first; i <= best.last; i++) path.push(i);
       // Every primary's path (the fronds), in primary order.
-      const trunk: number[] = [];
-      for (let i = hub; i >= 0; i = sk.parent[i]) trunk.unshift(i);
       this.limbPaths = limbs.filter((lb) => lb.prim >= 0 && lb.last >= lb.first).sort((a, b) => a.prim - b.prim).map((lb) => {
+        const trunk: number[] = [];
+        for (let i = lb.attach; i >= 0; i = sk.parent[i]) trunk.unshift(i);
         const pth = [...trunk];
         for (let i = lb.first; i <= lb.last; i++) pth.push(i);
         const cum = new Float32Array(pth.length);
@@ -969,7 +1013,7 @@ export class Plant {
             clear = cum[k];
             break;
           }
-        return { idx: Int32Array.from(pth), cum, length: cum[pth.length - 1], clear };
+        return { idx: Int32Array.from(pth), cum, length: cum[pth.length - 1], clear, base: cum[trunk.length - 1] };
       });
       this.spine = Int32Array.from(path);
       this.spineCum = new Float32Array(path.length);

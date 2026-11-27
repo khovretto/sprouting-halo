@@ -38,7 +38,6 @@ const HARD: Record<string, [number, number]> = {
   'halo.squish': [0, 0.95],
   'plants.maxNodes': [50, 20000],
   'plants.step': [0.005, 1],
-  'commit.burst': [0, 500],
   'commit.limbs': [1, 4],
   'fake.liveTracks': [1, 6],
   'growth.branchesKept': [1, 6],
@@ -96,6 +95,7 @@ const RANGES: Record<string, Spec> = {
   'scene.backdrop': { options: { 'Checker (dark)': 'checker', 'Checker (light)': 'checker-light', 'Checker (half dark, half light)': 'checker-split', Black: 'black', White: 'white', 'None (transparent)': 'none' } },
   'growth.secondsToFull': { min: 0.5, max: 15 },
   'growth.branching': { min: 0, max: 1 },
+  'growth.lowBranches': { min: 0, max: 1 },
   'growth.reach': { min: 0.4, max: 1.6 },
   'growth.restBrightness': { min: 0, max: 1 },
   'growth.spread': { min: 0.4, max: 2 },
@@ -122,6 +122,11 @@ const RANGES: Record<string, Spec> = {
   'look.leafRegrow': { min: 0.5, max: 10 },
   'motion.leafShake': { min: 0, max: 2 },
   'plants.twist': { min: 0, max: 1 },
+  'plants.trunk': { min: 0, max: 1.5 },
+  'plants.originLimbs': { min: 0, max: 16, step: 1 },
+  'plants.trunkLean': { min: -45, max: 45 },
+  'growth.fillSpace': { min: 0, max: 1 },
+  'growth.fallDirection': { options: { 'Down (gravity)': 'down', 'Away from the origin (no gravity)': 'away' } },
   'plants.gnarl': { min: 0, max: 1 },
   'plants.curl': { min: 0, max: 1 },
   'plants.strands': { min: 1, max: 3, step: 1 },
@@ -191,7 +196,6 @@ const RANGES: Record<string, Spec> = {
   'plants.tipWidth': { min: 0.001, max: 0.03 },
   'plants.maxWidth': { min: 0.005, max: 0.12 },
   'plants.maxNodes': { min: 100, max: 5000, step: 1 },
-  'layout.lowOriginY': { min: -1.5, max: 1 },
   'layout.midOriginY': { min: -1.5, max: 1 },
   'layout.tierFrom': { min: 3, max: 17, step: 1 },
   'layout.innerScale': { min: 0.3, max: 1 },
@@ -201,13 +205,7 @@ const RANGES: Record<string, Spec> = {
   'transitions.liveEndSeconds': { min: 0.1, max: 5 },
   'halo.ringSpacing': { min: 0.03, max: 0.4 },
   'fake.liveTracks': { min: 1, max: 4, step: 1 },
-  'commit.duration': { min: 0.6, max: 1.6 },
-  'commit.impact': { min: 0, max: 2 },
-  'commit.stampReveal': { min: 0.2, max: 1 },
-  'commit.burst': { min: 0, max: 80, step: 1 },
-  'commit.syncWindow': { min: 0, max: 0.5 },
-  'commit.plunge': { min: 0.1, max: 0.5 },
-  'commit.spinTurns': { min: 0, max: 2 },
+  'commit.duration': { min: 0.5, max: 2.5 },
   'transitions.pruneSeconds': { min: 0.3, max: 5 },
   'avatar.opacity': { min: 0, max: 1 },
   'avatar.headX': { min: -1, max: 1 },
@@ -1118,13 +1116,13 @@ Shift-click: factory default ${fmt(d)}`));
     hide('growth.witherDipSemitones', !p.growth.witherOnPitchDip);
     hide('growth.witherDepth', p.growth.onPause === 'keep' && !p.growth.witherOnPitchDip);
     hide('growth.fadeAfter', p.growth.onPhraseEnd === 'keep');
+    hide('plants.trunkLean', !(p.plants.trunk > 0));
     hide('harmony.colourMode', p.harmony.colour <= 0);
     hide('harmony.colourValue', p.harmony.colour <= 0 || p.harmony.colourMode !== 'colour');
     hide('fake.together', p.fake.voices !== 'duet');
     hide('fake.harmony', p.fake.voices === 'together');
     hide('scene.scopeLayer', !p.scene.showScope);
     hide('scene.scopeSeconds', !p.scene.showScope);
-    hide('commit.syncWindow', !p.commit.syncToOnset);
     const motion = p.motion as unknown as Record<string, unknown>;
     if ('shiver' in motion) hide('motion.shiverDeg', !motion.shiver);
 

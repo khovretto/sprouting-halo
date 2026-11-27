@@ -21,10 +21,11 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
   choice of what the branches do: keep, ungrow, fade or fall away, from the tips inward or all at
   once. Leaves let go and fall, or go the way of their twig.
 - **Harmony:** two tracks singing a third, fourth, fifth or sixth apart are in harmony: their
-  colours run into each other, their branches crisscross, blossoms open, the glow rises; theme
-  parts can open in harmony.
-- **Planting:** when a take is done, the halo winds up and unrolls along the new tree's limbs into
-  its root. Deleted takes fade while their leaves fall.
+  colours run into each other, the glow rises, and (optionally) their branches crisscross and
+  blossoms open; theme parts can open in harmony.
+- **Planting:** when a take is done, the halo curls up like a fern frond, moves to where the new
+  tree starts and unrolls along its limbs into the fully grown tree, in the tree's own colours; it
+  then rests and ends like any tree whose phrase is over. Deleted takes fade while their leaves fall.
 - **Voice:** loudness, note starts, pitch, vibrato, effort and breathiness each drive something:
   growth, glow, wind springs, shiver, blossoms on held notes, thorns with effort, leaves shaken
   loose by trembling.
@@ -39,8 +40,8 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
 - Light, dark and split checker backdrops for the preview; an optional dark outline and flat
   glow so looks read over bright scenes.
 - Voice scope (rolling graphs of what the overlay hears), tooltips that say how each setting reads
-  the voice, hotkeys (`/` lists them), a fake singer for testing without a DAW (independent
-  voices, a duet trading phrases, or stacked takes).
+  the voice, hotkeys (`/` lists them), a fake singer for testing without a DAW (stacked takes,
+  independent voices, or a duet trading phrases).
 - Performance controls: frame-rate cap, idle and background rates, maximum picture size.
 
 ### Sprout.exe
