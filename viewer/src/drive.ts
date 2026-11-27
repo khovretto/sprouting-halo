@@ -15,8 +15,10 @@ export class Drive {
   energy = 0;
   /** Slow loudness 0..1 (sway). */
   slow = 0;
-  /** Onset flash 0..1. */
+  /** Onset flash 0..1: swells in on a note start (peak after about 80 ms) and fades (0.25 s). */
   flash = 0;
+  /** What the flash follows: jumps to 1 on a note start, fades with a 0.25 s time constant. */
+  private kick = 0;
   /** Smoothed effort 0..1 and breathiness 0..1. */
   effort = 0.5;
   breath = 0;
@@ -28,6 +30,8 @@ export class Drive {
   held = 0;
   /** 0..1 blossoms open: rises once a note is held longer than look.blossomHold, closes after it. */
   bloom = 0;
+  /** 0..1 in harmony with another track (set by the app from harmony.ts). */
+  harmony = 0;
   private noteRef = 0;
   /** A note started this frame. */
   onset = false;
@@ -44,7 +48,7 @@ export class Drive {
   private dipLatched = false;
 
   reset() {
-    this.open = this.energy = this.slow = this.flash = this.breath = this.vibrato = this.level = 0;
+    this.open = this.energy = this.slow = this.flash = this.kick = this.breath = this.vibrato = this.level = 0;
     this.effort = 0.5;
     this.silentFor = 10;
     this.voice = false;
@@ -101,7 +105,10 @@ export class Drive {
     const hold = Math.max(0, p.look.blossomHold);
     const open = this.held >= hold ? 1 : 0;
     this.bloom += (open - this.bloom) * (1 - Math.exp(-dt / (open > this.bloom ? 0.25 : 0.7)));
-    this.flash = f?.onset ? 1 : this.flash * Math.exp(-dt / 0.25);
+    // A note start swells the flash in instead of switching it on: no strobe.
+    this.kick = f?.onset ? 1 : this.kick * Math.exp(-dt / 0.25);
+    // (aimed a little past the kick so it still reaches 1, then capped)
+    this.flash = Math.min(1, damp(this.flash, this.kick * 1.35, 25, dt));
     this.effort = damp(this.effort, f?.effort ?? 0.5, 6, dt);
     this.breath = damp(this.breath, f?.breath ?? 0, 6, dt);
     if (f && f.pitch > 0) this.pitch = damp(this.pitch, pitchNorm(f.pitch), 10, dt);

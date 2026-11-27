@@ -1,13 +1,14 @@
 // Motion state on the CPU (docs/fable-consult-3-motion.md, 1.3 and 2.6): per layer, three damped
 // springs (limb 0.75 Hz, shoot 1.7 Hz, twig 3.3 Hz) whose state is a lean vector in the world.
-// A wandering wind whose strength is the loudness pushes them; every note start kicks them; the
-// limb's acceleration throws the thinner parts back (follow-through). The vibrato phase is
+// A wandering wind whose strength is the loudness pushes them; a note start can kick them
+// (motion.kickDeg, off by default: note starts only flash); the limb's acceleration throws the
+// thinner parts back (follow-through). The vibrato phase is
 // integrated here so a changing rate never jumps. The shaders (shaders/motion.glsl) add the gust
 // field, per-shoot noise, the shiver and leaf flutter.
 
 import type { Drive } from './drive';
 import type { Params } from './params';
-import { clamp, deg, lerp, noise1, TAU } from './math';
+import { clamp, damp, deg, lerp, noise1, TAU } from './math';
 
 const F0 = [0.75, 1.7, 3.3]; // Hz: limb, shoot, twig
 const ZETA = [0.28, 0.2, 0.16]; // damping ratios at springiness 0.5
@@ -40,6 +41,7 @@ export class LayerMotion {
   /** Writhe: amplitude, phase, wave number (motion.writhe). */
   readonly d = new Float32Array(4);
   private wPhase = 0;
+  private swell = 0;
 
   constructor(private seed: number) {}
 
@@ -59,13 +61,16 @@ export class LayerMotion {
 
     // Wind: sideways, wandering from one side through calm to the other; mostly shared by all layers.
     const side = clamp(2.2 * (0.6 * noise1(wind.raw * 0.11, 3) + 0.4 * noise1(wind.raw * 0.17, 10 + this.seed)), -1, 1);
-    // Swell: louder than the running mean lifts the boughs, a fading note lets them sag.
-    const swell = clamp((d.energy - d.slow) * 2, -1, 1);
+    // Swell: louder than the running mean lifts the boughs, a fading note lets them sag. Eased
+    // (about 0.25 s): the loudness jumps at every note start, and that step would ring the twig
+    // springs like a push.
+    this.swell = damp(this.swell, clamp((d.energy - d.slow) * 2, -1, 1), 4, dt);
+    const swell = this.swell;
     const fx = 0.8 * amp * side;
     const fy = amp * (0.6 * swell + 0.2 * noise1(wind.raw * 0.23, 40 + this.seed));
 
-    // A note start is a push with the wind and upward.
-    if (d.onset && dt > 0) {
+    // motion.kickDeg (off by default): a note start is a push with the wind and upward.
+    if (d.onset && dt > 0 && m.kickDeg > 0) {
       const j = m.kickDeg * deg * scale * (0.35 + 0.65 * d.effort) * (0.5 + 0.5 * clamp(d.level * 1.5));
       let sgn = Math.sign(side);
       if (Math.abs(side) < 0.15) sgn = this.flip = -this.flip;

@@ -69,8 +69,10 @@ names and colours come from the DAW where it reports them.
 ### Recording flow in REAPER
 
 1. Arm a track and record: the halo opens with your first phrase and grows a vine round the ring.
-2. Stop and disarm it: the halo winds up, travels to the new take's place, unrolls along the new
-   tree's main limb and drives into its root. The tree grows from then on whenever the take sings.
+2. Stop and disarm it: the halo curls up like a fern frond, moves to where the new take's tree
+   starts and unrolls along its main limbs into the fully grown tree. From then on it is a tree
+   whose phrase has just ended: it rests and ends the way "phrase end: tree" says, and the take's
+   playback grows new ones.
 3. Arm the next track and sing the next layer over the playback: the old take's tree reacts to
    its own playback, the new halo to your live voice.
 4. Delete or mute a take: after a short hold its tree fades out and its leaves fall.
@@ -112,15 +114,15 @@ page detects OBS by itself: it never slows down for "not focused", and its panel
 Open `http://localhost:7777/` in a normal browser (Chrome, Edge, Firefox). This is the same page
 with the settings panel. Every change you make here is sent to the OBS source at once.
 
-1. **Setup → Test & preview → Load avatar PNG**: load a screenshot of your avatar (with
+1. **Setup → Preview → Load avatar PNG**: load a screenshot of your avatar (with
    transparency). It's only shown in this browser, to line things up; OBS never shows it.
 2. **Setup → Fit to avatar**: zoom out and move the picture until the placeholder matches your
    avatar's size and place, then set the idle halo (small, on top of the head while you're not
    recording) and the open halo (while recording): size and height. Squish and tilt make the idle
    ring look like a halo seen slightly from above. Turn on the guides to see the canopy outline and
    each tree's territory.
-3. With **show advanced** on, the same folder has the head circle and body outline (head x / y /
-   size, shoulders, body bottom and width). Trees grow round this shape and keep a small gap from it.
+3. With **Advanced** on (top of the panel), the same folder has the head circle and body outline
+   (head centre x / y, head radius, body top, bottom and half-width). Trees grow round this shape and keep a small gap from it.
 
 These "fit" settings belong to your avatar, not to a look: presets never change them.
 
@@ -129,44 +131,73 @@ monitor while OBS shows the overlay.
 
 ## 7. The settings panel
 
-The panel has three tabs. Each has a preset of its own at the top.
+The panel has a fixed head and, under it, three tabs of folders that scroll.
 
-| Tab | What's in it |
+**The head**, always in view:
+
+- The title bar: **Advanced** shows the Advanced fold of each folder (the rarely needed
+  settings), **Fold all / Open all** closes or opens the folders of the tab you are on, **?**
+  lists the keys, **–** folds the panel down to its title bar (**H** hides it altogether).
+- **Status:** where the voice comes from (a green dot: live taps, amber: the fake singer, red:
+  waiting for Sprout.exe), how many live tracks and takes, the note being sung, and effort /
+  breath / softness.
+- **Test buttons:** Fake singer ⇄ live, Restart (the song starts over, with new trees each time),
+  Halo → tree, End phrase.
+- **Find a setting…** (key **S**): type a few letters of a setting, its folder or what it does.
+  Enter or a click opens its folder, in whichever tab it is, scrolls to it and flashes it. It
+  finds the Advanced settings and the buttons inside folders too.
+- **The tabs.** A dot on a tab means something was changed since its preset was picked.
+
+| Tab | Its folders, top to bottom |
 | --- | --- |
-| **Look** | How it looks: colours, theme and leaves, tree shape (including twist), halo, glow, many takes. |
-| **Reaction** | How it answers the voice: growing per phrase, pauses and withering, loudness, note starts, pitch / effort / softness, held notes and vibrato, planting a take. |
-| **Setup** | Fit to avatar, voice detection, performance, connection and sync, test and preview. |
+| **Look** | Theme & leaves (with 3D leaves and Falling leaves), Colours, Tree shape (with Twist & rope), Live halo, Glow, Many takes. |
+| **Reaction** | Growing, Pauses & endings, Loudness, Note starts, Pitch / effort / softness, Held notes & vibrato, Harmony, Planting & removing takes. |
+| **Setup** | Fit to avatar, Connection & sync, Performance, Voice detection, Preview, Fake singer, Backup & reset. |
 
-- **Hover** any row or folder title for what it does. Settings driven by the voice say exactly how
-  they read it ("Reads: …").
-- **Show advanced** (top of the panel) shows the rarely needed settings in each folder.
-- **Combined sliders** (fullness, liveliness, pace) move several settings at once.
-- A changed row gets a **↺** button: click returns it to the active preset, Shift-click to the
-  factory default. Folders with changes show a dot.
+Each tab starts with its **preset card** (section 8) and its **combined sliders** (fullness on
+Look; liveliness and pace on Reaction, marked ◆), which move several settings at once.
+
+- **Hover** any row, folder title or button for what it does. Settings driven by the voice say
+  exactly how they read it ("Reads: …").
+- A changed row gets a blue bar and a **↺** button: click returns it to the active preset,
+  Shift-click to the factory default. Folders with changes show a dot.
 - Type any number into a slider's box, even past the slider's ends: the slider stretches to fit.
   Only a few settings have hard limits where the overlay would break (for example layers 1–17).
-- The **toolbar** under the status rows: Fake singer ⇄ live, Restart, Halo → tree, End phrase,
-  and the key list. Press **/** for all keys.
+- **Drag the panel's left edge** to make it wider or narrower (double-click: the usual width).
+- **Setup → Backup & reset** saves every setting and your presets to one file, loads one, or
+  puts everything back to the factory defaults.
+- Press **/** for all keys.
 
 ## 8. Presets: Look, Reaction, Setup
 
 The three kinds are picked independently: any Look works with any Reaction.
 
+**Switching quickly:** the **◂ ▸** buttons beside each list go to the preset before and after
+(round and round), and the first ten presets of each list are numbered for the keys above the letters (not
+the numpad): **1 … 9, 0** for Look, **Shift + number** for Reaction, **Alt + number** for Setup
+(Ctrl + number stays the browser's own, for switching tabs).
+**Ctrl + .** and **Ctrl + ,** add or remove a fake take. Press **/** for the full list, grouped.
+
 **Look presets:** Sprout, Lush ivy, Winter branches, Festive wreath, Red bramble, Minimal, Neon
-stage, Rainbow, Cherry blossom, Autumn, Dark & twisted, Black briar.
+stage, Rainbow, Cherry blossom, Autumn, Black briar, Dark & twisted, Angelic (white leaves, blue
+blossoms; what lets go floats up).
 
 **Reaction presets:** Responsive, Calm (ballad), Punchy (stage), Subtle, Vibrato-sensitive, Branch
-by branch, Blossom ballad, Falling leaves, Steady (no withering), Fade away (nothing dies),
-Writhing, Nocturne.
+by branch, Blossom ballad, Falling leaves, Falling away, Drifting away, Duet (harmony), Steady (no withering),
+Fade away (nothing dies), Writhing, Nocturne.
 
 **Setup (testing) presets** only change the fake singer and the preview in this browser: Normal
-song, Ballad, Fast pop, Six takes, Not recording, Two live tracks, Slow-motion study, Held notes,
-Short phrases with long pauses, On a light background, Full stops, Pitch jumps, Planting loop.
+song, Ballad, Fast pop, Six takes, Not recording, Two live tracks, Duet: trading phrases, Independent
+voices, Slow-motion study, Held notes, Short phrases with long pauses, On a light background, Full
+stops, Pitch jumps, Planting loop.
 
 Some pairings made for each other: **Black briar + Nocturne** (black ink stays solid when you're
 quiet), **Dark & twisted + Writhing**, **Cherry blossom + Blossom ballad**.
 
-- **Save as new preset** keeps your own in this browser. **Export / Import** move them as files.
+- The buttons on the card: **Save** (your own presets only) overwrites the preset with what is on
+  screen, **Save as…** asks for a name and keeps a new one in this browser, **Revert** puts every
+  value of that kind back, **Export / Import** move presets as files, **Delete** removes one of
+  your own (it asks twice). "changed" on the card means the values differ from the preset.
 - Switching presets with unsaved changes keeps them as "Unsaved tweaks" in the list.
 - Presets never touch the fit to your avatar, your own take colours ("My take colours"), or the
   Sprout Tap windows.
@@ -177,7 +208,7 @@ Look → Colours has a sub-folder for branches, leaves, blossoms & berries, and 
 its colour from the take colour, the theme's own colours, or a **gradient**. A gradient can stay
 still, run from root to tip, flow with time, follow your voice (pitch, loudness, effort, airiness,
 vibrato, note starts) or scatter per leaf; the buttons Still, Root→tip, Flow, Sparkle and Sing it
-set these in one click.
+set these in one click (they show while the colour comes from a gradient).
 
 The gradient picker: click the bar to open it and again to fold it (or Fold, or Esc). Click the
 strip under the bar to add a colour stop, drag a stop to move it, drag it down or right-click to
@@ -204,6 +235,9 @@ Make your own at `http://localhost:7777/themes` (or Look → Theme & leaves → 
   bottom centre for a leaf with a stalk, the middle for a flower.
 - White or grey pictures take their colour from the colour settings. Colourful ones can keep their
   own colours.
+- **Opens** says when a part shows: always, on long held notes (like blossoms), or **in harmony
+  with another track** (section 11). On twig ends it stays a bud until then; anywhere else it is
+  not there until then.
 - Each part's natural colour can be a gradient with a movement. The theme also has a branch colour.
 - **Save** stores it in the `themes` folder next to Sprout.exe, so OBS gets it too. **Use in
   viewer** makes it the theme of the look. The normal panel sits on the right of this page, so you
@@ -230,18 +264,111 @@ DAW project.
 | Your voice | What happens (default Reaction) |
 | --- | --- |
 | Singing a phrase | The take's tree grows (about 3.5 s of full voice for a whole tree); the halo vine races round the ring. |
-| A new phrase | A new tree on a new seed (or, with "new branch each phrase", one new branch on the take's tree; the oldest dries, droops and falls). |
-| Short pause | The outer twigs wither back; their leaves fall. They regrow when you sing again. |
-| Long silence (4 s) | The whole tree withers away, trunk and all ("how things end": wither, fade or both). The next phrase grows a new one. |
-| Loudness | Brightness, glow, wind in the branches. |
-| Note starts | A flash and a push that swings back. |
+| A new phrase | A new tree on a new seed (or, with "new branch each phrase", one new branch on the take's tree; the oldest dries, droops and falls). Where it grows: "new branch grows" top to bottom (the default), bottom to top, at random, or spread out (the middle first, then far jumps); "symmetrical branches" (on by default) grows each one as a mirrored pair at the same height either side of straight up (over the top it is one branch), so a tree over the head is never lopsided; a tree off to one side grows one branch at that height. With "fill empty space", new branches reach into empty space beside them, and takes that have been away for a while leave their space to the others. |
+| Short pause (a breath) | The outer twigs grow back into the tree ("ungrow"); their leaves fall. They regrow when you sing again. |
+| The phrase ends (1 s of silence) | The tree stays whole until 3 s after you stopped singing, so it stands next to the tree the next phrase grows; then it ungrows, trunk and all. |
+| Full stop (4 s of silence) | Whatever is left of the tree goes the same way. The next phrase grows a new one. |
+| Two tracks in harmony | Waves of both colours run through them and everything glows a little more (with the Duet reaction, the branches also turn wavy and crisscross). |
+| Loudness | Brightness, glow, wind in the branches. A swell of glow runs up each tree from the root to the tips, and round the halo from where its vine grows (Reaction → "glow runs root to tip", 0.5 s; 0 = all at once). |
+| Note starts | A soft swell of glow. They do not move the plants (an optional push that swings back is under Reaction → Note starts, advanced; off by default). |
 | Pitch | High notes grow the upper side first and can shift the colours. |
 | Effort (pressed, full voice) | Thicker branches, bigger thorns. Soft singing: thinner, drooping, a wider softer glow. |
 | Vibrato | Twigs and leaves shimmer at your vibrato rate. With "leaves fall" (Autumn) it shakes leaves loose. |
 | Notes held 1.5 s | Blossoms open; their petals fall when the note ends. |
 
+### Pauses and endings
+
+Reaction → **Pauses & endings**: one **withering effect** says how branches go, and a switch for
+each length of silence says whether it acts: a **short pause** on the outer twigs, the **phrase end**
+and the **full stop** on the whole tree. A switch that is off keeps the tree as it is.
+
+| Withering effect | What the branches do |
+| --- | --- |
+| Ungrow | They grow back into the tree from their tips. |
+| Fade | They fade out: from the tips first, or all at once ("from the tips first" off). |
+| Fall away | Pieces break off and fall: from the tips first, or all at once. |
+
+Look → Theme & leaves has two sub-folders: **3D leaves** (how far leaves fold, turn and tilt, where
+the light comes from, how dark the shade and how bright the glint) and **Falling leaves** (how fast
+leaves fall, sway, turn and flutter, and how long they last). A leaf that lets go first drops
+straight down for a moment ("straight drop first", faster by "drop speed"), then slows and starts
+to sway like a real leaf catching the air; "drop differs per leaf" keeps them from all swaying at
+the same moment. "Leaves differ in how they fall" gives each leaf its own character: most
+flutter, each at its own speed, swing width and rhythm, tilting into each swing and rising a
+little at its ends; a few tumble end over end, fall faster and slide away to one side.
+
+The same effect takes away a tree that is replaced, and the trees after a **look change**: when a
+Look preset (or a tree-shape setting) changes, the trees are not rebuilt on the spot. Once the
+settings have rested for a moment, the old trees wither away and new ones grow back in the new look,
+without waiting for you to sing. The old trees keep their look (colours, theme, leaves) while they
+go. The live halo changes as a wave instead: the new look sweeps round it from its start point both
+ways at a steady pace ("look change round the halo", in the planting folder's advanced settings,
+3 s by default), so each shoot and leaf takes the new colours in its turn without you having to
+sing. Vine the new look does not keep (a shorter tail) fades as the wave passes, and what it lacks
+grows as usual when you sing. If the new look grows from other origins, the old vine stays as it is
+until the wave reaches it and a new vine starts from the new origins. The glow and the 3D-leaf
+light are shared and change at once. A single slider that only changes colours or leaves acts at
+once.
+
+- "Short pause reaches in" is how deep a breath goes; "tree stays after singing" keeps a
+  tree whole for that long after its take stopped singing, so old and new trees overlap into a
+  fuller canopy (0 = its ending starts as soon as the phrase is over);
+  "an ending takes" is how long the phrase end and the full stop take.
+- **Leaves let go when twigs go** (on by default): leaves and petals fall whenever their twig
+  ungrows, fades or falls. Off: they go the way of the twig, so they shrink back with it, fade with
+  it, and fall only when it falls. It covers the live halo too: leaves on its fading tail, on the
+  ring where the vine has moved on, on a halo that fades out, and those a look change without
+  leaves passes over.
+- **Falling pieces go** down with gravity (they turn so their loose end hangs down as they fall),
+  **away from the origin**: no gravity, they drift straight out from the point the tree grows
+  from, or **up**: they float up and old branches turn toward the sky. A look can bring its own
+  (Look → Theme & leaves → Falling leaves → "gravity of this look"), which then wins over the
+  reaction's: Neon stage and Dark & twisted drift away, Angelic floats up. It covers branch pieces, old branches (new branch each phrase), and the leaves and petals
+  that let go with them. An old branch grown as a mirrored pair droops and falls (or drifts out)
+  each half its own way. Switching between the two on the way (a reaction preset, say) does not
+  jump: what is in the air carries on from where it is, with the speed it had, and turns the new
+  way; an old branch that was drifting starts to droop ("how far an old branch droops") once
+  gravity is back.
+- "Leaves fall on their own" (Look → Theme & leaves) is something else: a steady trickle of
+  falling leaves that grow back, whatever the branches do.
+
+### Harmony
+
+The overlay notices when two tracks sing **in harmony**: at the same time, a third, fourth, fifth
+or sixth apart (in any octave), for at least a quarter of a second. It works between the live
+voice and takes played back, and between takes. Doubling the same note does not count unless you
+turn on "unison & octaves count".
+
+Reaction → **Harmony** has one amount per effect; 0 turns an effect off, so use any of them
+together:
+
+- **Colours come together:** how far both voices' colours go toward each other, and back when the
+  harmony ends. **Shared colour** says how:
+  - **Waves of both colours** (the default): bands of the other voice's colour run out along the
+    branches from the root, and round the halo, a sine wave between the two colours.
+    **Waves start:** the higher (or lower) voice leads: its colour runs into the other voice
+    first, and half a wave later the bands reach it too, so from then on both carry the same bands
+    in step. Or each voice takes the other's colour at once. **Halo waves start from** the side of
+    the ring facing the tree it is in harmony with (the bands run on from that tree), or from the
+    halo's growing points. **Wave length** and **wave speed** are in world units (the open halo's
+    radius is 1.05), the same on the trees and the halo.
+  - A **gradient** from one voice's colour at the root to the other's at the tips, the **mix** of
+    the two, or a **colour** you pick.
+- **Colours blend:** how two colours blend between each other: even (OKLab, no grey middle),
+  straight (RGB), as light (brighter half way), round the colour wheel, the painter's wheel
+  (yellow and blue make green) or a hard cut (sharp bands).
+- **Branches crisscross** (off by default; the Duet reaction turns it on): the branches turn wavy,
+  neighbours the opposite way, so they cross each other. They do not move; each branch keeps its
+  course and the tree its outline. The halo ring braids.
+- **Blossoms open in harmony**, and **glow in harmony**.
+- Theme parts can open in harmony (section 9).
+
+To try it without a second singer: Setup preset **Duet: trading phrases**, Reaction preset
+**Duet (harmony)**.
+
 The **voice scope** (key G) draws rolling graphs of what Sprout.exe hears and what the overlay
-makes of it: loudness, pitch, effort and breath, vibrato, note starts and phrases, growth. Hover a
+makes of it: loudness, pitch, effort and breath, vibrato, note starts and phrases, harmony (and the
+colour wave), growth. Hover a
 value for what it is and which settings use it.
 
 **Voice detection** (Setup) sets how vibrato is recognised. Sprout.exe keeps these in
@@ -262,6 +389,7 @@ Add `?offline` to a preview to use the built-in fake singer without Sprout.exe.
 | --- | --- |
 | H | Hide / show the panels (works in OBS's Interact window too) |
 | G | Voice scope |
+| S | Search the settings |
 | F | Fake singer ⇄ live taps |
 | R | Restart growth |
 | T | Halo → tree (plant the live take) |
@@ -287,11 +415,11 @@ as backdrop and guides, the avatar picture) stay in that browser and are never s
 | --- | --- |
 | The OBS source is empty | Is Sprout.exe running? Open `http://localhost:7777/` in a browser: if it loads there, check the OBS URL and that the source is the size of the canvas. |
 | The tap says "Not connected (no free slot)" | All 16 slots are taken: remove unused Sprout Taps. If the track is Connected but Sprout.exe doesn't see it, the two are different versions; install both from the same release. |
-| The halo never opens | The live track must be recognised: in REAPER arm it (Role Auto), elsewhere set Role to Live voice. "Fake singer" in the panel's toolbar must be off. |
+| The halo never opens | The live track must be recognised: in REAPER arm it (Role Auto), elsewhere set Role to Live voice. "Fake singer" at the top of the panel must be off. |
 | Everything reacts too little or too much | Put the tap before any effects. In the Sprout.exe window Up / Down moves the sensitivity floor (quieter sound than that counts as silence). Setup → Voice detection tunes vibrato. |
 | Trees never appear | Take tracks need Role Take playback (or Auto in REAPER with the track disarmed) and must actually play back sound. |
 | The panel's dropdowns don't open in OBS's Interact window | They open their own menu inside OBS; click the row again. Easier: change settings in a browser or on `/controls`. |
 | It stutters | Setup → Performance: lower "max fps" or "max picture size". Check that OBS's Browser Source hardware acceleration is on. `sprout.perf()` in the browser console shows where the time goes. |
 | A tap's track looks different from the rest | It has its own Theme, Leaves or Colour set. Press All Auto in that tap window, or Set every tap to Auto in the viewer. |
-| Black or dark looks vanish on a dark scene | They rely on the rim glow: keep glow strength up, use a Reaction that keeps trees opaque (Nocturne), and check on Setup → Test & preview → backdrop "half dark, half light". |
+| Black or dark looks vanish on a dark scene | They rely on the rim glow: keep glow strength up, use a Reaction that keeps trees opaque (Nocturne), and check on Setup → Preview → background "half dark, half light". |
 | Port 7777 is taken | Start Sprout.exe with `--port 8123` and use that port in the OBS URL. |

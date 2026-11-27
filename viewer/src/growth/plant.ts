@@ -21,10 +21,12 @@
 // a shape setting does.
 
 import { ShedPool } from '../shed';
+import { TwigPool } from '../twigs';
 import type { Params } from '../params';
 import { outlineOf, Placement, rOutAt, toLocal, toWorld } from '../layout';
 import { clamp, deg, hash1, lerp, noise1, rng, Rng } from '../math';
 import { bendFrames, NodeKind, Skeleton } from './skeleton';
+import type { BoughSlice } from './generations';
 
 type Blocked = (wx: number, wy: number) => boolean;
 
@@ -36,6 +38,22 @@ export interface Mood {
   vibrato: number;
 }
 export const NEUTRAL_MOOD: Mood = { effort: 0.5, pitch: 0.5, soft: 0, vibrato: 0 };
+
+/** The ending for a silence whose switch is `on` (growth.onPause, onPhraseEnd, onStop; true for a
+ *  replaced tree): growth.witherEffect, from the tips or all at once (growth.witherFromTips). */
+export function endActionOf(g: Params['growth'], on: boolean): EndAction {
+  if (!on) return 'keep';
+  const e = g.witherEffect ?? 'ungrow', tips = g.witherFromTips ?? true;
+  return e === 'fade' ? (tips ? 'fadeTips' : 'fade') : e === 'fall' ? (tips ? 'fallTips' : 'fall') : 'ungrow';
+}
+
+/** What branches do in a pause or at an ending (growth.onPause, onPhraseEnd, onStop). */
+export type EndAction = 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall';
+/** One stage acting on a tree this frame: its action and how far it has come (0..1). */
+export interface Wilt {
+  action: EndAction;
+  amount: number;
+}
 
 interface PlantForm {
   /** World up in the local frame. */
@@ -93,8 +111,9 @@ export class Plant {
   maxFlex = 1;
   /** Set by the creator before the first build (the phrase that grows this tree). */
   mood: Mood = NEUTRAL_MOOD;
-  /** growth.branchEachPhrase: build only one bough, in slice [j, of M] of the territory. */
-  slice: [number, number] | null = null;
+  /** growth.branchEachPhrase: build only one bough, to the tips in its parts of the territory
+   *  (one limb from the hub for each part). */
+  slice: BoughSlice | null = null;
   /** Share of the reveal taken by the hidden part (trunk, primaries behind the avatar). */
   private trunkFrac = 0;
   /** Per-node growth 0..1 along its segment (computeReveal). */
@@ -112,23 +131,44 @@ export class Plant {
   leafGone = new Float32Array(0);
   /** look.woodStays: every segment shows at once (no growing). */
   instant = false;
+  /** The territory (growLo/growHi, milliradians) this tree was built for. */
+  private territory = '';
+  /** The node the limbs fan out from (behind the neck). */
+  private hubNode = 0;
+
+  /** The origin point (the hub) in the plant's frame. */
+  originLocal(): [number, number] {
+    return this.sk.n > this.hubNode ? [this.sk.x[this.hubNode], this.sk.y[this.hubNode]] : [0, 0];
+  }
+
   /** Per-node leaf presence 0..1 (eased by decorateTree, so leaves fade in and out). */
   leafState = new Float32Array(0);
   /** Per-node blossom open amount shown (deco.ts), -1 after its petals fell. */
   bloomState = new Float32Array(0);
-  /** A twig withered back in the last computeReveal. */
+  /** A twig withered back (or pieces are falling) in the last computeReveal. */
   retracting = false;
   /** Leaves and petals that let go (growth.shed). */
   shed = new ShedPool();
+  /** Branch pieces that broke off and fall ("fall away"). */
+  twigs = new TwigPool();
+  /** Segments that let go since the last drawn frame: node, how far it was grown, sim time
+   *  (3 numbers each). The draw takes them over into `twigs` with their colours. */
+  drops: number[] = [];
+  /** Per node: 1 = it just let go and its leaf has not been dropped yet (deco.ts clears it). */
+  dropped = new Uint8Array(0);
   /** Per-node: the lowest leaf density at which this node carries a leaf (2 = never). */
   leafRank = new Float32Array(0);
   private childVis = new Float32Array(0);
   /** Per-node strand phase (plants.strands: rope limbs, drawn in pushTree). */
   twistPhase = new Float32Array(0);
-  /** Per node: the branch turns sharply here (twist elbows): its segment keeps a round end. */
-  elbow = new Uint8Array(0);
+  /** Per node: the branch order it moves by (shaders/motion.glsl). A shoot and everything that
+   *  grows from it turn as one about the shoot's base, so all of them carry the shoot's order:
+   *  with its own order a sub-shoot would turn further than the shoot it sits on and come off it. */
+  swing = new Uint8Array(0);
   /** Per-node distance to the farthest tip below it, used for withering. */
   private witherH = new Float32Array(0);
+  /** Per-node distance to the farthest tip below it, as it is (endings reach the trunk). */
+  private tipH = new Float32Array(0);
   /** Distance from the root to the farthest tip (the whole tree's height, for dying back). */
   private maxH = 0;
   private target = new Float32Array(0);
@@ -139,6 +179,8 @@ export class Plant {
   /** Per branch: its last node, and 1 once it has finished growing (leaves are only drawn then). */
   private branchLast = new Int32Array(0);
   branchDone = new Uint8Array(0);
+  /** Per branch: the flex its growing tip has reached (leaves come in a little behind it). */
+  branchFront = new Float32Array(0);
   private branchRand = new Float32Array(0);
   /** Build-time reveal threshold per node. */
   private baseThr = new Float32Array(0);
@@ -151,7 +193,12 @@ export class Plant {
   private r: Rng;
   /** One path per primary limb, in primary order: root -> hub -> that primary (the planting
    *  animation's fronds, consult 6, 2.3). `clear`: arc length where it leaves the avatar. */
-  limbPaths: { idx: Int32Array; cum: Float32Array; length: number; clear: number }[] = [];
+  /** Per primary limb: the path from the root through the hub along it; `base` = arc length where
+   *  the limb leaves the hub (its start), `clear` = where it leaves the avatar. */
+  limbPaths: { idx: Int32Array; cum: Float32Array; length: number; clear: number; base: number }[] = [];
+  /** Per node: the primary limb (index into limbPaths) it belongs to, -1 for the root, trunk and
+   *  hub (a mirrored bough's two halves dry, droop and fall each on its own). */
+  limbPart = new Int8Array(0);
   /** The spine (Part B commit): root -> hub -> the territory's middle primary limb. */
   private spine = new Int32Array(0);
   private spineCum = new Float32Array(0);
@@ -173,18 +220,33 @@ export class Plant {
    * Build for this placement, or rebuild after a shape setting or the territory changed. The
    * placement's angle, origin and scale are not part of the signature: re-layout never rebuilds.
    */
-  ensureBuilt(pl: Placement, p: Params, blocked: Blocked, takeCount = 1) {
+  /** Built for other shape settings (or another layout) than these: a look change. */
+  isStale(pl: Placement, p: Params) {
+    return this.built && this.sigOf(pl, p) !== this.signature;
+  }
+
+  /** The shape signature these settings would build (compared with the one it was built with). */
+  sigOf(pl: Placement, p: Params) {
     const pp = p.plants, g = p.growth, a = p.avatar, L = p.look;
-    const sig = [
+    return [
       pl.kind, Math.round(pl.sectorLo * 1000), Math.round(pl.sectorHi * 1000), pl.lengthMul ?? 1,
-      g.branching, g.reach, g.flatten, g.spread, pp.lift, pp.wildness, pp.taper, pp.clearance, pp.softDroop,
+      g.branching, g.lowBranches, g.reach, g.flatten, g.spread, pp.lift, pp.wildness, pp.taper, pp.clearance, pp.softDroop,
       pp.moodShaping, pp.step, pp.tipWidth, pp.maxWidth, pp.maxNodes, L.decoSize, L.variety, L.depthShade,
-      p.layout.midOriginY, p.layout.spinSpeed !== 0, this.slice ? this.slice.join('/') : '',
-      pp.twist, pp.twistLength, pp.gnarl, pp.knots, pp.curl, pp.twistTighten, pp.twistTwigs, pp.twistDepth, pp.strandLay, pp.twistVoice,
+      p.layout.midOriginY, p.layout.spinSpeed !== 0, this.slice ? this.slice.ranges.map((x) => x.map((v) => v.toFixed(4)).join(':')).join(',') : '',
+      pp.originLimbs, pp.twist, pp.twistLength, pp.gnarl, pp.knots, pp.curl, pp.twistTighten, pp.twistTwigs, pp.twistDepth, pp.strandLay, pp.twistVoice,
       a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
-    if (sig === this.signature) return false;
+  }
+
+  ensureBuilt(pl: Placement, p: Params, blocked: Blocked, takeCount = 1, loose = false) {
+    const sig = this.sigOf(pl, p);
+    // growth.fillSpace: the territory to grow into (growLo / growHi) is fixed once the tree is
+    // built, except while it has not shown yet (loose): then it follows, so takes that come back
+    // together share the space fairly.
+    const terr = Math.round((pl.growLo ?? pl.sectorLo) * 1000) + '/' + Math.round((pl.growHi ?? pl.sectorHi) * 1000);
+    if (sig === this.signature && !(loose && terr !== this.territory)) return false;
     this.signature = sig;
+    this.territory = terr;
     this.buildGesture(pl, p, blocked, takeCount);
     return true;
   }
@@ -197,12 +259,17 @@ export class Plant {
   /**
    * Per-node growth for this frame. `reveal` (0..1, only rises) says how much of the tree is
    * allowed; each segment then grows toward that at growth.regrowSpeed, and only once its parent
-   * segment is complete, so branches extend from their base. `wither` (0..1) fades the outer twigs
-   * within wither * growth.witherDepth of their tips (leaves first and further in); a twig that has
-   * fully faded is cleared and grows back from its stub once the wither recedes. `die` > 0: the
-   * whole tree withers back to the root (growth.ending), however deep growth.witherDepth is.
+   * segment is complete, so branches extend from their base.
+   *
+   * `pause` (a short pause or a pitch dip) acts on the outer twigs, within growth.witherDepth of
+   * their tips; `end` (the phrase ended, or a full stop) on the whole tree, trunk and all. Each
+   * has an action and an amount 0..1:
+   *  - ungrow: the twigs grow back from their tips, children before their parent
+   *  - fadeTips: they fade from the tips inward; fade: all of them fade together
+   *  - fallTips: pieces break off from the tips inward and fall; fall: all of them at once
+   * When a pause's amount recedes (singing again) the twigs regrow from their stubs.
    */
-  computeReveal(reveal: number, pitch: number, p: Params, wither = 0, dt = 0, die = 0) {
+  computeReveal(reveal: number, pitch: number, p: Params, dt = 0, now = 0, pause: Wilt | null = null, end: Wilt | null = null) {
     const sk = this.sk;
     const g = p.growth;
     const variety = clamp(p.response.variety);
@@ -221,39 +288,72 @@ export class Plant {
       this.target[i] = Math.max(this.target[i], clamp((level - t) / band));
     }
 
-    // Withering: the outer twigs within `reach` of their tips grow *back* (retract from the tip,
-    // their leaves shrinking with them), so a withered tree looks younger, never dead: no faded
-    // bare twigs. Children retract before their parent. When the wither recedes they regrow.
-    // growth.ending "fade": the outer twigs stay and fade instead; "both": they fade as they retract.
-    const ending = g.ending ?? 'wither';
-    const shrink = ending !== 'fade', dim = ending !== 'wither';
-    const reach = wither * Math.max(0.01, g.witherDepth);
-    const retract = (Math.max(0.05, g.witherDepth) / Math.max(0.05, g.twigFadeSeconds)) * dt; // units this frame
-    // Dying (a long silence, or a replaced tree): everything retracts, trunk and all, children
-    // first, so the whole tree is gone in growth.fadeSeconds.
-    const dying = die > 0 && shrink;
-    const dieStep = ((this.maxH * 1.05 + 0.02) / Math.max(0.05, g.fadeSeconds)) * dt;
     const n = sk.n;
-    this.retracting = false;
+    const P = pause && pause.action !== 'keep' && pause.amount > 0 ? pause : null;
+    const E = end && end.action !== 'keep' && end.amount > 0 ? end : null;
+    const depth = Math.max(0.01, g.witherDepth), full = this.maxH * 1.05 + 0.02;
+    const pAct = P?.action, eAct = E?.action;
+    // Pause: how far in from the tips it has reached (plant units).
+    const reach = P ? P.amount * depth : 0;
+    const retract = (Math.max(0.05, g.witherDepth) / Math.max(0.05, g.twigFadeSeconds)) * dt; // units this frame
+    // Ending by ungrowing: everything retracts, trunk and all, children first, so the whole tree
+    // is gone in growth.fadeSeconds.
+    const dying = eAct === 'ungrow';
+    const dieStep = (full / Math.max(0.05, g.fadeSeconds)) * dt;
+    const shrinkP = pAct === 'ungrow', fallP = pAct === 'fallTips' || pAct === 'fall';
+    const fallE = eAct === 'fallTips' || eAct === 'fall';
+    const eReach = E ? E.amount * full : 0;
+    // Pieces break off a chunk at a time, each branch at its own moments.
+    const CHUNK = 0.3;
+    const cut = (r: number, b: number) => {
+      const j = this.branchRand[b] * CHUNK;
+      return Math.floor((r + j) / CHUNK) * CHUNK - j;
+    };
+    this.retracting = fallP || fallE;
     if (this.childVis.length < n) this.childVis = new Float32Array(n * 2);
     const cv = this.childVis;
     cv.fill(0, 0, n);
+    const wh = this.witherH, th = this.tipH;
     for (let i = n - 1; i >= 0; i--) {
       const pa = sk.parent[i];
-      if (dt > 0 && cv[i] <= 0 && this.vis[i] > 0 && (dying || (shrink && this.witherH[i] < reach))) {
-        const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
-        this.vis[i] = Math.max(0, this.vis[i] - (dying ? Math.max(dieStep, retract) : retract) / seg);
-        this.retracting = true;
+      if (dt > 0 && cv[i] <= 0 && this.vis[i] > 0) {
+        const b = this.branchId[i];
+        const drop = (fallE && pa >= 0 && (eAct === 'fall' || th[i] < cut(eReach, b)))
+          || (fallP && wh[i] < depth && (pAct === 'fall' ? P!.amount > 0.2 : wh[i] < cut(reach, b)));
+        if (drop) {
+          // It lets go: drawn by the twig pool from now on (the draw picks it up from `drops`).
+          if (this.drops.length < 9000) this.drops.push(i, this.vis[i], now);
+          this.dropped[i] = 1;
+          this.vis[i] = 0;
+        } else if (dying || (shrinkP && wh[i] < reach)) {
+          const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
+          this.vis[i] = Math.max(0, this.vis[i] - (dying ? Math.max(dieStep, retract) : retract) / seg);
+          this.retracting = true;
+        }
       }
       if (pa >= 0 && this.vis[i] > cv[pa]) cv[pa] = this.vis[i];
     }
-    const fadeIn = Math.max(0.02, reach * 0.6);
+    // The root is a point: it goes with the last of the tree.
+    if (fallE && dt > 0 && n > 0 && cv[0] <= 0) this.vis[0] = 0;
+    const fadeP = pAct === 'fadeTips' ? Math.max(0.02, reach * 0.6) : 0.3 * depth;
+    const fadeE = Math.max(0.05, 0.25 * full), eFront = E ? E.amount * (full + fadeE) : 0;
     for (let i = 0; i < n; i++) {
-      // Fading twigs: the outer ones dim toward 10 % (leaves a little ahead of their twig).
-      const k = dim && reach > 0 && this.witherH[i] < reach ? clamp((reach - this.witherH[i]) / fadeIn) : 0;
-      this.life[i] = 1 - 0.9 * k;
-      this.leafLife[i] = 1 - 0.95 * clamp(k * 1.3);
-      if (dying || (shrink && this.witherH[i] < reach && dt > 0)) continue; // withering: no growth here
+      // Fading twigs: in a pause the outer ones dim toward 10 % (leaves a little ahead of their
+      // twig); an ending fades everything out, tips first.
+      let k = 0;
+      if (pAct === 'fadeTips') k = wh[i] < reach ? clamp((reach - wh[i]) / fadeP) : 0;
+      else if (pAct === 'fade') k = wh[i] < depth ? P!.amount * clamp((depth - wh[i]) / fadeP) : 0;
+      let life = 1 - 0.9 * k, leaf = 1 - 0.95 * clamp(k * 1.3);
+      if (eAct === 'fadeTips') {
+        const ke = clamp((eFront - th[i]) / fadeE);
+        life *= 1 - ke;
+        leaf *= 1 - clamp(ke * 1.3);
+      }
+      this.life[i] = life;
+      this.leafLife[i] = leaf;
+      // No growth where it is withering or falling.
+      const held = dying || fallE || ((shrinkP || fallP) && wh[i] < reach);
+      if (held && dt > 0) continue;
       // Growth toward the allowed amount, along each branch from its base.
       const pa = sk.parent[i];
       if (pa < 0) {
@@ -262,11 +362,11 @@ export class Plant {
         this.vis[i] = this.target[i] > 0 ? 1 : 0;
         continue;
       }
-      const ready = pa < 0 || this.vis[pa] >= 0.999;
+      const ready = this.vis[pa] >= 0.999;
       if (dt <= 0 || this.instant) {
-        if (this.instant || !shrink || this.witherH[i] >= reach) this.vis[i] = this.target[i]; // paused (or the wood stays): all at once
+        if (this.instant || !held) this.vis[i] = this.target[i]; // paused (or the wood stays): all at once
       } else if (ready && this.vis[i] < this.target[i]) {
-        const seg = pa >= 0 ? Math.max(1e-3, sk.flex[i] - sk.flex[pa]) : 1;
+        const seg = Math.max(1e-3, sk.flex[i] - sk.flex[pa]);
         this.vis[i] = Math.min(this.target[i], this.vis[i] + (dt * g.regrowSpeed * this.boost) / seg);
       }
     }
@@ -285,10 +385,72 @@ export class Plant {
     }
   }
 
+  private wx = new Float32Array(0);
+  private wy = new Float32Array(0);
+  private carry = new Float32Array(0);
+  private view: Skeleton | null = null;
+
+  /**
+   * The skeleton as drawn in harmony (harmony.cross): every limb wavy about its own course,
+   * neighbouring limbs in opposite phase, so they cross and recross while the tree keeps its
+   * outline. It stands still (only the amount eases in and out). A side branch starts where its
+   * parent now is. `amount` 0..1; 0 returns the skeleton itself.
+   */
+  woven(amount: number): Skeleton {
+    const sk = this.sk, n = sk.n;
+    if (amount <= 0.002 || n < 2) return sk;
+    if (this.wx.length < n) {
+      this.wx = new Float32Array(n);
+      this.wy = new Float32Array(n);
+    }
+    const nb = this.branchRand.length;
+    if (this.carry.length < nb * 3) this.carry = new Float32Array(nb * 3);
+    const wx = this.wx, wy = this.wy, carry = this.carry, bid = this.branchId;
+    const A = 0.05 * amount, turn = TAU / 0.55;
+    wx[0] = sk.x[0];
+    wy[0] = sk.y[0];
+    const b0 = bid[0] * 3;
+    carry[b0] = carry[b0 + 1] = carry[b0 + 2] = 0;
+    for (let i = 1; i < n; i++) {
+      const pa = sk.parent[i], b = bid[i], o = b * 3;
+      if (bid[pa] !== b) {
+        // First node of a branch: it leaves from where its parent has moved to.
+        carry[o] = wx[pa] - sk.x[pa];
+        carry[o + 1] = wy[pa] - sk.y[pa];
+        carry[o + 2] = sk.flex[pa];
+      }
+      const env = clamp((sk.flex[i] - carry[o + 2]) / 0.18);
+      let ox = 0, oy = 0;
+      if (this.order[i] > 0) {
+        const tx = sk.x[i] - sk.x[pa], ty = sk.y[i] - sk.y[pa], l = Math.hypot(tx, ty) || 1;
+        const off = A * env * Math.sin(sk.flex[i] * turn + (b & 1) * Math.PI + this.branchRand[b] * 1.3);
+        ox = (-ty / l) * off;
+        oy = (tx / l) * off;
+      }
+      wx[i] = sk.x[i] + ox + carry[o] * (1 - env);
+      wy[i] = sk.y[i] + oy + carry[o + 1] * (1 - env);
+    }
+    const view = (this.view ??= Object.create(sk) as Skeleton);
+    view.x = wx;
+    view.y = wy;
+    return view;
+  }
+
   /** Mark branches that have grown to their tip (once; withering does not undo it). */
   private markDone() {
     const last = this.branchLast, done = this.branchDone;
     for (let b = 0; b < done.length; b++) if (!done[b] && this.vis[last[b]] >= 0.999) done[b] = 1;
+    // How far each branch has grown (its tip, as drawn).
+    const sk = this.sk, fr = this.branchFront, bid = this.branchId;
+    if (fr.length !== done.length) this.branchFront = new Float32Array(done.length);
+    const front = this.branchFront;
+    front.fill(0);
+    for (let i = 1; i < sk.n; i++) {
+      const v = this.vis[i];
+      if (v <= 0) continue;
+      const pa = sk.parent[i], f = sk.flex[pa] + v * (sk.flex[i] - sk.flex[pa]);
+      if (f > front[bid[i]]) front[bid[i]] = f;
+    }
   }
 
   /** Point, unit tangent and width at arc length d along the spine (extended straight past both ends). */
@@ -384,6 +546,9 @@ export class Plant {
     this.leafState = new Float32Array(n);
     this.leafGone = new Float32Array(n);
     this.bloomState = new Float32Array(n);
+    this.dropped = new Uint8Array(n);
+    this.drops.length = 0;
+    this.twigs.clear();
     this.shed.clear();
     return height;
   }
@@ -396,10 +561,12 @@ export class Plant {
     const [hx, hy] = toLocal(p.avatar.headX, p.avatar.headY, pl);
     const o = outlineOf(p, lerp(0.95, 1.08, mood.effort), pl.lengthMul ?? 1);
     // A world angle phi is the local heading pl.angle - phi; direction = (sin h, cos h).
+    // The territory to grow into: wider while a neighbour is away (growth.fillSpace).
+    const lo0 = pl.growLo ?? pl.sectorLo, hi0 = pl.growHi ?? pl.sectorHi;
     const N = 49;
     const table = new Float32Array(N);
     for (let k = 0; k < N; k++) {
-      const h = pl.angle - lerp(pl.sectorLo, pl.sectorHi, k / (N - 1));
+      const h = pl.angle - lerp(lo0, hi0, k / (N - 1));
       const dx = Math.sin(h), dy = Math.cos(h);
       let last = 0.2;
       for (let r = 0; r <= 1.6; r += 0.02) {
@@ -408,16 +575,16 @@ export class Plant {
       }
       table[k] = last;
     }
-    const span = Math.max(1e-6, pl.sectorHi - pl.sectorLo);
+    const span = Math.max(1e-6, hi0 - lo0);
     const rIn = (phi: number) => {
-      const x = clamp((phi - pl.sectorLo) / span) * (N - 1);
+      const x = clamp((phi - lo0) / span) * (N - 1);
       const i = Math.min(N - 2, Math.floor(x));
       return lerp(table[i], table[i + 1], x - i);
     };
     return {
       upX, upY, detail: clamp(1.25 - 0.07 * takeCount, 0.35, 1),
       hx, hy, headR: p.avatar.headR / Math.max(1e-3, pl.scale), cx, cy,
-      lo: pl.sectorLo, hi: pl.sectorHi, mid: (pl.sectorLo + pl.sectorHi) / 2, ...o, rIn,
+      lo: lo0, hi: hi0, mid: (lo0 + hi0) / 2, ...o, rIn,
     };
   }
 
@@ -434,6 +601,9 @@ export class Plant {
     const step = Math.max(0.01, pp.step);
     const wild = pp.wildness * (1 + 0.5 * mood.vibrato);
     const branching = clamp(g.branching);
+    // growth.lowBranches: forks and shoots start nearer where a limb leaves the head (0 = as before).
+    const low = clamp(g.lowBranches ?? 0);
+    const moat = lerp(MOAT, 0.04, low);
     const lift = (pp.lift + 0.5 * (mood.pitch - 0.5) - 0.9 * mood.soft * pp.softDroop) * 0.9; // rad per unit
     const hUp = Math.atan2(f.upX, f.upY);
 
@@ -466,7 +636,7 @@ export class Plant {
     const inBand = (x: number, y: number) => {
       const [rr, phi] = polar(x, y);
       if (phi < f.lo - seam || phi > f.hi + seam) return false;
-      return rr >= f.rIn(phi) + MOAT && rr <= rOut(phi) * 1.04 && !hidden(x, y);
+      return rr >= f.rIn(phi) + moat && rr <= rOut(phi) * 1.04 && !hidden(x, y);
     };
     /** Free here, with `clearance` to both sides of the direction of travel. */
     const free = (x: number, y: number, h: number, self: number, host: number) => {
@@ -483,7 +653,9 @@ export class Plant {
 
     const limbs: Limb[] = [];
     const order: number[] = [0], tAlong: number[] = [0], limbOf: number[] = [0];
-    sk.add(0, 0, -1, 0, pp.maxWidth, NodeKind.Branch);
+    // 1. The root is the hub behind the neck: every limb leaves from this one point. (A trunk
+    //    below it, plants.trunk, is drawn once for the whole scene by main.ts, not by each tree.)
+    sk.add(f.cx, f.cy, -1, 0, pp.maxWidth, NodeKind.Branch);
     const headingAt = (node: number) => {
       const pa = sk.parent[node];
       if (pa < 0) return 0;
@@ -492,7 +664,7 @@ export class Plant {
 
     // Heading h is measured from +Y, positive toward +X: direction = (sin h, cos h).
     const grow = (parent: number, h: number, len: number, ord: number, w0: number,
-                  noiseSeed: number, aim?: { x: number; y: number }, host = -1, prim = -1): Limb => {
+                  noiseSeed: number, aim?: { x: number; y: number }, host = -1, prim = -1, steady = false): Limb => {
       const n = Math.max(2, Math.ceil(len / step));
       const ds = len / n;
       let x = sk.x[parent], y = sk.y[parent], prev = parent, arc = 0;
@@ -514,21 +686,23 @@ export class Plant {
             const w = smooth01(emerge + 0.05, emerge + 0.3, arc);
             dh += wrap(Math.atan2(aim.x - x, aim.y - y) - h) * clamp((1.6 * ds) / Math.max(rem, 0.2), 0, 0.5) * w;
           }
-          dh += wild * 0.25 * noise1(t * 2.5 + noiseSeed, this.seed) * ds; // wander
-          dh += lift * ds * (0.3 + 0.7 * t) * Math.sin(hUp - h); // tips toward the sky
+          if (!steady) {
+            dh += wild * 0.25 * noise1(t * 2.5 + noiseSeed, this.seed) * ds; // wander
+            dh += lift * ds * (0.3 + 0.7 * t) * Math.sin(hUp - h); // tips toward the sky
+          }
         }
         h += clamp(dh, -kMax * ds, kMax * ds);
         // Safety net: a limb leaving the head's outline does so steeply.
         const dhd = Math.hypot(x - f.hx, y - f.hy);
         const leaving = Math.sin(h) * (x - f.hx) + Math.cos(h) * (y - f.hy) > 0;
-        if (leaving && dhd > f.headR * 0.9 && dhd < f.headR + 0.35) {
+        if (!steady && leaving && dhd > f.headR * 0.9 && dhd < f.headR + 0.35) {
           const hr = Math.atan2(x - f.hx, y - f.hy);
           const max = lerp(28, 70, smooth01(f.headR, f.headR + 0.35, dhd)) * deg;
           h = hr + clamp(wrap(h - hr), -max, max);
         }
         // Far out: never more than 75° off radial from the hub.
         const [rr] = polar(x, y);
-        if (emerge >= 0 && rr > 0.3) {
+        if (!steady && emerge >= 0 && rr > 0.3) {
           const hr = Math.atan2(x - f.cx, y - f.cy);
           h = hr + clamp(wrap(h - hr), -75 * deg, 75 * deg);
         }
@@ -548,11 +722,9 @@ export class Plant {
       return limb;
     };
 
-    // 1. Hidden trunk: root -> hub (the crown only; for wings and wedges the hub is the root).
-    let hub = 0;
-    const trunkLen = Math.hypot(f.cx, f.cy);
-    if (trunkLen > 2 * step) hub = grow(0, Math.atan2(f.cx, f.cy), trunkLen, 0, pp.maxWidth, 0).last;
-    else limbs.push({ id: 0, first: 0, last: 0, order: 0, len: 0, attach: 0, emerge: 0, prim: -1 });
+    const hub = 0;
+    limbs.push({ id: 0, first: 0, last: 0, order: 0, len: 0, attach: 0, emerge: 0, prim: -1 });
+    this.hubNode = hub;
 
     // 2. Tip targets: evenly spaced along the outline, stratified jitter, ragged radius.
     const W = f.hi - f.lo;
@@ -566,21 +738,30 @@ export class Plant {
       }
     }
     const gTip = lerp(0.6, 0.28, branching);
-    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), this.slice ? Math.max(3, this.slice[1]) : 3, 20);
+    const nTip = clamp(Math.round((sOut / gTip) * f.detail) + (mood.effort > 0.7 ? 1 : 0), this.slice ? Math.max(3, this.slice.places * (this.slice.mirror ? 2 : 1)) : 3, 20);
     const kE = clamp(1.05 - 0.4 * g.spread * lerp(0.85, 1.2, mood.effort), 0.3, 1);
     const hero = Math.floor(nTip * (0.25 + 0.5 * rs()));
     const droop = 8 * deg * mood.soft * pp.softDroop;
-    interface Tip { phiE: number; x: number; y: number }
+    interface Tip { phiE: number; phiT: number; x: number; y: number; part: number }
     const tips: Tip[] = [];
-    for (let i = 0; i < nTip; i++) {
-      let phiT = f.lo + (W * (i + 0.5 + (r() - 0.5) * 0.35)) / nTip;
+    // Where the tips aim (world angles). A bough (branch per phrase): only inside its parts of the
+    // territory, each part its share of nTip (at least one), so each part grows where it was placed.
+    const aims: { phi: number; part: number }[] = [];
+    if (this.slice)
+      this.slice.ranges.forEach(([p0, p1], part) => {
+        const k = Math.max(1, Math.round((nTip * (p1 - p0)) / Math.max(1e-6, W)));
+        for (let j = 0; j < k; j++) aims.push({ phi: p0 + ((p1 - p0) * (j + 0.5 + (r() - 0.5) * 0.35)) / k, part });
+      });
+    else for (let i = 0; i < nTip; i++) aims.push({ phi: f.lo + (W * (i + 0.5 + (r() - 0.5) * 0.35)) / nTip, part: 0 });
+    for (let i = 0; i < aims.length; i++) {
+      let phiT = aims[i].phi;
       phiT += Math.cos(phiT) >= 0 ? -droop : droop; // soft singing: both halves turn away from the top
       phiT = clamp(phiT, f.lo, f.hi);
       if (!usable(phiT)) continue;
       const rag = (1 - 0.28 * wild * r()) * (i % 2 ? 0.92 : 1) * (i === hero ? 1.06 : 1);
       const R = Math.max(f.rIn(phiT) + 0.35, rOut(phiT) * rag);
       const hT = hOf(phiT);
-      tips.push({ phiE: f.mid + (phiT - f.mid) * kE, x: f.cx + Math.sin(hT) * R, y: f.cy + Math.cos(hT) * R });
+      tips.push({ phiE: f.mid + (phiT - f.mid) * kE, phiT, x: f.cx + Math.sin(hT) * R, y: f.cy + Math.cos(hT) * R, part: aims[i].part });
     }
 
     // 3. Sector subdivision: each limb takes the middle tip of its group and hands the tips on
@@ -602,20 +783,28 @@ export class Plant {
       branchLimbs.push(limb);
       for (const side of [group.slice(0, m), group.slice(m + 1)]) {
         if (!side.length || limb.last < limb.first) continue;
-        // Fork in the visible part, later for deeper forks: where the gap to the neighbours has opened.
+        // Fork in the visible part, later for deeper forks: where the gap to the neighbours has opened
+        // (growth.lowBranches: soon after the limb leaves the head).
         const e = clamp(limb.emerge / Math.max(0.05, limb.len));
-        const u = e + (1 - e) * clamp(lerp(0.25, 0.55, r()) + 0.08 * depth, 0.2, 0.75);
+        const u = e + (1 - e) * clamp(lerp(lerp(0.25, 0.06, low), lerp(0.55, 0.3, low), r()) + lerp(0.08, 0.05, low) * depth,
+          lerp(0.2, 0.04, low), 0.75);
         const node = limb.first + Math.round(u * (limb.last - limb.first));
         subdivide(node, side, depth + 1, sk.w[node] * 0.8, limb);
       }
     };
     // One bough (branch per phrase): only the tips of this tree's slice, as a single primary.
-    const nPrim = !tips.length ? 0 : this.slice ? 1 : clamp(Math.round((sIn * kE) / 0.2), Math.min(2, tips.length), Math.min(tips.length, 7));
+    // plants.originLimbs: how many limbs leave the origin (0 = by the size of the territory).
+    const want = Math.round(pp.originLimbs ?? 0);
+    const nPrim = !tips.length ? 0 : this.slice ? 1 : want > 0 ? clamp(want, 1, tips.length)
+      : clamp(Math.round((sIn * kE) / 0.2), Math.min(2, tips.length), Math.min(tips.length, 7));
     if (this.slice && tips.length) {
-      const [j, M] = this.slice;
-      const from = Math.min(tips.length - 1, Math.floor((j * tips.length) / M));
-      const to = Math.max(from + 1, Math.floor(((j + 1) * tips.length) / M));
-      subdivide(hub, tips.slice(from, to), 0, wPrim, null, 0);
+      // One limb from the hub for each part of the bough's place, to the tips aimed into it (a part
+      // whose tips are all hidden behind the avatar grows nothing).
+      let k = 0;
+      for (let part = 0; part < this.slice.ranges.length; part++) {
+        const group = tips.filter((tp) => tp.part === part);
+        if (group.length) subdivide(hub, group, 0, wPrim, null, k++);
+      }
     } else
       for (let k = 0; k < nPrim; k++) {
         const from = Math.round((k * tips.length) / nPrim), to = Math.round(((k + 1) * tips.length) / nPrim);
@@ -632,7 +821,7 @@ export class Plant {
       const sites: { host: Limb; node: number; side: number; u: number; key: number }[] = [];
       for (const host of hosts) {
         if (host.last < host.first) continue;
-        const e = clamp((host.emerge + 0.1) / Math.max(0.05, host.len));
+        const e = clamp((host.emerge + lerp(0.1, 0.02, low)) / Math.max(0.05, host.len));
         const count = Math.floor(((host.len * Math.max(0, 0.95 - e)) / (shootGap * gapMul)) * f.detail);
         let s = r() < 0.5 ? -1 : 1;
         for (let j = 0; j < count; j++) {
@@ -675,7 +864,6 @@ export class Plant {
     const tw = clamp(pp.twist * (1 + pp.twistVoice * (0.6 * mood.vibrato + 0.5 * (mood.effort - 0.5))), 0, 1.5);
     const gn = clamp(pp.gnarl), n0 = sk.n;
     this.twistPhase = new Float32Array(pp.maxNodes + 1);
-    this.elbow = new Uint8Array(pp.maxNodes + 1);
     const depthOf = new Float32Array(pp.maxNodes + 1);
     const rt = rng(this.seed * 977 + 11);
     if (tw > 0 || pp.knots > 0 || pp.strands > 1) {
@@ -742,13 +930,6 @@ export class Plant {
             sk.w[lb.attach] *= 1 + 0.5 * pp.knots;
             if (sk.parent[lb.attach] > 0) sk.w[sk.parent[lb.attach]] *= 1 + 0.25 * pp.knots;
           }
-      // Elbows: in and out directions differ by more than 0.3 rad.
-      for (let i = 1; i < n0 - 1; i++) {
-        const pa = sk.parent[i], c = i + 1;
-        if (pa < 0 || sk.parent[c] !== i) continue;
-        const a = Math.atan2(sk.x[i] - sk.x[pa], sk.y[i] - sk.y[pa]), b = Math.atan2(sk.x[c] - sk.x[i], sk.y[c] - sk.y[i]);
-        if (Math.abs(wrap(b - a)) > 0.3) this.elbow[i] = 1;
-      }
     }
 
     // 4c. Curling tips: a shrinking spiral appended to limb tips and some twig ends (new nodes at
@@ -796,7 +977,13 @@ export class Plant {
     this.branchLast = Int32Array.from(limbs.map((l) => l.end ?? (l.last >= l.first ? l.last : l.attach)));
     const height = this.finish(limbs.length);
     this.branchDone = new Uint8Array(limbs.length);
+    this.tipH = Float32Array.from(height);
     this.bend = bendFrames(sk, this.order, new Float32Array(n * 4));
+    this.swing = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const pa = sk.parent[i];
+      this.swing[i] = this.order[i] < 2 || pa < 0 || this.order[pa] < 2 ? this.order[i] : this.swing[pa];
+    }
     // Pause withering never reaches the trunk (dying does: computeReveal); limbs hold a little longer than shoots.
     for (let i = 0; i < n; i++) this.witherH[i] = height[i] + (this.order[i] === 0 ? 99 : this.order[i] === 1 ? 0.12 : 0);
 
@@ -810,7 +997,8 @@ export class Plant {
       const b = this.branchId[i], lb = limbs[b];
       if (i === lb.first && b > 0) {
         if (lb.prim >= 0) {
-          start[b] = 0.1 + 0.05 * Math.abs(lb.prim - (nPrim - 1) / 2);
+          // All primaries set off together, so a young tree is a fan, not one stem.
+          start[b] = 0.1 + 0.01 * Math.abs(lb.prim - (nPrim - 1) / 2);
           span[b] = 0.45 * Math.sqrt(lb.len / aRef);
         } else if (lb.order === 1) {
           start[b] = thr[lb.attach] + 0.03;
@@ -843,12 +1031,12 @@ export class Plant {
       for (const lb of limbs)
         if (lb.prim >= 0 && lb.last >= lb.first && (!best || Math.abs(lb.prim - (nPrim - 1) / 2) < Math.abs(best.prim - (nPrim - 1) / 2))) best = lb;
       const path: number[] = [];
-      for (let i = hub; i >= 0; i = sk.parent[i]) path.unshift(i);
+      for (let i = best ? best.attach : hub; i >= 0; i = sk.parent[i]) path.unshift(i);
       if (best) for (let i = best.first; i <= best.last; i++) path.push(i);
       // Every primary's path (the fronds), in primary order.
-      const trunk: number[] = [];
-      for (let i = hub; i >= 0; i = sk.parent[i]) trunk.unshift(i);
       this.limbPaths = limbs.filter((lb) => lb.prim >= 0 && lb.last >= lb.first).sort((a, b) => a.prim - b.prim).map((lb) => {
+        const trunk: number[] = [];
+        for (let i = lb.attach; i >= 0; i = sk.parent[i]) trunk.unshift(i);
         const pth = [...trunk];
         for (let i = lb.first; i <= lb.last; i++) pth.push(i);
         const cum = new Float32Array(pth.length);
@@ -859,8 +1047,14 @@ export class Plant {
             clear = cum[k];
             break;
           }
-        return { idx: Int32Array.from(pth), cum, length: cum[pth.length - 1], clear };
+        return { idx: Int32Array.from(pth), cum, length: cum[pth.length - 1], clear, base: cum[trunk.length - 1] };
       });
+      const prims = limbs.filter((lb) => lb.prim >= 0 && lb.last >= lb.first).sort((a, b) => a.prim - b.prim);
+      const part = new Int8Array(sk.n).fill(-1);
+      prims.forEach((lb, k) => part.fill(Math.min(127, k), lb.first, lb.last + 1));
+      // Side branches belong to the limb they grow from (nodes come after their parents).
+      for (let i = 1; i < sk.n; i++) if (part[i] < 0 && sk.parent[i] >= 0) part[i] = part[sk.parent[i]];
+      this.limbPart = part;
       this.spine = Int32Array.from(path);
       this.spineCum = new Float32Array(path.length);
       for (let k = 1; k < path.length; k++)

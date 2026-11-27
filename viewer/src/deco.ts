@@ -7,8 +7,8 @@ import type { Params } from './params';
 import type { Theme } from './features';
 import type { Instances } from './render/renderer';
 import type { Skeleton } from './growth/skeleton';
-import { clamp, hash1, lerp, RGB } from './math';
-import { Ink, inkAt } from './colour';
+import { clamp, fallDir, hash1, lerp, RGB } from './math';
+import { Ink, inkAt, inkPt } from './colour';
 import { customDef, MOVES, pivotOf, shapeId, SHAPE_PIVOT, ThemeDef, ThemePart } from './themes';
 import { bakeGradient } from './gradient';
 import type { ShedPool } from './shed';
@@ -26,6 +26,8 @@ const enum Shape {
 // Natural colours of the built-in parts (used when a colour role's source is "theme").
 const LEAF: RGB = [0.32, 0.78, 0.34];
 const PETAL: RGB = [1.0, 0.82, 0.9];
+/** Leaves on a growing branch come in this far (plant units) behind its growing tip. */
+const LEAF_BEHIND = 0.12;
 const THORN: RGB = [0.92, 0.86, 0.7];
 const PINE: RGB = [0.16, 0.55, 0.3];
 const HOLLY: RGB = [0.1, 0.45, 0.2];
@@ -43,6 +45,8 @@ export interface DecoStyle {
   sScale: number;
   alpha: number;
   glow: number;
+  /** glow.travel: the glow at a point (s 0 root .. 1 tip; x, y in the layer), instead of `glow`. */
+  glowAlong?: (s: number, x: number, y: number) => number;
   /** Sizes are divided by this (the halo is built in unit-circle space). */
   unit: number;
   /** Extra size factor (the small resting halo gets smaller leaves). */
@@ -56,10 +60,20 @@ export interface DecoStyle {
   /** World "down" expressed in the layer's local frame (per world unit). */
   downX: number;
   downY: number;
+  /** growth.fallDirection "away": what lets go drifts straight out from (originX, originY). */
+  fallAway?: boolean;
+  /** growth.fallDirection "up": what lets go floats up. */
+  fallUp?: boolean;
+  /** How leaves and petals that let go fall (params.falling). */
+  drop?: { speed: number; sway: number; spin: number; flutter: number; time: number };
+  originX?: number;
+  originY?: number;
   intensity: number;
   /** Sim time and the voice's pitch 0..1 (a theme's moving natural gradient). */
   time?: number;
   pitch?: number;
+  /** 0..1 in harmony with another track (theme parts that open "in harmony"). */
+  harmony?: number;
 }
 
 let tipScratch = new Uint8Array(0);
@@ -131,6 +145,8 @@ class Placer {
   frame: [number, number, number, number, number] | null = null;
   /** Set for one put(): that decoration lets go and falls (drawn by the pool from now on). */
   drop: ShedPool | null = null;
+  /** Set for every put() at the current node (a halo node whose leaves all let go). */
+  dropNode: ShedPool | null = null;
   now = 0;
   /** Origin of the shapes put now (a user theme's part); null = the built-in shape's own. */
   pivot: readonly [number, number] | null = null;
@@ -142,23 +158,26 @@ class Placer {
     const st = this.st;
     let a = st.alpha * this.nodeAlpha;
     if (st.fall > 0) {
-      const d = st.fall * st.fall * (0.5 + 0.9 * h) * 1.2;
-      x += st.downX * d;
-      y += st.downY * d;
+      const d = st.fall * st.fall * (0.5 + 0.9 * h) * (st.fallAway ? 0.8 : 1.2);
+      const [Dx, Dy] = fallDir(st.downX, st.downY, st.fallAway ? 1 : st.fallUp ? 2 : 0, x, y, st.originX, st.originY);
+      x += Dx * d;
+      y += Dy * d;
       angle += st.fall * (h - 0.5) * 8;
       a *= 1 - st.fall;
     }
     const pv = this.pivot ?? (shape < 16 ? SHAPE_PIVOT[shape] ?? SHAPE_PIVOT[0] : SHAPE_PIVOT[0]);
     const pivY = pv[1], pivX = pv[0] - 0.5;
-    if (this.drop) {
-      if (size > 0 && a > 0.01) this.drop.add(this.now, x, y, angle, size, shape, col, flex, h, glowMul, this.frame, this.nodeAlpha, pivY, pivX);
+    const pool = this.drop ?? this.dropNode;
+    if (pool) {
+      if (size > 0 && a > 0.01) pool.add(this.now, x, y, angle, size, shape, col, flex, h, glowMul, this.frame, this.nodeAlpha, pivY, pivX, this.st);
       this.drop = null;
       return;
     }
     if (a <= 0.01 || size <= 0) return;
     const f = this.frame;
-    if (f) this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer, f[0], f[1], f[2], f[3], f[4], pivY, pivX);
-    else this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, st.glow * glowMul, st.layer, 1, x, y, flex, 0, pivY, pivX);
+    const g = (st.glowAlong ? st.glowAlong(flex * st.sScale, x, y) : st.glow) * glowMul;
+    if (f) this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, g, st.layer, f[0], f[1], f[2], f[3], f[4], pivY, pivX);
+    else this.out.sprite(x, y, angle, size, shape, flex, h, col[0], col[1], col[2], a, g, st.layer, 1, x, y, flex, 0, pivY, pivX);
   }
 }
 
@@ -184,6 +203,8 @@ export interface TreeExtras {
   /** Take plants: per-node branch id and per-branch "has finished growing" (leaves only then). */
   branchId?: ArrayLike<number>;
   branchDone?: ArrayLike<number>;
+  /** Per branch: the flex its growing tip has reached; leaves come in LEAF_BEHIND behind it. */
+  branchFront?: ArrayLike<number>;
   /** Motion: per-node branch order and bend frames (4 floats per node). */
   order?: ArrayLike<number>;
   bend?: ArrayLike<number>;
@@ -198,6 +219,20 @@ export interface TreeExtras {
   dry?: number;
   /** look.leafFall: per node, > 0 while its leaf has fallen and not grown back. */
   leafGone?: ArrayLike<number>;
+  /** Per node: 1 = its branch piece just broke off and fell (growth "fall away"): its leaf falls
+   *  too. Cleared here. */
+  dropped?: Uint8Array;
+  /** Only the nodes of this part (one half of a mirrored bough, drawn in its own layer): part[i]. */
+  only?: { part: Int8Array; k: number };
+  /** Halo vine (growth.shed): ids of nodes whose leaves have let go; a node's leaves let go once
+   *  letGoAlpha (its tail fade) times letGoAll (the whole halo's fade) falls below one half. */
+  letGone?: Set<number>;
+  letGoAlpha?: ArrayLike<number>;
+  letGoAll?: number;
+  /** Per node: 0 = another pass lets this node's leaves go (a look change: two looks share a vine). */
+  letGoMine?: ArrayLike<number>;
+  /** The pool is drawn by the caller (a halo: its passes share it). */
+  shedDrawnElsewhere?: boolean;
 }
 
 export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: DecoStyle, out: Instances, extras: TreeExtras = {}) {
@@ -212,7 +247,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   for (let k = 0, acc = 0; k < spaced.length; k++) cuts.push(Math.min(1, (acc += st.density * Math.max(0, spaced[k].amount))));
   const sparse = !!custom && custom.parts.every((x) => x.place === 'spaced' || x.place === 'tips');
   const place = new Placer(out, st);
-  const underPlace = extras.under ? new Placer(extras.under, { ...st, glow: 0 }) : null;
+  const underPlace = extras.under ? new Placer(extras.under, { ...st, glow: 0, glowAlong: undefined }) : null;
   place.now = extras.now ?? 0;
   if (underPlace) underPlace.now = place.now;
   const unit = Math.max(1e-3, st.unit);
@@ -220,7 +255,11 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   const dens = st.density;
   const variety = clamp(L.variety);
   const rank = extras.rank;
-  const shedOn = p.growth.shed && !!extras.shed && st.fall <= 0;
+  const canShed = !!extras.shed && st.fall <= 0;
+  // growth.shed: leaves let go when their twig goes. Off: they go the way of the twig.
+  const shedOn = p.growth.shed && canShed;
+  // In harmony, 0..1 eased (theme parts with opens: 'harmony').
+  const hmRaw = clamp(st.harmony ?? 0), hm = hmRaw * hmRaw * (3 - 2 * hmRaw);
   // Blossom sites: twig ends chosen by hash; they carry no leaf, nor does the node before them,
   // so a flower never sits on a leaf (consult 6, 5.2).
   if (bloomSite.length < sk.n) bloomSite = new Uint8Array(sk.n * 2);
@@ -242,7 +281,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (!bs) return want;
     let b = bs[i];
     if (b < 0) {
-      if (st.bloom < 0.02) b = 0; // petals fell: wait for the bloom to close before a new flower
+      if (want < 0.02) b = 0; // petals fell: wait for the bloom to close before a new flower
     } else if (want >= b) b = want; // opening follows the bloom
     else if (!shedOn || b <= 0.3) b = want; // old behaviour, and half-open ones just close
     else if (want < b * (0.35 + 0.6 * h3)) {
@@ -272,10 +311,11 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
   const ls = extras.leafState;
   const dtL = extras.dt ?? 0;
   const ease = dtL > 0 ? 1 - Math.exp(-dtL / 0.2) : 1;
-  /** Ease node i's leaf presence toward `want`; returns its size factor (0 = gone). */
-  const presence = (i: number, want: boolean) => {
+  /** Ease node i's leaf presence toward `want`; returns its size factor (0 = gone). `falls`: it
+   *  lets go and falls whatever growth.shed says (it fell on its own, or its twig fell). */
+  const presence = (i: number, want: boolean, falls = false) => {
     if (!ls) return want ? 1 : 0;
-    if (shedOn && !want && ls[i] > 0.5) {
+    if ((shedOn || (falls && canShed)) && !want && ls[i] > 0.5) {
       // Let go at full size: the pool draws it falling from now on.
       ls[i] = 0;
       place.drop = extras.shed!;
@@ -308,16 +348,49 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     place.put(x, y, ang, base * shown, Shape.Blossom, pc, flex, h3, lerp(0.6, 1.4, open));
   };
   const gone = extras.leafGone;
+  const dropped = extras.dropped;
   const leafOnly = !!rank && (st.theme === 'leaves' || st.theme === 'thorns') && !custom;
+  const only = extras.only;
   for (let i = 1; i < sk.n; i++) {
-    const f = vis[i];
+    if (only && only.part[i] !== only.k) continue;
+    let f = vis[i];
+    // Its branch piece just fell: the leaf is drawn once more, to let go at full size.
+    const letGo = !!dropped && dropped[i] === 1;
+    if (letGo) {
+      dropped![i] = 0;
+      f = 1;
+    }
     if (f <= 0.02) continue;
+    // A leaf that falls whatever growth.shed says: it fell on its own (look.leafFall) or with its twig.
+    const falls = letGo || !!(gone && gone[i] > 0);
+    // growth.shed: a leaf lets go of a fading twig once the twig is half gone.
+    const faded = shedOn && !!extras.alpha && extras.alpha[i] < 0.55;
     // Take plants: most nodes carry nothing; skip them before any per-node work.
     if (leafOnly && rank![i] > Math.min(1, dens * 1.3) && tipScratch[i] === 0 && !(ls && ls[i] > 0.003)) continue;
     if (sparse && rank && rank[i] > 1 && tipScratch[i] === 0 && bloomSite[i] !== 1 && !(ls && ls[i] > 0.003)) continue;
     place.nodeAlpha = extras.alpha ? extras.alpha[i] : 1;
-    if (place.nodeAlpha <= 0.01) continue;
+    place.dropNode = null;
     const id = extras.ids ? extras.ids[i] : i;
+    if (extras.letGone) {
+      // Halo vine: its leaves let go once its tail (or the whole halo) has faded half way, and grow
+      // back once it shows fully again (a look change brought it back), or shedding is off.
+      const la = (extras.letGoAlpha ? extras.letGoAlpha[i] : place.nodeAlpha) * (extras.letGoAll ?? 1);
+      if (extras.letGone.has(id)) {
+        if (la > 0.85 || !shedOn) extras.letGone.delete(id);
+        else continue;
+      } else if (shedOn && la < 0.5) {
+        // Two looks share this node (a look change): the other pass lets it go, with all of la, this
+        // frame; not drawn here too.
+        if (extras.letGoMine && !(extras.letGoMine[i] > 0)) continue;
+        extras.letGone.add(id);
+        place.dropNode = extras.shed!;
+        // It falls at the opacity it had (the pool is drawn without the halo's fade). Two passes
+        // sharing a node (letGoMine) show la between them; otherwise what this pass showed (a
+        // node a look change still hides lets go unseen).
+        place.nodeAlpha = extras.letGoMine ? la : Math.min(la, place.nodeAlpha * (extras.letGoAll ?? 1));
+      }
+    }
+    if (place.nodeAlpha <= 0.01) continue;
     if (extras.bend && extras.order) {
       const b = extras.bend, o = i * 4;
       frame[0] = extras.order[i];
@@ -340,13 +413,15 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (lg <= 0.003) continue;
     const pop = (rank ? unfurl(clamp(f)) : easeOutBack(clamp(f))) * lg;
     const x = sk.x[i], y = sk.y[i], flex = sk.flex[i];
+    inkPt.x = x;
+    inkPt.y = y;
     const side = h1 < 0.5 ? -1 : 1;
     const tone = extras.tone ? extras.tone[i] : 1;
 
     if (custom) {
       // A user theme: its parts, placed by the same rules as the built-in themes.
-      const bId = extras.branchId, bDone = extras.branchDone;
-      const allowed = !rank || (f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1));
+      const bId = extras.branchId, bDone = extras.branchDone, bFront = extras.branchFront;
+      const allowed = !rank || (!letGo && f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1 || (!!bFront && bFront[bId[i]] - flex >= LEAF_BEHIND)));
       const visTip = !!rank && allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
       // Which spaced part owns this node (-1: none), and whether it is there now (one presence per node).
       let owner = -1, pres = 0;
@@ -361,9 +436,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
           const tip = visTip && dens > 0.1;
           // True twig ends, bare visible ends and leaves still fading out belong to the first part.
           if ((tip && (terminal || owner < 0)) || (owner < 0 && ls && ls[i] > 0.003)) owner = 0;
-          const has = owner >= 0 && allowed && !bloomSite[i] && !(gone && gone[i] > 0) && (key <= cuts[cuts.length - 1] || tip)
+          const has = owner >= 0 && allowed && !faded && !bloomSite[i] && !(gone && gone[i] > 0) && (key <= cuts[cuts.length - 1] || tip)
             && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
-          pres = owner >= 0 ? presence(i, has) : 0;
+          pres = owner >= 0 ? presence(i, has, falls) : 0;
         } else {
           if (owner < 0 && terminal && dens > 0.15) owner = 0;
           pres = owner >= 0 && !bloomSite[i] ? 1 : 0;
@@ -376,7 +451,10 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         const ink = part.role === 'accent' ? st.accent : st.leaf;
         const own = part.colour === 'own';
         const gl = part.glow ?? 1;
-        const eff = part.sizeFrom === 'effort' ? 0.6 + L.thornEffort * st.effort : 1;
+        const inHarmony = part.opens === 'harmony';
+        // A part that opens in harmony is not there otherwise (twig-end parts close to a bud, below).
+        if (inHarmony && part.place !== 'tips' && hm <= 0.01) continue;
+        const eff = (part.sizeFrom === 'effort' ? 0.6 + L.thornEffort * st.effort : 1) * (inHarmony && part.place !== 'tips' ? hm : 1);
         const amt = Math.max(0, part.amount);
         const colourFor = (s: number, h: number, natScale: number, gain: number) =>
           own ? ((tintA[0] = tintA[1] = tintA[2] = gain), tintA) : col(ink, natAt(part, st, s, h), s, h, natScale, gain);
@@ -396,9 +474,9 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
             const ang = dir + clamp(wrapPi(up - dir), -0.9, 0.9) * 0.6 + (h2 - 0.5) * 0.5;
             const base = size * 0.075 * part.size * eff * pop * (0.8 + 0.4 * h2);
             const c = colourFor(flex * st.sScale, h3, 1, st.intensity * 1.1);
-            const blooms = part.opens === 'bloom';
+            const blooms = part.opens === 'bloom' || inHarmony;
             const open = blooms
-              ? blossomOpen(i, (extras.dry ?? 0) > 0 ? 0 : st.bloom, h3, () => {
+              ? blossomOpen(i, (extras.dry ?? 0) > 0 ? 0 : inHarmony ? hm : st.bloom, h3, () => {
                 place.drop = extras.shed!;
                 place.put(x, y, ang, base * Math.max(0.02, bs ? bs[i] : 1), sid, c, flex, h3, gl);
               })
@@ -445,16 +523,16 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
     if (rank) {
       // Take plants: spaced leaves, with size and tint variety and a dim under-layer. Leaves sit
       // at the visible end of a growing or withering twig.
-      // Only on branches that have finished growing, and only where the twig is fully there: no
-      // leaves riding along a growing tip. A finished branch that withers back keeps the leaves on
-      // what is left (and buds where its shoots were).
-      const bId = extras.branchId, bDone = extras.branchDone;
-      const allowed = f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1);
+      // Only where the twig is fully there and a little behind the growing tip (they fade in as
+      // the tip moves on): no leaves riding along a growing tip. A finished branch that withers
+      // back keeps the leaves on what is left (and buds where its shoots were).
+      const bId = extras.branchId, bDone = extras.branchDone, bFront = extras.branchFront;
+      const allowed = !letGo && f >= 0.999 && (!bId || !bDone || bDone[bId[i]] === 1 || (!!bFront && bFront[bId[i]] - flex >= LEAF_BEHIND));
       const visTip = allowed && (tipScratch[i] === 2 || (tipScratch[i] === 1 && (terminal || !extras.retracting)));
-      const has = allowed && !bloomSite[i] && !(gone && gone[i] > 0) && (rank[i] <= dens || (visTip && dens > 0.1)) && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
+      const has = allowed && !faded && !bloomSite[i] && !(gone && gone[i] > 0) && (rank[i] <= dens || (visTip && dens > 0.1)) && !((extras.dry ?? 0) > 0.1 + 0.5 * h0);
       const pxv = x, pyv = y;
       if (st.theme === 'leaves') {
-        const pres = presence(i, has);
+        const pres = presence(i, has, falls);
         if (pres > 0) {
           const x = pxv, y = pyv;
           const ang = terminal ? dir + (h1 - 0.5) * 0.6 : dir + side * lerp(0.95, 0.5 + 0.8 * h2, variety);
@@ -474,7 +552,7 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
         continue;
       }
       if (st.theme === 'thorns') {
-        const pres = presence(i, allowed && !terminal && rank[i] <= Math.min(1, dens * 1.3));
+        const pres = presence(i, allowed && !faded && !terminal && rank[i] <= Math.min(1, dens * 1.3), letGo);
         if (pres > 0) {
           const ang = dir + side * (0.95 + 0.25 * h2);
           const s = size * 0.034 * (0.6 + L.thornEffort * st.effort) * pop * pres * (0.7 + 0.6 * h1);
@@ -528,7 +606,35 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
       }
     }
   }
-  extras.shed?.draw(out, st, extras.now ?? 0, dryOf(p));
+  place.dropNode = null;
+  if (!extras.shedDrawnElsewhere) extras.shed?.draw(out, st, extras.now ?? 0, dryOf(p));
+}
+
+/** Draw a pool of falling leaves (a halo's: its passes share one) at opacity `alpha`. */
+export function drawShed(pool: ShedPool, out: Instances, st: DecoStyle, now: number, p: Params, alpha: number) {
+  pool.draw(out, { ...st, alpha }, now, dryOf(p));
+}
+
+/** A halo ring's let-go state: per ring decoration (by index round the ring, at `spacing`)
+ *  whether it let go (it stays hidden until the vine covers it again) and how visible it was. */
+export interface RingLetGo {
+  gone: Uint8Array;
+  prev: Float32Array;
+  spacing: number;
+}
+
+/** Optional extras for decorateRing. */
+export interface RingExtras {
+  /** 0..1 per angle: how much of this look is shown there (a look change sweeping round). */
+  mask?: (angle: number) => number;
+  /** growth.shed: the ring's let-go state; `track`: this pass keeps it and lets leaves go into
+   *  `shed` (the other pass of a look change only reads it). */
+  ring?: RingLetGo;
+  track?: boolean;
+  shed?: ShedPool;
+  /** The whole halo's fade (1 = there). */
+  whole?: number;
+  now?: number;
 }
 
 /**
@@ -539,19 +645,32 @@ export function decorateTree(sk: Skeleton, vis: Float32Array, p: Params, st: Dec
  * `revealAt(angle)` gives 0..1 for how much the vine covers that point; a share `always` of the
  * ring's decorations, spread evenly, is shown regardless.
  */
-export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number) => number, out: Instances, always = 0) {
+export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number) => number, out: Instances, always = 0, ex: RingExtras = {}) {
   const L = p.look;
-  if (st.theme === 'branches' || st.density <= 0) return;
+  // Nothing on the ring: what it knew of its decorations is stale by the time it has some again.
+  const none = () => {
+    if (ex.ring && ex.track) ex.ring.spacing = -1;
+  };
+  if (st.theme === 'branches' || st.density <= 0) return none();
   const custom = customDef(st.theme);
   // Every spaced / every part, alternating round the ring (a leaf, a thorn, a leaf…).
   const ringParts = custom ? custom.parts.filter((x) => x.place === 'spaced' || x.place === 'every') : [];
-  if (custom && !ringParts.length) return;
+  if (custom && !ringParts.length) return none();
   const nR = Math.max(1, ringParts.length);
   const place = new Placer(out, st);
+  place.now = ex.now ?? 0;
   const unit = Math.max(1e-3, st.unit);
   const size = (L.decoSize * (st.sizeMul ?? 1)) / unit;
   const dens = st.density;
   const spacing = (st.theme === 'wreath' ? 0.07 : st.theme === 'thorns' ? 0.2 : 0.3) / nR;
+  const R = ex.ring;
+  // The state is by index round the ring: other spacing, other decorations.
+  if (R && R.spacing !== spacing) {
+    R.gone.fill(0);
+    R.prev.fill(0);
+    R.spacing = spacing;
+  }
+  const shedOn = p.growth.shed && !!ex.shed && !!R && !!ex.track && st.fall <= 0;
 
   let k = 0;
   for (let a = 0; a < Math.PI * 2; a += spacing, k++) {
@@ -559,22 +678,43 @@ export function decorateRing(p: Params, st: DecoStyle, revealAt: (angle: number)
     const h1 = hash1(k * 4.37 + st.seed * 5.9);
     // Evenly spaced always-there share: every point where floor(k * always) steps up.
     const isAlways = always > 0 && Math.floor((k + 1) * always) > Math.floor(k * always);
-    const v = isAlways ? 1 : revealAt(a);
+    let v = isAlways ? 1 : revealAt(a);
     place.nodeAlpha = 1;
+    place.dropNode = null;
+    if (R && k < R.gone.length) {
+      // growth.shed: it lets go as the vine's tail fades past it (or the whole halo fades), and
+      // comes back once the vine covers it again. Not while a look change is still reaching it.
+      const vl = v * (ex.whole ?? 1), pv = R.prev[k];
+      const settled = !ex.mask || ex.mask(a) >= 0.999;
+      if (ex.track) R.prev[k] = settled ? vl : 0;
+      if (R.gone[k]) {
+        if (vl > 0.85) R.gone[k] = 0;
+        else continue;
+      } else if (shedOn && settled && vl < 0.5 && pv >= 0.5) {
+        R.gone[k] = 1;
+        place.dropNode = ex.shed!;
+        place.nodeAlpha = ex.whole ?? 1; // at the opacity it had (the pool is drawn without the fade)
+        v = 1;
+      }
+    }
+    if (ex.mask && !place.dropNode) v *= ex.mask(a);
     if (v <= 0.02) continue;
     const pop = easeOutBack(clamp(v));
     const x = Math.cos(a), y = Math.sin(a);
+    inkPt.x = x;
+    inkPt.y = y;
     const tangent = a + Math.PI / 2;
     const alt = Math.floor(k / nR) % 2 ? 1 : -1; // not k % 2: with two parts every thorn would point inward
     const ringPart = ringParts[k % nR];
     if (custom && ringPart) {
       const sid = shapeId(custom.id, ringPart.shape);
       place.pivot = pivotOf(ringPart);
-      if (sid >= 0 && h0 < dens * 0.8 * ringPart.amount) {
+      const hmR = ringPart.opens === 'harmony' ? clamp(st.harmony ?? 0) : 1;
+      if (sid >= 0 && hmR > 0.01 && h0 < dens * 0.8 * ringPart.amount) {
         const own = ringPart.colour === 'own';
         const c = own ? ((tintA[0] = tintA[1] = tintA[2] = st.intensity), tintA)
           : col(ringPart.role === 'accent' ? st.accent : st.leaf, natAt(ringPart, st, a / TAU2, h0), a / TAU2, h0, 1, st.intensity);
-        place.put(x, y, a + (alt > 0 ? 0 : Math.PI) + alt * (0.7 + 0.4 * h1), size * 0.045 * ringPart.size * pop * (0.7 + 0.6 * h1),
+        place.put(x, y, a + (alt > 0 ? 0 : Math.PI) + alt * (0.7 + 0.4 * h1), size * 0.045 * ringPart.size * hmR * pop * (0.7 + 0.6 * h1),
           sid, c, 0, h0, ringPart.glow ?? 1);
       }
       continue;

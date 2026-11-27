@@ -3,13 +3,20 @@
 // A take holds one or more *generations*: built trees, each with its own reveal (how much has
 // grown) and brightness. The newest one grows while the take sings and never shrinks.
 //
-// - newTreeEachPhrase on: a new phrase starts a new tree on a new seed. Older trees are left alone
-//   and only start fading growth.fadeAfter seconds after they stopped growing, so a tree outlives
-//   the start of the next phrase.
+// - newTreeEachPhrase on: a new phrase starts a new tree on a new seed. The older tree goes the
+//   way growth.onPhraseEnd says, from growth.fadeAfter seconds after it stopped growing, so a tree
+//   outlives the start of the next phrase.
 // - off: one tree keeps growing phrase after phrase and rests at growth.restBrightness between.
+//
+// Three lengths of silence act on a tree, each with its own action (plant.ts, EndAction):
+// a short pause on the outer twigs (growth.onPause, `wither`), the end of the phrase on the whole
+// tree (growth.onPhraseEnd), and a full stop, growth.dieAfter seconds (growth.onStop). Each is a
+// switch; how the branches go is one choice for all of them (growth.witherEffect, witherFromTips).
+// A look change replaces the trees the same way (transition).
 
 import type { Drive } from '../drive';
 import type { Params } from '../params';
+import { endActionOf, type EndAction } from './plant';
 import type { Skeleton } from './skeleton';
 
 export interface Structure {
@@ -24,24 +31,39 @@ export interface Generation<T extends Structure> {
   reveal: number;
   /** 0..1 brightness / opacity. */
   alpha: number;
-  /** Replaced by a newer tree (it keeps its shape and fades on its own timer). */
+  /** Replaced by a newer tree (it keeps its shape and ends on its own timer). */
   retired: boolean;
   /** Seconds since this tree last grew. */
   idle: number;
-  /** 0..1 how far the outer twigs have withered (pauses, pitch dips); they regrow as it falls. */
+  /** 0..1 how far a pause has acted on the outer twigs (pauses, pitch dips); it recedes when the
+   *  take sings again. */
   wither: number;
-  /** Planted by the commit animation: it does not fade while idle, and the take's first phrase
-   *  keeps growing it instead of starting a new tree. */
-  stamped?: boolean;
-  /** growth.branchEachPhrase: this tree is one bough of the take's tree. */
+  /** growth.branchEachPhrase: this tree is one bough of the take's tree, over [a, b] (0..1) of the
+   *  take's places (growth.branchSymmetry: height bands from the top). */
   bough?: boolean;
+  range?: [number, number];
+  /** Its place (0..places-1) as given (range may reach beyond it: growth.fillSpace). */
+  place?: number;
+  places?: number;
   /** A retired bough: 0..1 dried out, then 0..1 fallen. */
   dry?: number;
   fall?: number;
-  /** Ending (growth.ending): 0..1 how far it has withered back to the root. */
-  die?: number;
-  /** Ending now (a long silence ended the whole tree), without waiting for growth.fadeAfter. */
+  /** The ending acting on the whole tree now (growth.onPhraseEnd or growth.onStop) and how far
+   *  it has come: 1 after growth.fadeSeconds. A tree that is not replaced takes it back when its
+   *  take sings again. */
+  endAction?: EndAction;
+  end?: number;
+  /** 0..1 opacity left by a "fade away" ending. */
+  dim?: number;
+  /** A full stop ended it (growth.dieAfter): growth.onStop acts on it, and the next phrase
+   *  starts a new tree. */
   ending?: boolean;
+  /** Replaced by a look change: it goes by growth.witherEffect at once, whatever the switches say. */
+  switching?: boolean;
+  /** After a look change: grow to this reveal without waiting for the voice. */
+  autoReveal?: number;
+  /** Replaced by a look change: the look it keeps until it is gone (main.ts TreeLook). */
+  look?: unknown;
 }
 
 const MAX_GENERATIONS = 5;
@@ -51,14 +73,105 @@ const ORDER: Record<number, number[]> = {
   3: [1, 0, 2], 4: [1, 3, 0, 2], 5: [2, 0, 4, 1, 3], 6: [2, 5, 0, 3, 1, 4], 7: [3, 0, 5, 2, 6, 1, 4],
 };
 const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
+const hash = (n: number) => {
+  const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return s - Math.floor(s);
+};
+
+/** Where a bough grows (growth.branchEachPhrase): the parts of the territory whose tips it grows
+ *  to, as world-angle intervals (radians, 0 = right, 90° = up); with growth.branchSymmetry two, at
+ *  the same height either side of straight up (one over the top). places: how many places the
+ *  territory has. */
+export interface BoughSlice {
+  ranges: [number, number][];
+  places: number;
+  mirror: boolean;
+}
+
+const UP = Math.PI / 2;
+const DEFAULT_FAN: [number, number] = [(-60 * Math.PI) / 180, (240 * Math.PI) / 180];
+
+/**
+ * The places of a territory [lo, hi] (world angles), along x = 0..1. Mirrored: x runs from the top
+ * down (how far from straight up), and a place is that height band on both sides where the
+ * territory has it (a tree off to one side has one side only). Otherwise x runs across the
+ * territory from lo to hi. ranges(a, b): the world-angle intervals of [a, b]; height(x): how high
+ * that point is (sin of its angle).
+ */
+function placesOf(lo: number, hi: number, mirror: boolean) {
+  if (!mirror) {
+    const at = (x: number) => lo + (hi - lo) * x;
+    return { ranges: (a: number, b: number): [number, number][] => [[at(a), at(b)]], height: (x: number) => Math.sin(at(x)) };
+  }
+  const inside = lo <= UP && UP <= hi;
+  const dLo = Math.abs(lo - UP), dHi = Math.abs(hi - UP);
+  const dMin = inside ? 0 : Math.min(dLo, dHi), dMax = Math.max(dLo, dHi);
+  const d = (x: number) => dMin + (dMax - dMin) * x;
+  const cut = (p: number, q: number): [number, number] => [Math.max(lo, p), Math.min(hi, q)];
+  return {
+    ranges: (a: number, b: number): [number, number][] => {
+      const d0 = d(a), d1 = d(b);
+      // The top place is one bough over straight up.
+      if (d0 <= 1e-6) return [cut(UP - d1, UP + d1)];
+      return [cut(UP - d1, UP - d0), cut(UP + d0, UP + d1)].filter(([p, q]) => q - p > 1e-6);
+    },
+    height: (x: number) => Math.cos(d(x)),
+  };
+}
 
 export class Generations<T extends Structure> {
   gens: Generation<T>[] = [];
   private nextSeed: number;
   private phrase = 0;
 
-  constructor(private make: (seed: number, slice: [number, number] | null) => T, firstSeed: number) {
+  /** The take's territory (world angles, radians, 0 = right, 90° = up; lo < hi), for
+   *  growth.branchOrder top to bottom / bottom to top. */
+  fan?: () => [number, number];
+  private phrase0: number;
+
+  constructor(private make: (seed: number, slice: BoughSlice | null) => T, firstSeed: number) {
     this.nextSeed = firstSeed;
+    // Where the first bough grows comes from the seed too (a restart starts somewhere else).
+    this.phrase = this.phrase0 = Math.abs(Math.round(firstSeed)) % 97;
+  }
+
+  /** The place (0..S-1) phrase n's bough grows in (growth.branchOrder). */
+  private placeFor(p: Params, S: number, height: (x: number) => number): number {
+    const order = p.growth.branchOrder ?? 'spread';
+    const n = this.phrase++;
+    if (order === 'spread') return ORDER[S][n % S];
+    // Places that no living bough holds (nor, if possible, one still drying or falling there).
+    const holds = (gens: Generation<T>[]) => {
+      const held = new Uint8Array(S);
+      for (const x of gens) {
+        if (!x.bough) continue;
+        if (x.place !== undefined && x.places === S) held[x.place] = 1;
+        // (one from other settings: by the middle of each place it covers)
+        else if (x.range) for (let j = 0; j < S; j++) if (x.range[0] <= (j + 0.5) / S && x.range[1] >= (j + 0.5) / S) held[j] = 1;
+      }
+      return held;
+    };
+    if (order === 'random') {
+      const live = holds(this.gens.filter((x) => !x.retired)), all = holds(this.gens);
+      let free = [...Array(S).keys()].filter((j) => !all[j]);
+      if (!free.length) free = [...Array(S).keys()].filter((j) => !live[j]);
+      if (!free.length) free = [...Array(S).keys()];
+      return free[Math.floor(hash(this.nextSeed * 1.37 + n) * free.length) % free.length];
+    }
+    // Top to bottom / bottom to top: the places by how high their middle is.
+    const heights = [...Array(S).keys()].map((j) => height((j + 0.5) / S));
+    const ranked = [...Array(S).keys()].sort((x, y) => (order === 'topDown' ? heights[y] - heights[x] : heights[x] - heights[y]));
+    // The next one in order that no living bough holds (the order carries on from there).
+    const live = holds(this.gens.filter((x) => !x.retired));
+    const i0 = (((n - this.phrase0) % S) + S) % S;
+    for (let k = 0; k < S; k++) {
+      const i = (i0 + k) % S;
+      if (!live[ranked[i]]) {
+        this.phrase = this.phrase0 + i + 1;
+        return ranked[i];
+      }
+    }
+    return ranked[i0];
   }
 
   get current(): Generation<T> | undefined {
@@ -72,20 +185,109 @@ export class Generations<T extends Structure> {
     const each = g.branchEachPhrase && !p.look.woodStays;
     if (!each) for (const x of this.gens) x.retired = true;
     else {
+      // Top to bottom / bottom to top: a tree with no boughs left (a full stop took them all)
+      // starts from the top (bottom) again.
+      const o = g.branchOrder;
+      if ((o === 'topDown' || o === 'bottomUp') && !this.gens.some((x) => x.bough && !x.retired)) this.phrase = this.phrase0;
       // The oldest living boughs start to wither, so at most `keep` stay with the new one.
       const alive = this.gens.filter((x) => !x.retired);
       while (alive.length >= keep) alive.shift()!.retired = true;
     }
-    const M = clamp(keep + 1, 3, 7);
-    const slice = each ? ([ORDER[M][this.phrase++ % M], M] as [number, number]) : null;
+    // One more place than boughs kept, so the next one is free. Symmetrical: a place is a height
+    // band, on both sides of straight up where the territory has both.
+    const S = clamp(keep + 1, 3, 7), M = S, top = 1;
+    const mirror = !!g.branchSymmetry;
+    const [lo, hi] = this.fan?.() ?? DEFAULT_FAN;
+    const places = placesOf(lo, hi, mirror);
+    let slice: BoughSlice | null = null;
+    let place = -1;
+    const last = { a: 0, b: 0 };
+    if (each) {
+      const j = (place = this.placeFor(p, S, places.height));
+      let a = j / M, b = (j + 1) / M;
+      // growth.fillSpace: the bough also reaches into the empty space beside its slice (up to one
+      // more slice on each side), as far as the nearest living bough; where a living bough has
+      // already reached into its slice, it gives that part up (at least half a slice stays).
+      const fill = clamp(g.fillSpace ?? 0, 0, 1);
+      if (fill > 0) {
+        const living = this.gens.filter((x) => x.bough && !x.retired && x.range).map((x) => x.range!);
+        const a0 = a, b0 = b;
+        for (const [oa, ob] of living) {
+          if (oa <= a + 1e-9 && ob > a) a = Math.min(Math.max(a, ob), a0 + 0.5 / M); // covers its start
+          if (ob >= b - 1e-9 && oa < b) b = Math.max(Math.min(b, oa), b0 - 0.5 / M); // covers its end
+        }
+        if (b - a < 0.5 / M) {
+          a = a0;
+          b = b0;
+        }
+        let left = a, right = top - b;
+        for (const [oa, ob] of living) {
+          if (ob <= a + 1e-9) left = Math.min(left, a - ob);
+          else if (oa >= b - 1e-9) right = Math.min(right, oa - b);
+          else {
+            // still overlapping (a bough inside this slice): no widening on that side
+            if (oa <= a + 1e-9) left = 0;
+            if (ob >= b - 1e-9) right = 0;
+          }
+        }
+        a -= fill * Math.min(Math.max(0, left), 1 / M);
+        b += fill * Math.min(Math.max(0, right), 1 / M);
+      }
+      last.a = Math.max(0, a);
+      last.b = Math.min(b, top);
+      slice = { ranges: places.ranges(Math.max(0, a), Math.min(b, top)), places: S, mirror };
+    }
     const seed = this.nextSeed++;
     const tree = this.make(seed, slice);
     // look.woodStays: the tree is there in full at once.
     if (p.look.woodStays) (tree as unknown as { instant?: boolean }).instant = true;
+    // (range: along the places, 0..1; boughs from other settings are in another measure, still a
+    // fair guide to where they are)
     this.gens.push({ tree, seed, reveal: p.look.woodStays ? 1 : 0, alpha: 1, retired: false, idle: 0, wither: 0,
-      bough: !!slice, dry: 0, fall: 0 });
-    const cap = Math.max(MAX_GENERATIONS, keep + 3);
+      bough: !!slice, range: slice ? [last.a, last.b] : undefined, dry: 0, fall: 0,
+      ...(slice ? { place, places: S } : {}) });
+    const cap = Math.max(MAX_GENERATIONS, 2 * keep + 3);
     while (this.gens.length > cap) this.gens.shift();
+  }
+
+  /**
+   * The trees' shape settings changed (a Look preset, a slider, the layout): the living trees are
+   * not rebuilt in place. They go the way growth.witherEffect says, at once, and new ones grow back
+   * to where they were without waiting for the voice (and keep their phrase's timing, so they end
+   * when those would have). A tree already ending just ends.
+   */
+  transition(p: Params, look?: unknown) {
+    // Every tree still on its way out keeps the look it had too (main.ts draws it so).
+    if (look !== undefined) for (const x of this.gens) if (x.retired) x.look ??= look;
+    const living = this.gens.filter((x) => !x.retired);
+    if (!living.length) return;
+    // What each tree was growing to: a tree still growing back from an earlier change counts at
+    // its target, so quick changes in a row do not shrink the tree.
+    const size = (x: Generation<T>) => Math.max(x.reveal, x.autoReveal ?? 0);
+    const whole = living.filter((x) => (x.end ?? 0) <= 0 && size(x) > 0.03);
+    const idle = whole.reduce((m, x) => Math.min(m, x.idle), Infinity);
+    const wither = whole.reduce((m, x) => Math.max(m, x.wither), 0);
+    for (const x of living) {
+      x.retired = true;
+      x.switching = true;
+      x.look ??= look; // it keeps the look it had (main.ts draws it so)
+    }
+    if (!whole.length) return;
+    // One new tree for each one replaced, oldest first, each growing back to the size its old one
+    // had (boughs too: a take with two boughs gets two back, not branchesKept full ones).
+    const each = p.growth.branchEachPhrase && !p.look.woodStays;
+    const olds = each ? whole.filter((x) => x.bough).slice(-Math.max(1, Math.round(p.growth.branchesKept))) : [whole[whole.length - 1]];
+    const list = olds.length ? olds : [whole[whole.length - 1]];
+    for (const old of list) {
+      this.regrow(p);
+      const cur = this.current!;
+      // It grows back, even where the wood stays (it would appear at once).
+      (cur.tree as unknown as { instant?: boolean }).instant = false;
+      cur.reveal = 0;
+      cur.autoReveal = size(old);
+      cur.idle = Number.isFinite(idle) ? idle : 0;
+      cur.wither = wither; // in a pause, its outer twigs stay withered too
+    }
   }
 
   update(d: Drive, dt: number, p: Params) {
@@ -93,46 +295,62 @@ export class Generations<T extends Structure> {
     const stays = p.look.woodStays;
     if (d.voice) {
       if (!this.current) this.regrow(p);
-      else if (stays) this.current.stamped = false; // one tree for good: phrases do not replace it
-      else if (this.current.stamped) this.current.stamped = false; // the first phrase grows the planted tree
+      else if (stays) {
+        // one tree for good: phrases do not replace it
+      }
       // A new bough only when the current one is at least half grown (a short phrase keeps growing it).
       else if (d.newPhrase && (g.branchEachPhrase ? this.current.reveal > 0.5 : g.newTreeEachPhrase && this.current.reveal > 0.05)) this.regrow(p);
+      // Its ending took all of it away: the phrase starts a new tree.
+      else if (d.newPhrase && !this.current.bough && (this.current.end ?? 0) >= 1) this.regrow(p);
     }
 
     const cur = this.current;
     if (cur && d.voice) {
       // A bough is a fraction of a tree, so it grows faster.
-      const M = clamp(Math.round(g.branchesKept) + 1, 3, 7);
-      const k = cur.bough ? clamp(M / 2, 1.5, 3) : 1;
+      // (a mirrored pair is as much of the tree as one bough of S places)
+      const S = clamp(Math.round(g.branchesKept) + 1, 3, 7);
+      const k = cur.bough ? clamp(S / 2, 1.5, 3) : 1;
       cur.reveal = Math.min(1, cur.reveal + ((k * dt) / Math.max(0.05, g.secondsToFull)) * (0.4 + d.level));
       cur.idle = 0;
+      // Singing again takes an ending back (the tree regrows, or brightens again).
+      cur.end = 0;
+      cur.endAction = 'keep';
     }
-    if (cur) {
-      // Pauses wither the outer twigs gradually; a pitch dip withers some at once. Singing lets
-      // them grow back.
-      if (g.witherOnPause && !d.voice && d.silentFor > 0.12) cur.wither = Math.min(1, cur.wither + dt / Math.max(0.05, g.witherSeconds));
-      if (g.witherOnPitchDip && d.pitchDip) cur.wither = Math.min(1, cur.wither + 0.6);
-      if (d.voice) cur.wither = Math.max(0, cur.wither - dt / 1.2);
+    // After a look change: grow back to where the replaced trees were, singing or not.
+    for (const x of this.gens)
+      if (!x.retired && x.autoReveal !== undefined && x.reveal < x.autoReveal)
+        x.reveal = Math.min(x.autoReveal, x.reveal + dt / Math.max(0.3, g.secondsToFull * 0.5));
+    // Pauses act on the outer twigs gradually (growth.onPause); a pitch dip at once. Singing lets
+    // them grow back. The living boughs of "new branch each phrase" are one tree: all of them (an
+    // older bough used to keep the twigs a pause had taken, and looked half dead).
+    for (const x of this.gens) {
+      if (x !== cur && !(x.bough && !x.retired)) continue;
+      if (g.onPause && !d.voice && d.silentFor > 0.12) x.wither = Math.min(1, x.wither + dt / Math.max(0.05, g.witherSeconds));
+      if (g.witherOnPitchDip && d.pitchDip) x.wither = Math.min(1, x.wither + 0.6);
+      if (d.voice) x.wither = Math.max(0, x.wither - dt / 1.2);
     }
 
-    // A long silence ends the whole tree (trunk, limbs and all); the next phrase starts a new one.
-    // Trees planted by the commit animation wait for their first phrase instead.
-    if (g.dieAfter > 0 && !stays && !d.voice && d.silentFor > g.dieAfter)
+    // A full stop (a long silence) ends every tree by growth.onStop; the next phrase starts a new one.
+    if (g.dieAfter > 0 && g.onStop && !stays && !d.voice && d.silentFor > g.dieAfter)
       for (const x of this.gens)
-        if (!x.stamped && !x.ending) {
+        if (!x.ending) {
           x.retired = true;
           x.ending = true;
         }
 
-    const fadeAfter = Math.max(0, g.fadeAfter);
     const fade = Math.max(0.05, g.fadeSeconds);
-    const ending = g.ending ?? 'wither';
-    const dropping = this.gens.filter((x) => x.bough && x.retired && !x.ending).length;
+    // The phrase end acts on a tree growth.fadeAfter seconds after it last grew (its take stopped
+    // singing), and never before the phrase is over. Until then it stays whole, so with a new tree
+    // per phrase the old one stands next to the new one for a while.
+    const phraseOver = Math.max(0, p.response.phraseGap, g.fadeAfter);
+    // Old boughs fade where they are only with "fade, all at once"; otherwise they dry, droop and fall.
+    const boughsFade = g.witherEffect === 'fade' && !g.witherFromTips;
+    const dropping = this.gens.filter((x) => x.bough && x.retired && !x.ending && !x.switching).length;
     for (const gen of this.gens) {
       const growing = gen === cur && d.voice;
       if (!growing) gen.idle += dt;
-      if (gen.bough && gen.retired) {
-        if (ending === 'fade') {
+      if (gen.bough && gen.retired && !gen.switching) {
+        if (boughsFade) {
           gen.alpha -= dt / fade; // fades where it is
           continue;
         }
@@ -143,27 +361,39 @@ export class Generations<T extends Structure> {
         if ((gen.fall ?? 0) >= 1) gen.alpha = 0; // removed by the filter below
         continue;
       }
-      if (gen.bough) {
-        // Living boughs are one tree: bright while the take is in a phrase, never fading.
-        const target = d.voice || !d.phraseOver(p) ? 1 : g.restBrightness;
-        gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
-        continue;
+      // Brightness: full while its take is in a phrase, resting between.
+      const lit = gen.bough ? d.voice || !d.phraseOver(p) : growing || (gen === cur && !d.phraseOver(p));
+      const target = lit ? 1 : g.restBrightness;
+      gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
+      if (gen.bough && !gen.switching) continue; // living boughs are one tree: no ending of their own
+
+      // Which ending acts on it: a look change's at once; the full stop's, or the phrase end's once
+      // its phrase is over. A replaced tree has to go, whatever the switches say.
+      let act: EndAction = 'keep';
+      if (gen.switching) act = endActionOf(g, true);
+      else if (!growing && !(stays && gen === cur)) {
+        if (gen.ending) act = endActionOf(g, g.onStop);
+        else if (gen.idle > phraseOver) act = endActionOf(g, g.onPhraseEnd);
+        if (act === 'keep' && gen.retired && gen.idle > phraseOver) act = endActionOf(g, true);
       }
-      const canFade = (g.newTreeEachPhrase || gen.retired) && !gen.stamped && !(stays && gen === cur);
-      if (gen.stamped) gen.alpha = Math.max(gen.alpha, g.restBrightness);
-      else if (gen.ending || (canFade && gen.idle > fadeAfter)) {
-        // Ending: wither back to the root (computeReveal), fade, or both.
-        if (ending !== 'fade') {
-          gen.die = (gen.die ?? 0) + dt / fade; // > 1: a safety margin past the planned time
-          const gone = !gen.tree.vis.length || gen.tree.vis[0] <= 0;
-          if (gone || gen.die >= 1.6) gen.alpha = 0;
-          // Withering alone keeps it lit, dimming toward rest, until the last of it is gone.
-          if (ending === 'wither') gen.alpha = gone ? 0 : Math.max(0.01, gen.alpha - (dt / fade) * Math.max(0, gen.alpha - g.restBrightness));
-        }
-        if (ending !== 'wither') gen.alpha -= dt / fade;
-      } else {
-        const target = growing || (gen === cur && !d.phraseOver(p)) ? 1 : g.restBrightness;
-        gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
+      if (act !== 'keep') {
+        // Another ending takes over (the full stop after the phrase end): it starts from the beginning.
+        if (gen.endAction !== act && gen.endAction !== undefined && gen.endAction !== 'keep') gen.end = 0;
+        gen.endAction = act;
+        gen.end = Math.min(4, (gen.end ?? 0) + dt / fade);
+      }
+      const e = gen.end ?? 0;
+      const dimTo = gen.endAction === 'fade' ? Math.max(0, 1 - e) : 1;
+      gen.dim = dimTo < (gen.dim ?? 1) ? dimTo : Math.min(dimTo, (gen.dim ?? 1) + dt / 0.3);
+      if (gen.retired && e > 0) {
+        // Gone: it withered back to nothing, faded out, or its last pieces fell.
+        const a = gen.endAction;
+        const gone = a === 'ungrow' ? !gen.tree.vis.length || gen.tree.vis[0] <= 0 || e >= 1.6
+          : a === 'fade' ? e >= 1
+          : a === 'fadeTips' ? e >= 1.02
+          : a === 'fall' ? e * fade >= 2.2
+          : e >= 1 + 2.2 / fade;
+        if (gone) gen.alpha = 0;
       }
     }
     this.gens = this.gens.filter((gen) => gen.alpha > 0);

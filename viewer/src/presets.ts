@@ -34,15 +34,15 @@ export const PATHS: string[] = Object.entries(D).flatMap(([s, o]) => Object.keys
 /** Keys that respond to the voice (the reactivity kind). */
 const REACTIVE = new Set([
   'growth.newTreeEachPhrase', 'growth.secondsToFull', 'growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds',
-  'growth.ending', 'growth.dieAfter', 'plants.twistVoice', 'motion.leafShake',
-  'growth.witherOnPause', 'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
-  'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed', 'growth.shed', 'growth.branchEachPhrase',
-  'growth.branchesKept', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
-  'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine', 'glow.softGlow', 'glow.front',
+  'growth.witherEffect', 'growth.witherFromTips', 'growth.onPause', 'growth.onPhraseEnd', 'growth.onStop', 'growth.dieAfter', 'plants.twistVoice', 'motion.leafShake',
+  'growth.witherOnPitchDip', 'growth.witherDipSemitones', 'growth.witherDepth',
+  'growth.witherSeconds', 'growth.twigFadeSeconds', 'growth.regrowSpeed', 'growth.shed', 'growth.fallDirection', 'growth.fillSpace', 'growth.branchEachPhrase',
+  'growth.branchesKept', 'growth.branchOrder', 'growth.branchSymmetry', 'growth.branchWitherSeconds', 'growth.branchDroopDeg', 'growth.branchFallSeconds',
+  'glow.levelGain', 'glow.onsetGain', 'glow.pitchShine', 'glow.softGlow', 'glow.front', 'glow.travel',
   'halo.idleSpeed', 'halo.singSpeed', 'halo.sproutRate', 'halo.sproutGrow', 'halo.spawnSeconds',
   'plants.softDroop', 'plants.moodShaping', 'look.blossoms', 'look.blossomHold', 'look.thornEffort',
 ]);
-const REACTIVE_SECTIONS = new Set(['response', 'motion', 'commit', 'transitions']);
+const REACTIVE_SECTIONS = new Set(['response', 'motion', 'commit', 'transitions', 'harmony']);
 /** Preview keys a testing preset may set (never synced; other local keys stay as they are). */
 const TESTING = new Set([
   'scene.layers', 'scene.timeScale', 'scene.backdrop', 'scene.showAvatar', 'scene.showGuides', 'scene.showScope',
@@ -105,11 +105,48 @@ export function diffOf(p: Params | Values, kind: Kind): Values {
   return out;
 }
 
+/**
+ * Older settings in the current words, in place:
+ * - growth.ending and growth.witherOnPause (one way to end) became one choice per length of silence
+ *   (onPause, onPhraseEnd, onStop: keep, ungrow, fadeTips, fade, fallTips, fall);
+ * - those choices became one withering effect (growth.witherEffect, witherFromTips) and a switch per
+ *   length of silence. The effect comes from the phrase end's choice, else the full stop's, else
+ *   the pause's; "keep" turns that switch off.
+ */
+export function migrateGrowth(gr: Record<string, unknown> | undefined) {
+  if (!gr) return;
+  if (typeof gr.ending === 'string' || typeof gr.witherOnPause === 'boolean') {
+    const fades = gr.ending === 'fade' || gr.ending === 'both';
+    const act = gr.ending === 'fade' ? 'fade' : gr.ending === 'both' ? 'fadeTips' : 'ungrow';
+    if (gr.onPause === undefined) gr.onPause = gr.witherOnPause === false ? 'keep' : fades ? 'fadeTips' : 'ungrow';
+    if (gr.onPhraseEnd === undefined) gr.onPhraseEnd = act;
+    if (gr.onStop === undefined) gr.onStop = act;
+    delete gr.ending;
+    delete gr.witherOnPause;
+  }
+  const stages = ['onPhraseEnd', 'onStop', 'onPause'].filter((k) => typeof gr[k] === 'string');
+  if (!stages.length) return;
+  // A stage that was not saved was at the old default, 'ungrow' (settings are stored as changes).
+  const val = (k: string) => (typeof gr[k] === 'string' ? (gr[k] as string) : 'ungrow');
+  const act = ['onPhraseEnd', 'onStop', 'onPause'].map(val).find((v) => v !== 'keep');
+  if (gr.witherEffect === undefined) {
+    if (act !== undefined) {
+      gr.witherEffect = act.startsWith('fade') ? 'fade' : act.startsWith('fall') ? 'fall' : 'ungrow';
+      if (act !== 'ungrow' && gr.witherFromTips === undefined) gr.witherFromTips = act.endsWith('Tips');
+    } else {
+      // Every stage kept: a replaced tree used to fade out (all at once).
+      gr.witherEffect = 'fade';
+      if (gr.witherFromTips === undefined) gr.witherFromTips = false;
+    }
+  }
+  for (const k of stages) gr[k] = gr[k] !== 'keep';
+}
+
 const built = (list: Preset[]) => list.map((p) => ({ ...p, builtin: true }));
 
 export const BUILTINS: Record<Kind, Preset[]> = {
   visual: built([
-    { id: 'default', name: 'Sprout', description: 'The standard look: leafy canopy in your take colours, a white glint travelling round the halo.', values: {} },
+    { id: 'default', name: 'Sprout', description: 'The standard look: leafy canopy in your take colours, a white glint travelling round the halo.', values: { look: { leaf3d: 0.8 }, colLeaf: { takeMix: 1 } } },
     {
       id: 'ivy', name: 'Lush ivy', description: 'Dense and overgrown. Woody dark stems that turn into your take colour, leaves from deep to light green.',
       values: {
@@ -117,8 +154,8 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colLeaf: { source: 'gradient', gradient: 'ok;0:14532a,0.5:3fae4e,1:9bdc3a', takeMix: 0.4, along: 0.8, scatter: 0.5 },
         colAccent: { takeMix: 0.2 },
         colHalo: { source: 'take' },
-        growth: { branching: 0.95, reach: 1.1, spread: 1.3, flatten: 0.45 },
-        look: { theme: 'leaves', density: 0.85, decoSize: 1.5, variety: 0.8, depthShade: 0.8, decoGlow: 0.12, buds: 0.3 },
+        growth: { branching: 0.95, lowBranches: 1, reach: 1.1, spread: 1.3, flatten: 0.45 },
+        look: { theme: 'leaves', density: 0.85, decoSize: 1.5, variety: 0.8, depthShade: 0.8, decoGlow: 0.12, buds: 0.3, leaf3d: 1 },
         plants: { wildness: 0.7, overlap: 0.8, clearance: 0.03, taper: 0.55, lift: 0.05, maxNodes: 3600, twist: 0.25, twistTwigs: 1.4, curl: 0.35 },
         halo: { origins: 2, tailDeg: 540, tailFade: 0.3, sproutLength: 16, alwaysLeaves: 0.7, wander: 0.14 },
         glow: { strength: 1.2, wide: 0.5, crowd: 1.1, inkMask: 0.85, tint: '#d8ffb0', tintAmount: 0.25 },
@@ -130,9 +167,9 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colBranch: { source: 'gradient', gradient: 'ok;0:0b2a6b,0.4:2f7fe0,0.75:8fe3ff,1:f2fdff', along: 1, speed: 0, perTake: 0, takeMix: 0.35, voice: 'breath', voiceAmount: 0.3 },
         colHalo: { source: 'branches' },
         colLeaf: { takeMix: 0.9 },
-        growth: { branching: 0.3, spread: 0.7, flatten: 0.35 },
+        growth: { branching: 0.3, lowBranches: 0.4, spread: 0.7, flatten: 0.35 },
         look: { theme: 'branches', density: 0.3, decoSize: 1.0, variety: 0.35, depthShade: 0.4, buds: 0, dryColour: '#9aa3ad' },
-        plants: { taper: 0.8, wildness: 0.6, lift: 0.35, clearance: 0.07, overlap: 0.25, twist: 0.3, gnarl: 0.6, knots: 0.3 },
+        plants: { taper: 0.8, wildness: 0.6, lift: 0.35, clearance: 0.07, overlap: 0.25, twist: 0.3, gnarl: 0.6, knots: 0.3, trunk: 0.6 },
         halo: { alwaysLeaves: 0.2, sproutLength: 8, sproutCurl: 0.4, tailDeg: 220 },
         glow: { strength: 1.9, radius: 2.6, wide: 1.2, base: 0.2, crowd: 0.4, knee: 1.2, tint: '#bfe3ff', tintAmount: 0.6 },
         palette: { from: 'list', list: 'step;0:e8f4ff,0.2:9fd0ff,0.4:6aa8f0,0.6:b8a8ff,0.8:8fe3ff', pick: 'order' },
@@ -145,7 +182,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colAccent: { source: 'gradient', gradient: 'step;0:e61424,0.5:ffd24a,0.8:ffffff', takeMix: 0, along: 0, scatter: 1 },
         colHalo: { source: 'gradient', gradient: 'step~;0:c8102e,0.167:f4f4f4,0.333:c8102e,0.5:f4f4f4,0.667:c8102e,0.833:f4f4f4', along: 2, speed: 0.04, perTake: 0, takeMix: 0 },
         growth: { branching: 0.7, flatten: 0.4 },
-        look: { theme: 'wreath', density: 0.8, decoSize: 2.2, decoGlow: 0.35, variety: 0.7, dryColour: '#5b4630' },
+        look: { theme: 'wreath', density: 0.8, decoSize: 2.2, decoGlow: 0.35, variety: 0.7, dryColour: '#5b4630', leaf3d: 0.7 },
         plants: { lift: 0.3 },
         halo: { origins: 2, tailDeg: 720, tailFade: 0.2, alwaysLeaves: 0.9, sproutLength: 7, sproutCurl: 0.5, wander: 0.04, ringWidth: 0.014, vineWidth: 0.01, braid: 0.5 },
         glow: { strength: 2.0, base: 0.45, crowd: 0.9, tint: '#ffcf7a', tintAmount: 0.35 },
@@ -158,7 +195,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colBranch: { source: 'gradient', gradient: 'ok;0:2a0508,0.5:8a0f22,1:e0304a', along: 1, speed: 0, perTake: 0, takeMix: 0.1, voice: 'effort', voiceAmount: 0.35 },
         colLeaf: { source: 'theme', takeMix: 0.2 },
         colHalo: { source: 'branches' },
-        growth: { branching: 0.95, spread: 1.5, flatten: 0.6 },
+        growth: { branching: 0.95, lowBranches: 0.9, spread: 1.5, flatten: 0.6 },
         look: { theme: 'thorns', density: 0.95, decoSize: 1.5, variety: 0.8, depthShade: 0.85, decoGlow: 0.05, tint: '#c0142c', tintAmount: 0.25, dryColour: '#3a2226' },
         plants: { lift: -0.2, taper: 0.85, wildness: 0.75, clearance: 0.045, overlap: 0.7, maxNodes: 3400, twist: 0.5, gnarl: 0.5, knots: 0.4, curl: 0.25 },
         halo: { sproutCurl: 0.3, sproutLength: 14, wander: 0.12, alwaysLeaves: 0.6, twist: 0.4 },
@@ -185,7 +222,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colAccent: { source: 'gradient', gradient: 'ok;0:ffffff', takeMix: 0, scatter: 0 },
         colHalo: { source: 'branches' },
         growth: { branching: 0.7, spread: 1.4 },
-        look: { density: 0.64 },
+        look: { density: 0.64, gravity: 'away' },
         halo: { origins: 3, tailDeg: 200, alwaysLeaves: 0.49, braid: 0.6 },
         plants: { strands: 2, twistDepth: 0.8 },
         glow: { strength: 2.4, base: 0.2, knee: 1.2 },
@@ -198,6 +235,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colLeaf: { source: 'gradient', gradient: 'rgb~;0:ffa6a6,0.167:ffffa6,0.333:a6ffa6,0.5:a6ffff,0.667:a6a6ff,0.833:ffa6ff', along: 0.3, speed: 0.05, perTake: 0.13, scatter: 0.6, takeMix: 0.1 },
         colAccent: { source: 'gradient', gradient: 'ok;0:ffffff', takeMix: 0, scatter: 0 },
         colHalo: { source: 'gradient', gradient: 'rgb~;0:ff4d4d,0.167:ffff4d,0.333:4dff4d,0.5:4dffff,0.667:4d4dff,0.833:ff4dff', along: 1, speed: 0.05, perTake: 0.15, takeMix: 0, voice: 'flash', voiceAmount: 0.15 },
+        look: { leaf3d: 0.7 },
         glow: { strength: 1.8 },
       },
     },
@@ -209,8 +247,9 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colAccent: { source: 'gradient', gradient: 'ok;0:ff7ac8,0.6:ffd1e6,1:ffffff', along: 0, scatter: 1, takeMix: 0 },
         colHalo: { source: 'gradient', gradient: 'ok;0:ff9ccb,1:ffffff', along: 1, speed: 0.05, perTake: 0, takeMix: 0.2 },
         growth: { branching: 0.775, spread: 1.2 },
-        look: { theme: 'leaves', density: 0.7, decoSize: 1.6, variety: 0.7, buds: 0.35, dryColour: '#c9a0a8' },
-        plants: { lift: -0.1, wildness: 0.55, twist: 0.2, gnarl: 0.4, curl: 0.2 },
+        look: { theme: 'leaves', density: 0.7, decoSize: 1.6, variety: 0.7, buds: 0.35, dryColour: '#c9a0a8', leaf3d: 0.6 },
+        plants: { lift: -0.1, wildness: 0.55, twist: 0.2, gnarl: 0.4, curl: 0.2, trunk: 0.5 },
+        falling: { speed: 0.7, sway: 0.9, spin: 0.6, time: 1.4, dropSeconds: 0.12, dropVariety: 1, dropSpeed: 1.3, variety: 1 },
         halo: { alwaysLeaves: 0.55, sproutCurl: 1.2 },
         glow: { strength: 1.5, tint: '#ffc4de', tintAmount: 0.45 },
         palette: { from: 'list', list: 'step;0:ff9ccb,0.25:ffc4de,0.5:f47fb0,0.75:ffe3ef', pick: 'order' },
@@ -224,8 +263,9 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colAccent: { source: 'gradient', gradient: 'ok;0:f7dc6f,1:fff6cf', scatter: 1, takeMix: 0 },
         colHalo: { source: 'gradient', gradient: 'ok;0:d9541e,0.5:f2a51e,1:f7dc6f', along: 1, speed: 0.04, perTake: 0, takeMix: 0.2 },
         growth: { branching: 0.67 },
-        look: { theme: 'leaves', density: 0.75, variety: 0.8, dryColour: '#6b4a2b', blossoms: 0, buds: 0, woodStays: true, leafFall: 0.6, leafRegrow: 2.5 },
-        plants: { lift: 0.05 },
+        look: { theme: 'leaves', density: 0.75, variety: 0.8, dryColour: '#6b4a2b', blossoms: 0, buds: 0, woodStays: true, leafFall: 0.6, leafRegrow: 2.5, leaf3d: 0.8 },
+        plants: { lift: 0.05, trunk: 0.6 },
+        falling: { speed: 0.8, sway: 0.8, spin: 0.8, flutter: 0.6, time: 1.5, dropSeconds: 0.45, dropVariety: 1, dropSpeed: 1.8, variety: 1 },
         halo: { alwaysLeaves: 0.46 },
         glow: { tint: '#ffb060', tintAmount: 0.4 },
         palette: { from: 'list', list: 'step;0:d9541e,0.25:f2a51e,0.5:7a1f0e,0.75:f7dc6f', pick: 'random' },
@@ -240,7 +280,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colHalo: { source: 'gradient', gradient: 'ok;0:121015,0.5:3c3844,0.82:8d8a9c,1:ecebf5', along: 2, speed: 0.03, perTake: 0, takeMix: 0 },
         growth: { branching: 0.7, reach: 1.0, spread: 1.1, flatten: 0.5 },
         look: { theme: 'briar', density: 0.55, decoSize: 1.6, variety: 0.7, depthShade: 0.5, decoGlow: 0.3, buds: 0.3,
-          tintAmount: 0, dryColour: '#6f6a78', leafSheen: 0.35, sheenColour: '#8f96c8' },
+          tintAmount: 0, dryColour: '#6f6a78', leafSheen: 0.35, sheenColour: '#8f96c8', leaf3d: 0.5 },
         plants: { lift: 0.1, wildness: 0.6, taper: 0.75, clearance: 0.05, overlap: 0.6, maxWidth: 0.045, tipWidth: 0.005, maxNodes: 3200,
           twist: 0.3, twistLength: 0.45, gnarl: 0.65, knots: 0.5, curl: 0, strands: 1, twistTwigs: 0.6, twistTighten: 0.3, twistDepth: 0.4 },
         halo: { origins: 2, tailDeg: 360, sproutLength: 10, sproutCurl: 0.5, wander: 0.08, alwaysLeaves: 0.75,
@@ -258,7 +298,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         colAccent: { source: 'gradient', gradient: 'ok;0:8a0f22,1:ff3355', takeMix: 0, scatter: 0.6 },
         colHalo: { source: 'gradient', gradient: 'ok;0:1a0d16,0.5:6b2244,0.8:b23a6a,1:f0e6d8', along: 2, speed: 0.03, perTake: 0, takeMix: 0 },
         growth: { branching: 0.75, reach: 1.05, spread: 1.6, flatten: 0.5 },
-        look: { theme: 'thorns', density: 0.6, decoSize: 1.3, variety: 0.9, depthShade: 0.9, decoGlow: 0.05, buds: 0,
+        look: { gravity: 'away', theme: 'thorns', density: 0.6, decoSize: 1.3, variety: 0.9, depthShade: 0.9, decoGlow: 0.05, buds: 0,
           tint: '#3a0f2a', tintAmount: 0.15, dryColour: '#4a4046' },
         plants: { lift: -0.35, wildness: 0.9, taper: 0.9, clearance: 0.06, overlap: 0.6, maxWidth: 0.06, tipWidth: 0.004,
           step: 0.02, maxNodes: 4200,
@@ -270,52 +310,71 @@ export const BUILTINS: Record<Kind, Preset[]> = {
         palette: { from: 'list', list: 'step;0:7a1238,0.2:4a1a6b,0.4:a3262e,0.6:2f3a6b,0.8:6b6b2a', pick: 'order' },
       },
     },
+    {
+      id: 'angelic', name: 'Angelic', description: 'White leaves on pale gold branches, blue blossoms that open on long notes, and everything that lets go floats up into the light. Soft white-blue glow.',
+      values: {
+        colBranch: { source: 'gradient', gradient: 'ok;0:e6cf8c,0.55:f7eed2,1:ffffff', along: 1, speed: 0, perTake: 0, takeMix: 0.1 },
+        colLeaf: { source: 'gradient', gradient: 'ok;0:ffffff,0.5:f3f7ff,1:dde8ff', along: 0, scatter: 0.8, takeMix: 0 },
+        colAccent: { source: 'gradient', gradient: 'ok;0:2a64ff,0.55:6aa6ff,1:cfe2ff', along: 0, scatter: 1, takeMix: 0 },
+        colHalo: { source: 'gradient', gradient: 'ok;0:fff2c8,0.5:ffffff,1:cde0ff', along: 1, speed: 0.06, perTake: 0, takeMix: 0 },
+        growth: { spread: 1.25 },
+        look: { gravity: 'up', theme: 'leaves', density: 0.75, decoSize: 1.4, variety: 0.6, buds: 0.35, dryColour: '#cfdaf0', leaf3d: 0.35, decoGlow: 0.35 },
+        plants: { lift: 0.25, wildness: 0.4, curl: 0.3 },
+        falling: { speed: 0.6, sway: 1, spin: 0.5, flutter: 0.6, time: 1.7, dropSeconds: 0.1, dropVariety: 1, dropSpeed: 1.2 },
+        halo: { alwaysLeaves: 0.6 },
+        glow: { strength: 1.4, tint: '#d6e6ff', tintAmount: 0.4 },
+        palette: { from: 'list', list: 'step;0:ffffff,0.33:cfe0ff,0.66:fff1cc', pick: 'order' },
+      },
+    },
   ]),
   reactivity: built([
     { id: 'default', name: 'Responsive', description: 'The standard response: grows in about 3.5 s of singing, leaves fall in pauses, blossoms on notes held 1.5 s.', values: {} },
     {
       id: 'calm', name: 'Calm (ballad)', description: 'Slow and lingering. Each phrase grows one new branch; old ones dry, droop and fall. Gentle motion.',
       values: {
-        growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, ending: 'both', dieAfter: 7, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8,
+        harmony: { waveSpeed: 0.7, waveLength: 1 },
+        growth: { secondsToFull: 6, fadeAfter: 6, fadeSeconds: 5, witherEffect: 'fade', dieAfter: 7, restBrightness: 0.7, witherDepth: 0.3, witherSeconds: 1.5, twigFadeSeconds: 1.2, regrowSpeed: 0.8,
           branchEachPhrase: true, branchesKept: 4, branchWitherSeconds: 4, branchDroopDeg: 25, branchFallSeconds: 2 },
         response: { release: 3, brightness: 0.6, variety: 0.3 },
         look: { blossoms: 0.9, blossomHold: 2 },
         halo: { idleSpeed: 5, singSpeed: 40, sproutRate: 2, sproutGrow: 1.0 },
-        glow: { levelGain: 0.65, onsetGain: 0.5, softGlow: 0.8 },
-        motion: { swayDeg: 6, kickDeg: 4.5, springiness: 0.3, flutterDeg: 10, speed: 0.7 },
-        commit: { duration: 1.5, impact: 0.5, shockRing: false, spinTurns: 0.5, plunge: 0.2, syncToOnset: false, limbs: 2 },
+        glow: { travel: 0.8, levelGain: 0.65, onsetGain: 0.25, softGlow: 0.8 },
+        motion: { swayDeg: 6, springiness: 0.3, flutterDeg: 10, speed: 0.7 },
+        commit: { duration: 1.4, limbs: 2 },
       },
     },
     {
       id: 'stage', name: 'Punchy (stage)', description: 'Fast and hard: trees shoot up and clear quickly, pitch drops throw leaves, short holds bloom, big planting.',
       values: {
+        harmony: { colour: 1, colourMix: 'hue', waveSpeed: 2, waveLength: 0.5, glow: 0.6 },
         growth: { secondsToFull: 1.8, fadeAfter: 1.5, fadeSeconds: 1.2, dieAfter: 2.5, restBrightness: 0.4, witherOnPitchDip: true, witherDepth: 0.7, witherSeconds: 0.4, regrowSpeed: 2.5 },
         response: { phraseGap: 0.6, release: 0.7, brightness: 1, effortWidth: 1.5, pitchSteer: 0.8, variety: 0.8 },
         look: { blossoms: 1, blossomHold: 0.8, thornEffort: 2 },
         halo: { idleSpeed: 20, singSpeed: 160, sproutRate: 8, sproutGrow: 0.3, spawnSeconds: 0.5 },
-        glow: { levelGain: 1.6, onsetGain: 1.8, pitchShine: 1.0, front: 1.8 },
-        motion: { swayDeg: 12, kickDeg: 12, springiness: 0.7, speed: 1.4, shiverDeg: 5, writhe: 0.25, writheVoice: 'effort' },
+        glow: { travel: 0.25, levelGain: 1.6, onsetGain: 0.9, pitchShine: 1.0, front: 1.8 },
+        motion: { swayDeg: 12, springiness: 0.7, speed: 1.4, shiverDeg: 1.7, writhe: 0.25, writheVoice: 'effort' },
         transitions: { liveEndSeconds: 0.4, pruneSeconds: 0.9 },
-        commit: { duration: 0.65, impact: 1.8, burst: 70, spinTurns: 1.5, plunge: 0.4, syncToOnset: true, syncWindow: 0.15, limbs: 4 },
+        commit: { duration: 0.7, limbs: 4 },
       },
     },
     {
       id: 'subtle', name: 'Subtle', description: 'Small reactions: little brightness change, light motion, few blossoms, the halo plants as a single quiet frond.',
       values: {
-        growth: { restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2, ending: 'fade', dieAfter: 5 },
+        harmony: { colour: 0.4, waveSpeed: 0.8, glow: 0.2 },
+        growth: { restBrightness: 0.35, fadeAfter: 1.5, fadeSeconds: 2, witherEffect: 'fade', witherFromTips: false, dieAfter: 5 },
         response: { brightness: 0.5, effortWidth: 0.5 },
         look: { blossoms: 0.4, blossomHold: 2.5 },
         halo: { sproutRate: 1.5 },
-        glow: { levelGain: 0.5, onsetGain: 0.3, pitchShine: 0.2, front: 0.4 },
-        motion: { swayDeg: 4, kickDeg: 3, flutterDeg: 8, shiverDeg: 1.5 },
-        commit: { duration: 0.7, impact: 0.4, burst: 10, shockRing: false, spinTurns: 0.5, syncToOnset: false, limbs: 1 },
+        glow: { travel: 0.7, levelGain: 0.5, onsetGain: 0.15, pitchShine: 0.2, front: 0.4 },
+        motion: { swayDeg: 4, flutterDeg: 8, shiverDeg: 0.5 },
+        commit: { duration: 0.8, limbs: 1 },
       },
     },
     {
       id: 'vibrato', name: 'Vibrato-sensitive', description: 'Light vibrato already makes twigs and leaves shimmer; soft singing glows wider; blossoms after a 1 s hold.',
       values: {
         look: { blossomHold: 1 },
-        motion: { shiverDeg: 6, shiverSensitivity: 2, flutterDeg: 18, writhe: 0.35, writheVoice: 'vibrato' },
+        motion: { shiverDeg: 2, shiverSensitivity: 2, flutterDeg: 18, writhe: 0.35, writheVoice: 'vibrato' },
         plants: { twistVoice: 1.5 },
         glow: { softGlow: 0.8 },
       },
@@ -330,58 +389,82 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     {
       id: 'bloom', name: 'Blossom ballad', description: 'One tree keeps growing through the song. Notes held for a second open the blossoms; their petals fall when the note ends.',
       values: {
-        growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5, ending: 'both', dieAfter: 6, fadeSeconds: 3.5 },
+        growth: { newTreeEachPhrase: false, secondsToFull: 5, restBrightness: 0.75, witherDepth: 0.35, witherSeconds: 1.5, witherEffect: 'fade', onPhraseEnd: false, dieAfter: 6, fadeSeconds: 3.5 },
         look: { blossoms: 1, blossomHold: 1 },
-        glow: { softGlow: 0.8 },
-        motion: { shiverDeg: 5, shiverSensitivity: 1.5 },
+        glow: { travel: 0.7, softGlow: 0.8 },
+        motion: { shiverDeg: 1.7, shiverSensitivity: 1.5 },
       },
     },
     {
       id: 'fall', name: 'Falling leaves', description: 'Pauses and pitch drops strip the outer twigs deep into the tree and the leaves rain down; it regrows fast when you sing.',
       values: {
+        glow: { travel: 0.4 },
         growth: { newTreeEachPhrase: false, witherOnPitchDip: true, witherDipSemitones: 2, witherDepth: 0.8, witherSeconds: 0.6, twigFadeSeconds: 1.2, regrowSpeed: 2,
-          ending: 'wither', dieAfter: 3.5, fadeSeconds: 3 },
+          onPhraseEnd: false, dieAfter: 3.5, fadeSeconds: 3 },
+      },
+    },
+    {
+      id: 'fallaway', name: 'Falling away', description: 'Nothing grows back into the tree: in a pause the outer twigs break off piece by piece and fall, and when the phrase ends the whole tree comes down from the tips inward.',
+      values: {
+        glow: { travel: 0.4 },
+        growth: { witherEffect: 'fall', shed: false, fadeAfter: 0, witherDepth: 0.5, witherSeconds: 1.0, fadeSeconds: 2.2, regrowSpeed: 1.6 },
+      },
+    },
+    {
+      id: 'driftingaway', name: 'Drifting away', description: 'Like Falling away, but with no gravity: in a pause the outer twigs break off and drift straight out, away from where the tree grows, with their leaves; when the phrase ends the whole tree drifts apart, tips first.',
+      values: {
+        growth: { witherEffect: 'fall', fallDirection: 'away', shed: true, fadeAfter: 0, witherDepth: 0.5, witherSeconds: 1.0, fadeSeconds: 2.2, regrowSpeed: 1.6 },
+      },
+    },
+    {
+      id: 'duet', name: 'Duet (harmony)', description: 'Made for two voices: in harmony waves of both colours run through them, the branches crisscross, blossoms open and everything glows. Trees stay between phrases.',
+      values: {
+        growth: { newTreeEachPhrase: false, onPhraseEnd: false, restBrightness: 0.7, dieAfter: 6, fadeSeconds: 3 },
+        harmony: { colour: 1, colourMode: 'waves', colourMix: 'hue', waveLead: 'higher', cross: 1, blossoms: 1, glow: 0.8 },
       },
     },
     {
       id: 'steady', name: 'Steady (no withering)', description: 'Nothing retracts or falls: one tree grows and stays, blossoms open whenever you sing. For comparing.',
       values: {
-        growth: { newTreeEachPhrase: false, witherOnPause: false, shed: false, restBrightness: 0.8, dieAfter: 0, ending: 'fade' },
+        growth: { newTreeEachPhrase: false, onPause: false, onPhraseEnd: false, onStop: false, witherEffect: 'fade', witherFromTips: false, shed: false, restBrightness: 0.8, dieAfter: 0 },
         look: { blossomHold: 0 },
       },
     },
     {
       id: 'nocturne', name: 'Nocturne', description: 'For dark, solid looks (Black briar): trees stay opaque when you are quiet and the voice shows in the rim glow instead; slow growth, stiff branches that only sway, thorns that grow when you push, roses on notes held a second.',
       values: {
-        growth: { secondsToFull: 4, restBrightness: 0.9, fadeAfter: 4, fadeSeconds: 3.5, ending: 'wither', dieAfter: 6,
+        harmony: { waveSpeed: 0.6, waveLength: 1.2 },
+        growth: { secondsToFull: 4, restBrightness: 0.9, fadeAfter: 4, fadeSeconds: 3.5, dieAfter: 6,
           witherDepth: 0.5, witherSeconds: 1.2, twigFadeSeconds: 1.0, regrowSpeed: 1.0 },
         response: { brightness: 0.25, effortWidth: 1.1, release: 2.2 },
         look: { thornEffort: 0.9, blossoms: 0.6, blossomHold: 1.2 },
         plants: { twistVoice: 0.6 },
         halo: { idleSpeed: 5, singSpeed: 50, sproutRate: 3, sproutGrow: 0.8 },
-        glow: { levelGain: 0.9, onsetGain: 0.9, pitchShine: 0.3, front: 1.2, softGlow: 0.5 },
-        motion: { writhe: 0, swayDeg: 5, idle: 0.4, speed: 0.7, kickDeg: 5, springiness: 0.4, twigs: 0.8, flutterDeg: 9, shiverDeg: 3 },
+        glow: { travel: 0.9, levelGain: 0.9, onsetGain: 0.45, pitchShine: 0.3, front: 1.2, softGlow: 0.5 },
+        motion: { writhe: 0, swayDeg: 5, idle: 0.4, speed: 0.7, springiness: 0.4, twigs: 0.8, flutterDeg: 9, shiverDeg: 1 },
       },
     },
     {
       id: 'writhe', name: 'Writhing', description: 'Slow and heavy: branches squirm on vibrato and stay solid when you sing quietly; full voice thickens them and grows the thorns; phrases with vibrato grow more twisted trees.',
       values: {
+        harmony: { waveSpeed: 0.6, waveLength: 1 },
         growth: { secondsToFull: 4.5, regrowSpeed: 0.9, restBrightness: 0.8, fadeAfter: 5, fadeSeconds: 4,
-          witherDepth: 0.6, witherSeconds: 1.2, twigFadeSeconds: 1.4, ending: 'both', dieAfter: 6 },
+          witherDepth: 0.6, witherSeconds: 1.2, twigFadeSeconds: 1.4, witherEffect: 'fade', onPause: false, dieAfter: 6 },
         response: { brightness: 0.3, effortWidth: 1.4, pitchSteer: 0.3, variety: 0.8, release: 2.5 },
         look: { thornEffort: 2.2, blossoms: 0 },
         plants: { twistVoice: 1.6, softDroop: 1.5 },
         halo: { idleSpeed: 4, singSpeed: 55, sproutRate: 4, sproutGrow: 0.9 },
-        glow: { levelGain: 0.5, onsetGain: 1.1, pitchShine: 0.2, front: 1.4, softGlow: 0.2 },
-        motion: { writhe: 0.7, writheVoice: 'vibrato', swayDeg: 5, idle: 0.5, speed: 0.6, kickDeg: 8, springiness: 0.75,
-          twigs: 1.6, flutterDeg: 6, shiverDeg: 5, shiverSensitivity: 1.5 },
-        commit: { duration: 1.3, impact: 1.3, spinTurns: 1.25, burst: 20, limbs: 3 },
+        glow: { travel: 0.8, levelGain: 0.5, onsetGain: 0.55, pitchShine: 0.2, front: 1.4, softGlow: 0.2 },
+        motion: { writhe: 0.7, writheVoice: 'vibrato', swayDeg: 5, idle: 0.5, speed: 0.6, springiness: 0.75,
+          twigs: 1.6, flutterDeg: 6, shiverDeg: 1.7, shiverSensitivity: 1.5 },
+        commit: { duration: 1.3, limbs: 3 },
       },
     },
     {
       id: 'fade', name: 'Fade away (nothing dies)', description: 'Nothing withers back or falls: in pauses the outer twigs and their leaves fade, and after a long silence the whole tree fades out.',
       values: {
-        growth: { ending: 'fade', shed: false, witherOnPause: true, witherOnPitchDip: false, witherDepth: 0.5, witherSeconds: 1.2, dieAfter: 4, fadeAfter: 2, fadeSeconds: 3,
+        glow: { travel: 0.6 },
+        growth: { witherEffect: 'fade', witherFromTips: false, shed: false, witherOnPitchDip: false, witherDepth: 0.5, witherSeconds: 1.2, dieAfter: 4, fadeAfter: 2, fadeSeconds: 3,
           branchEachPhrase: false, newTreeEachPhrase: true },
         response: { release: 2 },
       },
@@ -401,6 +484,14 @@ export const BUILTINS: Record<Kind, Preset[]> = {
     { id: 'idle', name: 'Not recording', description: 'The live track is not recording: the small resting halo on the head.', values: { fake: { recording: false } } },
     { id: 'duet', name: 'Two live tracks', description: 'Two live tracks at once: nested halos.', values: { fake: { liveTracks: 2 } } },
     {
+      id: 'trade', name: 'Duet: trading phrases', description: 'The live voice and one take trade phrases: one sings alone, then the other, and about half the phrases together in harmony. Shows the harmony effects coming and going.',
+      values: { fake: { voices: 'duet', together: 0.5, harmony: 1 }, scene: { layers: 2 } },
+    },
+    {
+      id: 'independent', name: 'Independent voices', description: 'Every voice has its own phrases, pauses and notes, so the takes grow and end at different times and come in and out of harmony.',
+      values: { fake: { voices: 'independent', harmony: 0.15 } },
+    },
+    {
       id: 'study', name: 'Slow-motion study', description: 'Quarter speed with the voice scope open, to study how the voice is read.',
       values: { scene: { timeScale: 0.25, showScope: true } },
     },
@@ -417,7 +508,7 @@ export const BUILTINS: Record<Kind, Preset[]> = {
       values: { scene: { backdrop: 'checker-light' } },
     },
     {
-      id: 'stops', name: 'Full stops', description: 'Every second phrase ends with an 8 s full stop: the whole tree withers (or fades) away and a new one grows.',
+      id: 'stops', name: 'Full stops', description: 'Every second phrase ends with an 8 s full stop: shows what the tree does at a phrase end and at a full stop, then a new one grows.',
       values: { fake: { fullStopEvery: 2, fullStopSeconds: 8 } },
     },
     {
@@ -463,7 +554,11 @@ const empty = (): PresetStore => ({
 export function loadStore(): PresetStore {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    if (s && s.visual && s.reactivity && s.testing) return s;
+    if (s && s.visual && s.reactivity && s.testing) {
+      for (const pr of (s as PresetStore).reactivity.user ?? []) migrateGrowth(pr.values?.growth);
+      migrateGrowth((s as PresetStore).reactivity.stash?.growth);
+      return s;
+    }
     // v1 (one kind of preset): split each saved preset into a visual and a reactivity preset.
     const old = JSON.parse(localStorage.getItem(OLD_KEY) ?? 'null');
     const st = empty();

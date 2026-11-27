@@ -90,11 +90,21 @@ export const LANES: Lane[] = [
     ],
   },
   {
+    title: 'Harmony',
+    min: 0, max: 1,
+    series: [
+      { key: 'harmony', label: 'in harmony', colour: '#ffe9a8' },
+      { key: 'harmonyLead', label: 'leads the waves', colour: '#90caf9', step: true },
+      { key: 'harmonyWave', label: 'colour wave (start)', colour: '#ce93d8' },
+    ],
+  },
+  {
     title: 'Growth',
     min: 0, max: 1,
     series: [
       { key: 'open', label: 'open / reveal', colour: '#2fb84f' },
-      { key: 'wither', label: 'wither', colour: '#ff8a65' },
+      { key: 'wither', label: 'short pause (twigs)', colour: '#ff8a65' },
+      { key: 'ending', label: 'ending (whole tree)', colour: '#ef5350' },
       { key: 'alpha', label: 'tree brightness', colour: '#e0e0e0' },
     ],
   },
@@ -122,9 +132,9 @@ export const USED_BY: Record<string, { what: string; paths: string[] }> = {
       'motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity', 'plants.moodShaping'] },
   vib: { what: 'Vibrato depth smoothed in the viewer (~0.15 s).', paths: ['motion.shiver', 'motion.shiverDeg', 'motion.shiverSensitivity'] },
   vibRate: { what: 'Vibrato rate (Hz ÷ 10); the shimmer follows it.', paths: ['detect.vibratoMinHz', 'detect.vibratoMaxHz', 'motion.shiver', 'motion.shiverDeg'] },
-  flash: { what: 'Jumps to 1 on every note start, fades with a 0.25 s time constant.',
-    paths: ['glow.onsetGain', 'response.brightness', 'motion.kickDeg', 'halo.sproutRate', 'commit.syncToOnset'] },
-  voice: { what: 'Singing right now: loudness above 0.05.', paths: ['growth.secondsToFull', 'growth.witherOnPause', 'response.phraseGap'] },
+  flash: { what: 'Swells in on every note start (reaches about 1 after about 80 ms) and fades with a 0.25 s time constant.',
+    paths: ['glow.onsetGain', 'response.brightness', 'motion.kickDeg', 'halo.sproutRate'] },
+  voice: { what: 'Singing right now: loudness above 0.05.', paths: ['growth.secondsToFull', 'growth.onPause', 'response.phraseGap'] },
   phraseOn: { what: 'Inside a phrase: until the silence is longer than “pause that ends a phrase”.',
     paths: ['response.phraseGap', 'growth.newTreeEachPhrase', 'growth.restBrightness', 'response.release'] },
   held: { what: 'How long the current note has been held, as a share of twice the “blossom after” time: crossing the middle line opens the blossoms. Counts while you stay within a semitone of the note; a jump, a new note start or a pause starts over.',
@@ -132,8 +142,16 @@ export const USED_BY: Record<string, { what: string; paths: string[] }> = {
   bloom: { what: 'How far the blossoms are open (rises ~0.25 s after the hold time, closes ~0.7 s after the note).', paths: ['look.blossomHold', 'look.blossoms'] },
   open: { what: 'How far the live halo has opened, or how much of this take\'s newest tree has grown.',
     paths: ['growth.secondsToFull', 'halo.openRadius', 'response.release'] },
-  wither: { what: 'How far the outer twigs have grown back in a pause or pitch dip.',
-    paths: ['growth.witherOnPause', 'growth.witherSeconds', 'growth.witherDepth', 'growth.twigFadeSeconds', 'growth.witherOnPitchDip'] },
+  wither: { what: 'How far a short pause (or a pitch dip) has acted on the outer twigs; it recedes when you sing again.',
+    paths: ['growth.onPause', 'growth.witherSeconds', 'growth.witherDepth', 'growth.twigFadeSeconds', 'growth.witherOnPitchDip'] },
+  ending: { what: 'How far the ending of the whole tree has come (the phrase end\'s, or the full stop\'s): 1 after “an ending takes”.',
+    paths: ['growth.onPhraseEnd', 'growth.fadeAfter', 'growth.onStop', 'growth.dieAfter', 'growth.fadeSeconds'] },
+  harmony: { what: 'In harmony with another track: both sing, a third, fourth, fifth or sixth apart in any octave (within half a semitone), for at least “counts after”. Found in the viewer from the pitches of all tracks.',
+    paths: ['harmony.colour', 'harmony.cross', 'harmony.blossoms', 'harmony.glow', 'harmony.minSeconds', 'harmony.attack', 'harmony.unison'] },
+  harmonyLead: { what: 'This voice leads the colour waves: its colour runs into the other voice first, then both carry the same bands. Decided when the harmony starts (higher or lower voice, as set). 0 while each voice takes the other colour, or not in harmony.',
+    paths: ['harmony.waveLead'] },
+  harmonyWave: { what: 'The colour wave where it starts on this layer (a tree: its root; the halo: its start point): 0 = its own colour, up to how far the colours come together = the other voice\'s. Bands start here and run outward.',
+    paths: ['harmony.colourMode', 'harmony.waveLength', 'harmony.waveSpeed', 'harmony.waveFrom', 'harmony.colourMix'] },
   alpha: { what: 'Brightness of this take\'s newest tree.', paths: ['growth.restBrightness', 'growth.fadeAfter', 'growth.fadeSeconds'] },
 };
 
@@ -283,8 +301,11 @@ export class Scope {
     const { canvas, ctx } = this;
     const dpr = window.devicePixelRatio || 1;
     const cssW = Math.max(320, Math.min(980, window.innerWidth - 340));
-    const laneH = 58, header = 28;
-    const cssH = header + LANES.length * laneH + 6;
+    // Each lane as tall as its readouts (one row of 12 px per value) need, at least 58 px.
+    const header = 28;
+    const laneHs = LANES.map((l) => Math.max(58, 12 * l.series.length + 14));
+    const tops = laneHs.map((_, i) => header + laneHs.slice(0, i).reduce((a, b) => a + b, 0));
+    const cssH = header + laneHs.reduce((a, b) => a + b, 0) + 6;
     canvas.style.width = cssW + 'px';
     canvas.style.height = cssH + 'px';
     if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
@@ -370,7 +391,7 @@ export class Scope {
 
     this.readouts = [];
     LANES.forEach((lane, li) => {
-      const top = header + li * laneH, bot = top + laneH - 8;
+      const top = tops[li], bot = top + laneHs[li] - 8;
       const Y = (v: number) => bot - ((v - lane.min) / (lane.max - lane.min)) * (bot - top);
       ctx.fillStyle = 'rgba(255,255,255,0.03)';
       ctx.fillRect(x0, top, x1 - x0, bot - top);

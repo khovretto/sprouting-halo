@@ -30,8 +30,9 @@ export interface ThemePart {
   flutter?: number;
   /** Grows with vocal effort (look.thornEffort). */
   sizeFrom?: 'effort' | 'none';
-  /** bloom: opens on long held notes like blossoms. */
-  opens?: 'always' | 'bloom';
+  /** bloom: opens on long held notes like blossoms. harmony: opens while this track sings in
+   *  harmony with another (on twig ends it is a bud otherwise; elsewhere it is not there). */
+  opens?: 'always' | 'bloom' | 'harmony';
   /** Origin: the point of the shape that sits on the branch, and that it grows and turns about.
    *  x 0 (left) .. 1 (right), y 0 (bottom) .. 1 (top) of the shape drawn pointing up. Unset = the
    *  shape's own (pictures and leaves: the bottom centre, like a stalk; blossoms, berries: the middle). */

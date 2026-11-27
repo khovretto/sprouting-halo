@@ -18,6 +18,7 @@ import type { Drive } from '../drive';
 import type { Params } from '../params';
 import { angleLerp, clamp, deg, noise1, rng, Rng, TAU } from '../math';
 import { bendFrames, NodeKind, Skeleton } from './skeleton';
+import { ShedPool } from '../shed';
 
 interface VNode {
   id: number;
@@ -51,6 +52,9 @@ const STEP = 0.014;
 /** Leaves on the vine start this far behind the growing tip (radians) and fade in over the next LEAF_FADE. */
 const LEAF_GAP = 0.06;
 const LEAF_FADE = 0.3;
+/** A runner thins to this share of its width at the growing tip, over the last TIP_TAPER radians. */
+const TIP_WIDTH = 0.3;
+const TIP_TAPER = 0.1;
 
 export class HaloVine {
   sk = new Skeleton(4096);
@@ -63,6 +67,14 @@ export class HaloVine {
   /** Per node: 1 runner, 2 sprout (motion), and the bend frames for the sprouts' own bend. */
   order = new Uint8Array(0);
   bend = new Float32Array(0);
+  /** growth.shed: the halo's falling leaves (vine and ring), in the halo's frame. */
+  shed = new ShedPool();
+  /** Vine node ids whose leaves have let go (each only once). */
+  gone = new Set<number>();
+  /** Ring decorations (by index round the ring): 1 = let go, until the vine covers it again; and
+   *  how visible each was last frame. */
+  ring = { gone: new Uint8Array(1024), prev: new Float32Array(1024), spacing: 0 };
+  private alphaOld = new Float32Array(0);
   private nodes: VNode[] = [];
   private tips: Tip[] = [];
   private nextId = 1;
@@ -112,7 +124,9 @@ export class HaloVine {
     return n;
   }
 
-  update(dt: number, d: Drive, onset: boolean, p: Params) {
+  /** tailKeepDeg: while a look change sweeps round, the vine an older look kept is not dropped
+   *  before it has faded (drawn by tailAlpha). */
+  update(dt: number, d: Drive, onset: boolean, p: Params, tailKeepDeg = 0) {
     const h = p.halo;
     this.t += dt;
     this.ensureLayout(p);
@@ -136,7 +150,7 @@ export class HaloVine {
     while (count-- > 0 && this.tips.length) this.sprout(this.tips[Math.floor(this.r() * this.tips.length)], d, h);
 
     // Drop vine that has fallen off the end of every tail.
-    const tail = Math.max(0.1, h.tailDeg * deg);
+    const tail = Math.max(0.1, Math.max(h.tailDeg, tailKeepDeg) * deg);
     // (in place, no new array; dropped nodes are marked so no survivor keeps pointing at them)
     let kept = 0;
     for (const node of this.nodes) {
@@ -161,7 +175,8 @@ export class HaloVine {
   }
 
   private sprout(tip: Tip, d: Drive, h: Params['halo']) {
-    const anchor = tip.node;
+    // From the last finished link (the newest one is still growing out).
+    const anchor = tip.node.parent ?? tip.node;
     const th = Math.atan2(anchor.y, anchor.x);
     // High notes grow outward, low notes inward.
     const outward = this.r() < 0.35 + 0.5 * d.pitch;
@@ -195,27 +210,59 @@ export class HaloVine {
     const tail = Math.max(0.1, h.tailDeg * deg);
     const fadeStart = tail * (1 - clamp(h.tailFade, 0.01, 1));
     const grow = Math.max(0.05, h.sproutGrow);
+    const ss = (x: number) => x * x * (3 - 2 * x);
     for (let i = 0; i < n; i++) {
       const v = this.nodes[i];
       // Cut the link to a dropped parent: otherwise the whole vine ever grown stays in memory.
       if (v.parent && v.parent.dead) v.parent = null;
       const pi = v.parent ? v.parent.index : -1;
-      const j = sk.add(v.x, v.y, pi, v.flex, v.w, v.kind);
+      const tip = this.tips[v.runner];
+      // `lead` is the arc the visible tip has reached (the newest link grows out over its step), so
+      // leaves, widths and the tail fade move with it smoothly, not a step at a time (a slow vine
+      // showed them coming in at a few frames per second).
+      const lead = tip.arc - STEP + tip.budget;
+      const behind = lead - v.arcAt;
+      // The runner's newest link grows out over its step instead of appearing whole (at idle
+      // speed that showed as a line growing dot by dot), and the runner thins toward its tip.
+      // `lead` is the arc the visible tip has reached, so widths move with it without a jump.
+      const runner = v.kind === NodeKind.Runner;
+      const newest = runner && v === tip.node && !!v.parent;
+      const w = runner ? v.w * (TIP_WIDTH + (1 - TIP_WIDTH) * ss(clamp((lead - v.arcAt) / TIP_TAPER))) : v.w;
+      const j = sk.add(v.x, v.y, pi, v.flex, w, v.kind);
       v.index = j;
       this.ids[j] = v.id;
-      this.vis[j] = v.kind === NodeKind.Sprout ? clamp((((this.t - v.growStart) / grow) * 1.15 - v.pos) / 0.15) : 1;
-      const behind = this.tips[v.runner].arc - v.arcAt;
-      const ss = (x: number) => x * x * (3 - 2 * x);
+      this.vis[j] = !runner ? clamp((((this.t - v.growStart) / grow) * 1.15 - v.pos) / 0.15) : newest ? clamp(tip.budget / STEP) : 1;
       this.leaf[j] = v.kind === NodeKind.Sprout
         ? ss(clamp((this.t - v.growStart - grow) / 0.35)) // after the whole shoot has grown
         : ss(clamp((behind - LEAF_GAP) / LEAF_FADE)); // a little behind the tip
       const f = clamp((behind - fadeStart) / Math.max(1e-3, tail - fadeStart));
       this.alpha[j] = 1 - f * f * (3 - 2 * f);
     }
+    // Let-go memory of nodes that are gone (ids only grow).
+    if (this.gone.size > 2048 && n > 0) {
+      let minId = Infinity;
+      for (const v of this.nodes) minId = Math.min(minId, v.id);
+      for (const id of this.gone) if (id < minId) this.gone.delete(id);
+    }
     sk.computeChildren();
     if (this.order.length < sk.n) this.order = new Uint8Array(sk.n * 2);
     for (let i = 0; i < sk.n; i++) this.order[i] = sk.kind[i] === NodeKind.Sprout ? 2 : 1;
     this.bend = bendFrames(sk, this.order, this.bend);
+  }
+
+  /** Per node opacity of the tail fade with other settings (an older look, while a look change
+   *  sweeps round): same order as `alpha`. */
+  tailAlpha(tailDeg: number, tailFade: number) {
+    const n = this.nodes.length;
+    if (this.alphaOld.length < n) this.alphaOld = new Float32Array(n * 2);
+    const tail = Math.max(0.1, tailDeg * deg), fadeStart = tail * (1 - clamp(tailFade, 0.01, 1));
+    for (let i = 0; i < n; i++) {
+      const v = this.nodes[i], tip = this.tips[v.runner];
+      const behind = (tip ? tip.arc - STEP + tip.budget : 0) - v.arcAt;
+      const f = clamp((behind - fadeStart) / Math.max(1e-3, tail - fadeStart));
+      this.alphaOld[i] = behind > tail ? 0 : 1 - f * f * (3 - 2 * f);
+    }
+    return this.alphaOld;
   }
 
   /**
@@ -227,7 +274,9 @@ export class HaloVine {
     const fadeStart = tail * (1 - clamp(p.halo.tailFade, 0.01, 1));
     let best = 0;
     for (const tip of this.tips) {
-      const tipAngle = Math.atan2(tip.node.y, tip.node.x);
+      // Where the visible tip is (the newest link grows out over its step).
+      const pn = tip.node.parent, fr = clamp(tip.budget / STEP);
+      const tipAngle = pn ? Math.atan2(pn.y + (tip.node.y - pn.y) * fr, pn.x + (tip.node.x - pn.x) * fr) : Math.atan2(tip.node.y, tip.node.x);
       // Distance behind the tip along its direction of travel.
       let behind = ((tip.sign * (tipAngle - angle)) % TAU + TAU) % TAU;
       // Only up to the vine actually grown so far.

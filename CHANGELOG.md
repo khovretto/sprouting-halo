@@ -3,7 +3,50 @@
 Sprout.exe and the Sprout Tap plugin share a protocol version (the "bus"). When it changes,
 update both together.
 
-## 0.1.0 (unreleased, bus v5)
+## 0.2.0 (bus v5)
+
+Viewer only: Sprout.exe and the Sprout Tap plugin are unchanged (same bus, v5), so the plugin from
+0.1.0 keeps working.
+
+### Overlay (viewer)
+
+- **Settings panel, reworked:** a head that stays in view (status, test buttons, a search field
+  that finds any setting or button and scrolls to it, the three tabs) over the folders; a preset
+  card on each tab (numbered list, before / next, Save, Save as…, Revert, Export, Import, Delete);
+  a blue bar and ↺ on changed rows, dots on folders and tabs with changes; nested groups with their
+  own headers; Fold all, an Advanced switch, and a width you set by dragging the panel's left edge.
+- **Hotkeys:** `/` lists them by group; number keys pick presets (1 … 0 Look, Shift + number
+  Reaction, Alt + number Setup); Ctrl + . and Ctrl + , add or remove a fake take; S searches.
+- **Harmony:** waves of both voices' colours run through them (the higher or lower voice leading,
+  then both in step; on the halo from the side facing the other voice, or from its growing points),
+  blended the way you choose (OKLab, RGB, light, colour wheel, painter's wheel, hard cut); the
+  branches turn wavy and crisscross without moving; the voice scope has a harmony lane.
+- **Pauses and endings:** one withering effect (ungrow, fade or fall away, from the tips inward or
+  all at once) and a switch for each length of silence: a short pause, the end of a phrase, a full
+  stop. A look change lets the old trees wither the same way while new ones grow back, and sweeps
+  round the live halo as a wave.
+- **Branch by branch:** a new branch per phrase grows top to bottom, bottom to top, at random or
+  spread out, as mirrored pairs so the tree is never lopsided; old pairs droop and fall each half
+  its own way.
+- **Gravity:** what lets go falls down, drifts away from where the tree grows, or floats up; a look
+  can bring its own (Neon stage and Dark & twisted drift away). Changing it on the way does not
+  jump: what is in the air carries on and turns the new way.
+- **Falling leaves:** a straight drop first, then the sway, at a different moment for each leaf;
+  each flutters its own way and some tumble and slide away. Leaves let go on the live halo too.
+- **Glow runs from root to tip:** a swell of the voice or a note start lights each tree from the
+  root up and the halo from where it grows (0.5 s, set per reaction).
+- **Planting:** the halo curls up like a fern frond, moves to where the new tree starts and
+  unrolls along its limbs into the fully grown tree, in the tree's own colours.
+- **Looks:** new Angelic look (white leaves, blue blossoms, floating up); slimmer leaves; 3D
+  leaves; take colour 2 is pink; Sprout's leaves are fully in the take colour; Autumn's leaves fall
+  slower. A gradient goes round the halo ring a whole number of times, so it has no seam.
+- **Presets:** 13 Looks, 15 Reactions, 15 test setups. The fake singer sings independent voices by
+  default (phrases, pauses and notes of their own, in harmony a quarter of the time); stacked takes
+  and a duet trading phrases are still there.
+- Calmer motion, fuller young trees, an optional trunk, trees that fill empty space, gap-free
+  joints and a smooth halo tip.
+
+## 0.1.0 (bus v5)
 
 The first public version, published as Sprouting Halo (https://github.com/khovretto/sprouting-halo). It was developed as
 "Sprout Visualizer"; the app and the plugin keep the short name Sprout.

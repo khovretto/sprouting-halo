@@ -305,7 +305,8 @@ export function buildThemeEditor(container: HTMLElement, hooks: ThemeEditorHooks
       add('colour', { label: 'picture colours', options: { 'Tinted by the colour settings': 'tint', 'Keep the picture\'s own colours': 'own' } }, 'For pictures: tint a white/grey picture, or keep a colourful picture as it is (it still brightens and dims with the voice).');
       add('glow', { label: 'glow', min: 0, max: 3 }, 'How much it glows compared with leaves.');
       add('flutter', { label: 'flutter', min: 0, max: 1 }, 'How much it flutters in the wind (0 = rigid like a thorn, 1 = like a leaf).');
-      add('opens', { label: 'opens', options: { Always: 'always', 'On long held notes (like blossoms)': 'bloom' } }, 'Always there, or only opening on long held notes.');
+      add('opens', { label: 'opens', options: { Always: 'always', 'On long held notes (like blossoms)': 'bloom', 'In harmony with another track': 'harmony' } },
+        'Always there, opening on long held notes, or opening while this track sings in harmony with another (a third, fourth, fifth or sixth apart). On twig ends it stays a bud until then; anywhere else it is not there until then.');
       add('sizeFrom', { label: 'grows with effort', options: { No: 'none', Yes: 'effort' } }, 'Grows bigger with vocal effort (like thorns).');
       const rm = f.addButton({ title: 'Remove this part' });
       rm.on('click', () => {

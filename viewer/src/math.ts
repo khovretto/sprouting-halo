@@ -4,6 +4,29 @@ export const TAU = Math.PI * 2;
 export const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+/**
+ * Where a piece that let go travels, in a layer's frame (growth.fallDirection): way 0 down (downX,
+ * downY, world down per world unit), 2 up (the other way), or 1 away: straight out from the point
+ * the tree grows from, (ox, oy) in the same frame, seen from (x, y): no gravity. Same length as
+ * (downX, downY).
+ */
+export function fallDir(downX: number, downY: number, way: number | boolean, x: number, y: number, ox = 0, oy = 0): [number, number] {
+  if (way === 2) return [-downX, -downY];
+  if (!way) return [downX, downY];
+  const g = Math.hypot(downX, downY) || 1, dx = x - ox, dy = y - oy, r = Math.hypot(dx, dy);
+  if (r < 1e-4) return [-downX, -downY];
+  return [(dx / r) * g, (dy / r) * g];
+}
+
+/**
+ * Something let go, in closed form (any frame rate places it alike): from rest it speeds up toward
+ * terminal speed vT at rate k. Distance after t seconds, and speed then.
+ */
+export const flightDist = (vT: number, k: number, t: number) => (t <= 0 ? 0 : vT * (t - (1 - Math.exp(-k * t)) / k));
+export const flightSpeed = (vT: number, k: number, t: number) => (t <= 0 ? 0 : vT * (1 - Math.exp(-k * t)));
+/** How far a speed it already had carries it after t seconds while drag (rate k) takes it away (× that speed). */
+export const carried = (k: number, t: number) => (t <= 0 ? 0 : (1 - Math.exp(-k * t)) / k);
+
 /** Frame-rate independent exponential approach. */
 export const damp = (current: number, target: number, rate: number, dt: number) =>
   lerp(current, target, 1 - Math.exp(-rate * dt));

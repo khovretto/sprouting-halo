@@ -12,9 +12,9 @@ import { hexToRgb } from '../math';
 import { textureLayers, textureRevision } from '../themes';
 
 export const MAX_LAYERS = 32;
-export const FLOATS_PER_INSTANCE = 20;
+export const FLOATS_PER_INSTANCE = 24;
 
-/** Growable instance buffer. Strokes and sprites share the 20-float layout. */
+/** Growable instance buffer. Strokes and sprites share the 24-float layout (sprites use 20). */
 export class Instances {
   data = new Float32Array(FLOATS_PER_INSTANCE * 4096);
   count = 0;
@@ -42,6 +42,10 @@ export class Instances {
     join = 0,
     /** Motion: branch order (< 2 = limb), and the shoot's pivot x, y, flex and heading. */
     order = 1, px = ax, py = ay, pf = fa, heading = 0,
+    /** A chain link (join 1 or 2) that knows the point before A (x, y, flex), moving with this
+     *  segment: it starts on the previous link's end plane with a round join, so a bend leaves no
+     *  notch on its outside (shaders/stroke.vert). Without it the start is cut square. */
+    chained = false, qx = 0, qy = 0, qf = 0,
   ) {
     const d = this.data;
     let o = this.slot();
@@ -50,6 +54,7 @@ export class Instances {
     d[o++] = r; d[o++] = g; d[o++] = b; d[o++] = a;
     d[o++] = glow; d[o++] = layer; d[o++] = join; d[o++] = order;
     d[o++] = px; d[o++] = py; d[o++] = pf; d[o++] = heading;
+    d[o++] = qx; d[o++] = qy; d[o++] = qf; d[o++] = chained ? 1 : 0;
   }
 
   /** A decoration at (x, y) pointing along `angle`, `size` long (local units). pivY / pivX: where
@@ -61,6 +66,8 @@ export class Instances {
     r: number, g: number, b: number, a: number,
     glow: number, layer: number,
     order = 1, px = x, py = y, pf = flex, heading = 0, pivY = 0, pivX = 0,
+    /** How much it moves about its own stalk (wind, flutter, shiver): 1 = as on its twig. */
+    flutter = 1,
   ) {
     const d = this.data;
     let o = this.slot();
@@ -69,7 +76,21 @@ export class Instances {
     d[o++] = r; d[o++] = g; d[o++] = b; d[o++] = a;
     d[o++] = glow; d[o++] = layer; d[o++] = order; d[o++] = pivX;
     d[o++] = px; d[o++] = py; d[o++] = pf; d[o++] = heading;
+    d[o++] = flutter; d[o++] = 0; d[o++] = 0; d[o++] = 0;
   }
+}
+
+const D2R = Math.PI / 180;
+/** The 3D-leaf settings as shader uniforms (radians, light as a world vector: x right, y up, z out). */
+function leaf3dUniforms(l: GlowSettings['leaves3d']) {
+  const v = l ?? { fold: 25, cup: 0.4, arch: 0.35, turn: 45, tilt: 35, wind: 1, shiver: 8, lightAngle: 135, lightHeight: 40, shade: 0, shine: 0.35, underside: 0.35 };
+  const a = v.lightAngle * D2R, e = Math.min(89.9, Math.max(1, v.lightHeight)) * D2R;
+  return {
+    u_l3a: [Math.min(80, Math.max(0, v.fold)) * D2R, v.cup, v.arch, v.wind],
+    u_l3b: [Math.min(88, Math.max(0, v.turn)) * D2R, Math.min(80, Math.max(0, v.tilt)) * D2R, v.shade, v.shine],
+    u_l3c: [Math.cos(e) * Math.cos(a), Math.cos(e) * Math.sin(a), Math.sin(e), v.underside],
+    u_l3d: [Math.max(0, v.shiver ?? 8), 0, 0, 0],
+  };
 }
 
 export interface Batch {
@@ -149,6 +170,10 @@ export interface GlowSettings {
   /** look.leafSheen: a hairline vein and edge on leaves, in sheenColour. */
   sheen?: number;
   sheenColour?: string;
+  /** look.leaf3d: folded, turned, tilted and lit leaves (0 = flat), and their settings (leaves3d). */
+  leaf3d?: number;
+  leaves3d?: { fold: number; cup: number; arch: number; turn: number; tilt: number; wind: number; shiver?: number;
+    lightAngle: number; lightHeight: number; shade: number; shine: number; underside: number };
 }
 
 export class Renderer {
@@ -326,6 +351,8 @@ export class Renderer {
       u_glowTint: [...hexToRgb(glow.tint), Math.min(1, Math.max(0, glow.tintAmount))],
       u_glowFlat: Math.min(1, Math.max(0, glow.tintFlat ?? 0)),
       u_sheen: [...hexToRgb(glow.sheenColour ?? '#ffffff'), Math.max(0, glow.sheen ?? 0)],
+      u_leaf3d: Math.min(1, Math.max(0, glow.leaf3d ?? 0)),
+      ...leaf3dUniforms(glow.leaves3d),
       u_view: [(2 * view.s) / view.W, (2 * view.s) / view.H, view.cx, view.cy],
       u_px: 1 / view.s,
     };

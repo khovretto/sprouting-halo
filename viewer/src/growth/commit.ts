@@ -1,24 +1,23 @@
-// Part B: the commit transition (docs/fable-consult.md, Part B), "crozier, staff, stamp".
+// Planting a take (docs/fable-consult.md, Part B; reworked): when a live take finishes recording,
+// its halo becomes that take's tree, in three calm steps:
+//   1 curl     the ring is cut just ahead of its growing tip into one piece per primary limb
+//              (commit.limbs); each piece rolls up in place from its newer end, like a fern frond,
+//              into a small coil
+//   2 move     the coils glide round the head to where their limbs start (where each limb comes
+//              out from behind the singer), turning to line up with the limb
+//   3 unroll   each coil unrolls along its limb, arc length conserved: a stalk lies down on the
+//              limb while a shrinking coil rides at its end
+//   hand-over  the take's tree takes over, fully grown: the limbs the fronds lie on are there at
+//              once, the rest grows out from them; the frond's vine and leaves fade into it. From
+//              then on it is a tree whose phrase has just ended, so it rests and ends the way
+//              growth.onPhraseEnd says.
 //
-// When a live take finishes recording, its halo becomes that take's tree:
-//   0 release   the vine stops, glow swells, colour turns to the take colour
-//   1 wind-up   the ring shrinks to the coil radius Rc = spine length / 2pi, travels round the head
-//               to the launch point next to the tree's spine and spins into alignment
-//   2 unfurl    it unrolls along the spine with arc length conserved: a straight stalk grows while
-//               a shrinking coil rides at its tip
-//   3 draw back the finished staff pulls back slightly and charges (and waits up to syncWindow
-//               for the next onset, so the hit lands on the music)
-//   4 plunge    it drives rootward into the hidden root behind the singer
-//   impact      the staff *is* the spine now; flash, shock ring, quiver, leaf burst
-//   5 splay     the rest of the tree grows out fast from the spine
+// The strand is drawn in the take's own layer with the take tree's colours and theme (main.ts
+// blends from the halo's colour while it curls and moves), so nothing changes colour at the
+// hand-over.
 //
-// The new trees have several primary limbs instead of one spine, so the "spine" is the path from
-// the root through the hub along the primary in the middle of the plant's territory
-// (Plant.spineAt).
-//
-// State that must not depend on the frame rate (when the plunge started, when it hit, the burst)
-// is advanced in step(), called from the simulation. Every pose is a pure function of time, the
-// snapshot and the current placement, drawn by draw().
+// The hand-over time is decided in step(), called from the simulation; every pose is a pure
+// function of time, the snapshot and the current placement, drawn by draw().
 
 import type { Params } from '../params';
 import type { Theme } from '../features';
@@ -31,6 +30,8 @@ export interface HaloSnapshot {
   sk: Skeleton;
   vis: Float32Array;
   alpha: Float32Array;
+  /** Per node opacity of its leaves (default alpha): 0 where they already let go (growth.shed). */
+  decoAlpha?: Float32Array;
   ids: Int32Array;
   /** Halo layer at the commit (world). */
   cx: number;
@@ -48,6 +49,8 @@ export interface HaloSnapshot {
   idle?: number;
   /** How the take was sung (the planted tree's character). */
   mood: { effort: number; pitch: number; soft: number; vibrato: number };
+  /** The halo's look at the commit (main.ts Look); the strand eases from it to the tree's. */
+  look?: { intensity: number; glow: number; shine: number; width: number; bloom: number };
 }
 
 export interface CommitTarget {
@@ -68,67 +71,83 @@ interface Piece {
   d0: number;
   /** Frond length (plant units). */
   L: number;
-  /** Coil radius. */
-  Rc: number;
-  side: number;
   delay: number;
 }
 
-export interface StrandLook {
-  colour: RGB;
-  /** Multipliers on the normal look. */
-  glow: number;
-  width: number;
-  shine: number;
+/** How far along the planting is, for the colours and look (main.ts). */
+export interface StrandState {
+  /** 0 = the halo's colours, 1 = the tree's (reached when the coils arrive). */
+  colour: number;
+  /** 0 = the halo's look at the commit, 1 = the tree's own (reached at the hand-over). */
+  look: number;
+  /** Overall opacity (fades after the hand-over, or when the take vanished). */
   alpha: number;
 }
 
-/** Drawing callbacks provided by main.ts (they reuse pushTree / decorateTree / pushRing). */
+/** Drawing callback provided by main.ts (it reuses pushTree / decorateTree). */
 export interface CommitHooks {
-  /** Beat 0-1: the halo itself, as a ring at (cx, cy) with radius R, rotated by rot. */
-  ring(snap: HaloSnapshot, cx: number, cy: number, R: number, rot: number, look: StrandLook,
-       ringAlpha: number, nodeAlpha: Float32Array, windE: number): void;
-  /** Beat 2+: the strand skeleton (plant-local coordinates) in the plant's layer. */
-  strand(sk: Skeleton, vis: Float32Array, nodeAlpha: Float32Array, ids: Int32Array, layer: number,
-         look: StrandLook, snap: HaloSnapshot, unit: number): void;
-  stroke(layer: number, ax: number, ay: number, bx: number, by: number, ra: number, rb: number,
-         fa: number, fb: number, look: StrandLook): void;
-  /** Effects in world space (shock ring, burst). */
-  fxStroke(ax: number, ay: number, bx: number, by: number, w: number, rgb: RGB, a: number, glow: number): void;
-  fxSprite(x: number, y: number, angle: number, size: number, shape: number, rgb: RGB, a: number, seed: number): void;
+  /** The strand skeleton (plant-local coordinates) in the plant's layer. `lineAlpha` draws the
+   *  strokes, `decoAlpha` the leaves (the ring line nodes carry none). */
+  strand(sk: Skeleton, vis: Float32Array, lineAlpha: Float32Array, decoAlpha: Float32Array, ids: Int32Array, layer: number,
+         snap: HaloSnapshot, unit: number, state: StrandState): void;
 }
 
-interface Particle {
+interface Pose {
   x: number;
   y: number;
-  vx: number;
-  vy: number;
-  spin: number;
-  angle: number;
-  life: number;
-  shape: number;
-  size: number;
-  seed: number;
+  tx: number;
+  ty: number;
+  /** Outward normal (the ring's outside; on a coil, away from its centre). */
+  nx: number;
+  ny: number;
+  /** Where on the tree this point lands (for the colours along the branch). */
+  flex: number;
+  /** Line width (plant units): the ring line's, then the limb's as it lies down on it. */
+  w: number;
+  /** Scale of the vine's offsets from the ring line (plant units per ring radius). */
+  S: number;
 }
 
-// Beat lengths in seconds at duration 1.
-const T = { release: 0.12, wind: 0.4, unfurl: 0.6, draw: 0.18, plunge: 0.08, splay: 0.45 };
+// Step lengths in seconds at commit.duration 1.
+// It curls up and, from moveAt on, glides to the limb's start while it is still curling.
+const T = { curl: 1.2, moveAt: 0.25, move: 1.45, unroll: 1.5, settle: 0.6 };
+const STAGGER = 0.12;
+/** Turns of a fully curled frond. Its curvature grows fourfold toward the tip, so it is a
+ *  tightening spiral (a fern's fiddlehead), not a loop. */
+const TURNS = 1.75;
+const SAMPLES = 48;
+
+/** A unit-length spiral turning by `theta` in all: x, y (tangent at the start = +x, curling
+ *  toward +y) and the direction, at SAMPLES + 1 evenly spaced points. */
+function spiral(theta: number) {
+  const X = new Float32Array(SAMPLES + 1), Y = new Float32Array(SAMPLES + 1), A = new Float32Array(SAMPLES + 1);
+  const k0 = theta / 2.5; // curvature k0 * (1 + 3 u): integrates to theta
+  const ds = 1 / SAMPLES;
+  for (let j = 1; j <= SAMPLES; j++) {
+    const um = (j - 0.5) * ds, a = k0 * (um + 1.5 * um * um);
+    X[j] = X[j - 1] + Math.cos(a) * ds;
+    Y[j] = Y[j - 1] + Math.sin(a) * ds;
+    const u = j * ds;
+    A[j] = k0 * (u + 1.5 * u * u);
+  }
+  // Its middle (for moving it about): the mean of the points.
+  let cx = 0, cy = 0;
+  for (let j = 0; j <= SAMPLES; j++) {
+    cx += X[j];
+    cy += Y[j];
+  }
+  return { X, Y, A, cx: cx / (SAMPLES + 1), cy: cy / (SAMPLES + 1) };
+}
+type Spiral = ReturnType<typeof spiral>;
 
 const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
-const easeInQuad = (x: number) => x * x;
-const easeOutQuad = (x: number) => 1 - (1 - x) * (1 - x);
-const easeInCubic = (x: number) => x * x * x;
-const easeOutCubic = (x: number) => 1 - Math.pow(1 - x, 3);
 const smoothstep = (x: number) => x * x * (3 - 2 * x);
-const mixRGB = (a: RGB, b: RGB, t: number): RGB => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 const wrapPi = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export class CommitAnimation {
-  /** Sim time of the impact, -1 before. */
+  /** Sim time of the hand-over (the tree takes over), -1 before. */
   stampedAt = -1;
-  /** Sim time the plunge started, -1 before. */
-  plungeAt = -1;
-  /** Sim time the destination vanished before impact (the strand scatters). */
+  /** Sim time the destination vanished before the hand-over (the strand fades). */
   abortedAt = -1;
   done = false;
 
@@ -141,20 +160,21 @@ export class CommitAnimation {
   private dnn: Float32Array;
   private parent: Int32Array;
   private tmp = new Skeleton(1024);
-  private nodeAlpha: Float32Array;
-  private particles: Particle[] = [];
+  private vis = new Float32Array(0);
+  private lineAlpha = new Float32Array(0);
+  private decoAlpha = new Float32Array(0);
+  private ids = new Int32Array(0);
   private last?: CommitTarget;
-  /** Plunge distance (plant units) and spin target, frozen at the snapshot. */
-  private ringAlpha = new Float32Array(0);
-  private zeroAlpha = new Float32Array(0);
+  /** Start time; held back until the destination tree is built. */
+  private t0: number;
   /** The fronds, frozen for the plant they were made for. */
   private pcs: Piece[] | null = null;
   private pcsPlant: Plant | null = null;
   private pieceOf = new Uint8Array(0);
   private pparent = new Int32Array(0);
-  private rho1 = 0;
 
-  constructor(readonly slotId: string, readonly snap: HaloSnapshot, readonly t0: number, private p: Params) {
+  constructor(readonly slotId: string, readonly snap: HaloSnapshot, t0: number, private p: Params) {
+    this.t0 = t0;
     this.dir = snap.lead.sign >= 0 ? 1 : -1;
     this.thetaCut = snap.lead.angle + this.dir * 0.06; // just ahead of the leading tip
     const sk = snap.sk, n = sk.n;
@@ -164,9 +184,6 @@ export class CommitAnimation {
     this.dtn = new Float32Array(n);
     this.dnn = new Float32Array(n);
     this.parent = Int32Array.from(sk.parent.subarray(0, n));
-    this.nodeAlpha = new Float32Array(n);
-    this.ringAlpha = new Float32Array(n);
-    this.zeroAlpha = new Float32Array(n);
     const frac = (x: number) => x - Math.floor(x);
     for (let i = 0; i < n; i++) {
       let a = i;
@@ -196,136 +213,47 @@ export class CommitAnimation {
     return Math.max(0.3, this.p.commit.duration);
   }
 
-  /** Simulation step. Returns true on the frame of the impact. */
-  step(t: number, target: CommitTarget | undefined, onset: boolean): boolean {
+  /** Seconds (at duration 1) from the start to the hand-over, for K fronds. */
+  private handOver(K: number) {
+    return T.moveAt + T.move + T.unroll + STAGGER * (K - 1);
+  }
+
+  /** Simulation step. Returns true on the frame of the hand-over. */
+  step(t: number, target: CommitTarget | undefined): boolean {
     if (target) this.last = target;
     else if (this.stampedAt < 0 && this.abortedAt < 0) this.abortedAt = t;
     if (this.abortedAt >= 0) {
       this.done = t - this.abortedAt > 0.45;
       return false;
     }
-    const c = this.p.commit, k = this.k;
-    const tau = (t - this.t0) / k;
-    const tReady = T.release + T.wind + T.unfurl + T.draw;
-    if (this.plungeAt < 0 && tau >= tReady && (onset || !c.syncToOnset || tau >= tReady + c.syncWindow / k)) this.plungeAt = t;
-    let hit = false;
-    if (this.plungeAt >= 0 && this.stampedAt < 0 && (t - this.plungeAt) / (T.plunge * k) >= 1) {
+    // Wait (as the ring) until the tree it becomes is built: the fronds depend on its limbs.
+    if (target && !target.plant.built && t > this.t0) this.t0 = t;
+    const k = this.k;
+    if (this.stampedAt < 0 && target && target.plant.built && (t - this.t0) / k >= this.handOver(this.pieces(target).length)) {
       this.stampedAt = t;
-      hit = true;
-      if (target) this.spawnBurst(target);
+      return true;
     }
-    if (this.stampedAt >= 0) {
-      const after = t - this.stampedAt;
-      this.particles = this.particles.filter((q) => after < q.life);
-      this.done = after > T.splay * k + 0.7 && this.particles.length === 0;
-    }
-    return hit;
+    if (this.stampedAt >= 0) this.done = t - this.stampedAt > T.settle * k;
+    return false;
   }
 
-  /** Seconds since the impact (-1 before). */
+  /** Seconds since the hand-over (-1 before). */
   sinceImpact(t: number) {
     return this.stampedAt < 0 ? -1 : t - this.stampedAt;
   }
 
-  // ---- Geometry ----------------------------------------------------------------------------------
-
-  private coilNormal(tx: number, ty: number) {
-    return this.dir > 0 ? { x: -ty, y: tx } : { x: ty, y: -tx };
-  }
-
-  private Rc(target: CommitTarget) {
-    return Math.max(target.plant.spineLength / TAU, 0.16 / Math.max(0.05, target.place.scale));
-  }
-
-  private look(tau: number, after: number, target: CommitTarget): StrandLook {
-    const c = this.p.commit;
-    const col = mixRGB(this.snap.colour, target.colour, smoothstep(clamp(tau / 0.72)));
-    const tDraw = T.release + T.wind + T.unfurl;
-    const charge = after < 0 ? easeOutQuad(clamp((tau - tDraw) / T.draw)) : 0;
-    const release = 0.4 * easeOutQuad(clamp(tau / T.release)) * (1 - clamp((tau - T.release) / T.wind));
-    const flash = after >= 0 ? Math.exp(-after / 0.12) * c.impact : 0;
-    return {
-      colour: col,
-      glow: 1 + release + 1.2 * charge + 2 * flash,
-      width: 1 + 0.3 * charge + 0.8 * flash,
-      shine: Math.min(1, 0.8 * flash + 0.3 * charge),
-      alpha: 1,
-    };
-  }
-
-  // ---- Drawing -----------------------------------------------------------------------------------
-
-  draw(t: number, target: CommitTarget | undefined, hooks: CommitHooks) {
-    const tg = target ?? this.last;
-    if (!tg) return;
-    const k = this.k;
-    const tau = (t - this.t0) / k;
-    if (tau < 0) {
-      // Staggered start: hold the ring where it was.
-      this.drawRing(0, tg, hooks, 1);
-      return;
-    }
-    if (this.abortedAt >= 0 && this.stampedAt < 0) {
-      // Destination gone before impact: the strand just fades where it is.
-      const fade = 1 - clamp((t - this.abortedAt) / 0.4);
-      const tf = (this.abortedAt - this.t0) / k;
-      if (tf < T.release) this.drawRing(tf, tg, hooks, fade);
-      else this.drawFronds(this.abortedAt, tf, tg, hooks, fade);
-      return;
-    }
-    if (tau < T.release) this.drawRing(tau, tg, hooks, 1);
-    else this.drawFronds(t, tau, tg, hooks, 1);
-    this.drawFx(t, tg, hooks);
-  }
-
-  /** Beats 0-1: the ring winds up and travels to the launch point. */
-  private drawRing(tau: number, tg: CommitTarget, hooks: CommitHooks, fade: number) {
-    const pl = tg.place, plant = tg.plant, c = this.p.commit;
-    const Rc = this.Rc(tg);
-    const D = c.plunge / Math.max(0.05, pl.scale);
-    // Shorter wind-up when there is little distance to cover.
-    const windLen = lerp(0.2, T.wind, clamp((this.snap.R - Rc * pl.scale) / 0.7));
-    const e = easeInOutCubic(clamp((tau - T.release) / windLen));
-    const b0 = Math.max(D, plant.rClear + Rc + 0.05);
-    const sp = plant.spineAt(b0), n = this.coilNormal(sp.tx, sp.ty);
-    const K0 = toWorld(sp.x + n.x * Rc, sp.y + n.y * Rc, pl, tg.spinAngle);
-    const J0 = toWorld(sp.x, sp.y, pl, tg.spinAngle);
-    // Travel round the head (polar about the head centre).
-    const a = this.p.avatar;
-    const r0 = Math.hypot(this.snap.cx - a.headX, this.snap.cy - a.headY);
-    const r1 = Math.hypot(K0[0] - a.headX, K0[1] - a.headY);
-    const th1 = Math.atan2(K0[1] - a.headY, K0[0] - a.headX);
-    const th0 = r0 < 0.05 ? th1 : Math.atan2(this.snap.cy - a.headY, this.snap.cx - a.headX);
-    const th = th0 + wrapPi(th1 - th0) * e, rr = lerp(r0, r1, e);
-    const cx = a.headX + Math.cos(th) * rr, cy = a.headY + Math.sin(th) * rr;
-    const R = lerp(this.snap.R * (1 + 0.04 * easeOutQuad(clamp(tau / T.release))), Rc * pl.scale, e);
-    // Spin so the cut lands on the touching point, at least spinTurns in the vine's direction.
-    let rho1 = wrapPi(Math.atan2(J0[1] - K0[1], J0[0] - K0[0]) - this.thetaCut);
-    const minTurn = c.spinTurns * TAU;
-    while (this.dir * rho1 < minTurn) rho1 += this.dir * TAU;
-    const rot = rho1 * easeInQuad(clamp((tau - T.release) / windLen));
-    // Ring line fades to 40 %; thin out the leaves (half let go during the wind-up).
-    const keep = lerp(1, 0.5, e);
-    const sk = this.snap.sk;
-    for (let i = 0; i < sk.n; i++) this.ringAlpha[i] = this.snap.alpha[i] * fade * (hash1(this.snap.ids[i] * 3.7) > keep ? 1 - e : 1);
-    const look = this.look(tau, -1, tg);
-    look.alpha = fade;
-    hooks.ring(this.snap, cx, cy, R, rot, look, lerp(1, 0.4, e) * fade, this.ringAlpha, e);
-  }
-
-  // ---- Fronds (consult 6, 2.2) ------------------------------------------------------------------
-
-  /** Show the limbs the fronds landed on (called at the impact). */
+  /** Show the limbs the fronds landed on (called at the hand-over). */
   revealLimbs(plant: Plant) {
     for (const pc of this.pcs ?? []) plant.revealLimb(pc.k, pc.d0 + pc.L);
   }
+
+  // ---- Fronds ------------------------------------------------------------------------------------
 
   private pieces(tg: CommitTarget): Piece[] {
     const plant = tg.plant;
     if (this.pcs && this.pcsPlant === plant) return this.pcs;
     const P = plant.limbPaths;
     const sc = Math.max(0.05, tg.place.scale);
-    const D = this.p.commit.plunge / sc, back = 0.06 / sc;
     const K = Math.max(1, Math.min(clamp(Math.round(this.p.commit.limbs), 1, 4), P.length));
     const a = this.p.avatar;
     // Evenly chosen primaries, in the vine's direction round the head, starting after the widest gap.
@@ -349,10 +277,10 @@ export class CommitAnimation {
       ks.push(...ks.splice(0, best));
     }
     const pcs = ks.map((k, m): Piece => {
-      const d0 = P[k]?.clear ?? 0;
-      const L = Math.max(0.25, this.fit(tg, k, d0) - D - back);
-      const Rc = Math.max(L / TAU, 0.08 / sc);
-      return { k, d0, L, Rc, side: this.coilSide(tg, k, d0 + D + back, Rc), delay: 0.06 * m };
+      // From the origin point: where the limb leaves the hub (or the top of the trunk).
+      const d0 = P[k]?.base ?? 0;
+      const L = Math.max(0.25, this.fit(tg, k, d0));
+      return { k, d0, L, delay: STAGGER * m };
     });
     // Which piece each node rides on, and no stroke between two pieces (or across the cut).
     const sk = this.snap.sk, n = sk.n;
@@ -363,16 +291,11 @@ export class CommitAnimation {
       const pa = this.pparent[i];
       if (pa >= 0 && this.pieceOf[i] !== this.pieceOf[pa]) this.pparent[i] = -1;
     }
-    // Spin target: piece 0's middle faces its limb's exit point, at least spinTurns turns.
-    const q0 = plant.limbAt(pcs[0].k, pcs[0].d0);
-    const [ex, ey] = toWorld(q0.x, q0.y, tg.place, tg.spinAngle);
-    const thMid = this.thetaCut + this.dir * (0.5 / pcs.length) * TAU;
-    let rho1 = wrapPi(Math.atan2(ey - this.snap.cy, ex - this.snap.cx) - thMid);
-    const minTurn = this.p.commit.spinTurns * TAU;
-    while (this.dir * rho1 < minTurn) rho1 += this.dir * TAU;
-    this.rho1 = rho1;
-    this.pcs = pcs;
-    this.pcsPlant = plant;
+    // Cached once the tree is built (before that its limbs are not known).
+    if (plant.built) {
+      this.pcs = pcs;
+      this.pcsPlant = plant;
+    }
     return pcs;
   }
 
@@ -390,184 +313,164 @@ export class CommitAnimation {
     return ok - d0;
   }
 
-  /** The side of limb k the coil hangs on: the one whose centre is nearer the view centre. */
-  private coilSide(tg: CommitTarget, k: number, d: number, Rc: number) {
-    const q = tg.plant.limbAt(k, d);
-    const v = tg.view ?? { cx: this.p.scene.centerX, cy: this.p.scene.centerY, hw: 1, hh: 1 };
-    const dist = (sgn: number) => {
-      const [wx, wy] = toWorld(q.x - q.ty * Rc * sgn, q.y + q.tx * Rc * sgn, tg.place, tg.spinAngle);
-      return Math.hypot(wx - v.cx, wy - v.cy);
-    };
-    return dist(1) <= dist(-1) ? 1 : -1;
+  // ---- Drawing -----------------------------------------------------------------------------------
+
+  draw(t: number, target: CommitTarget | undefined, hooks: CommitHooks) {
+    const tg = target ?? this.last;
+    if (!tg) return;
+    const k = this.k;
+    if (this.abortedAt >= 0 && this.stampedAt < 0) {
+      // Destination gone before the hand-over: the strand fades where it is.
+      this.drawStrand(Math.max(0, (this.abortedAt - this.t0) / k), tg, hooks, 1 - clamp((t - this.abortedAt) / 0.4));
+      return;
+    }
+    const after = this.sinceImpact(t);
+    const fade = after < 0 ? 1 : 1 - smoothstep(clamp(after / (T.settle * k)));
+    if (fade > 0.003) this.drawStrand(Math.max(0, (t - this.t0) / k), tg, hooks, fade);
   }
 
-  /** Beats 1-5: the ring blends into K coils at the limbs' exit points, which unroll along them. */
-  private drawFronds(t: number, tau: number, tg: CommitTarget, hooks: CommitHooks, fade: number) {
-    const pl = tg.place, plant = tg.plant, c = this.p.commit, k = this.k;
+  private drawStrand(tau: number, tg: CommitTarget, hooks: CommitHooks, fade: number) {
+    const pl = tg.place, plant = tg.plant, snap = this.snap;
+    const built = plant.built;
     const pcs = this.pieces(tg), K = pcs.length;
     const sc = Math.max(0.05, pl.scale);
-    const D = c.plunge / sc, back = 0.06 / sc;
-    const tUnf = T.release + T.wind, tDraw = tUnf + T.unfurl;
-    const e = easeInOutCubic(clamp((tau - T.release) / T.wind));
-    const rot = this.rho1 * easeInQuad(clamp((tau - T.release) / T.wind));
-    const plungeE = this.plungeAt < 0 ? 0 : (Math.min(t, this.stampedAt >= 0 ? this.stampedAt : t) - this.plungeAt) / (T.plunge * k);
-    const after = this.stampedAt < 0 ? -1 : t - this.stampedAt;
-    const drawBack = back * easeOutQuad(clamp((tau - tDraw) / T.draw));
-    const unfLen = Math.max(0.1, T.unfurl - 0.06 * (K - 1));
-    const sig = pcs.map((pc) => smoothstep(clamp((tau - tUnf - pc.delay) / unfLen)));
+    // Progress of each step (held at the start until the tree is built).
+    const curl = built ? easeInOutCubic(clamp(tau / T.curl)) : 0;
+    const move = built ? easeInOutCubic(clamp((tau - T.moveAt) / T.move)) : 0;
+    const tUn = T.moveAt + T.move;
+    const sig = pcs.map((pc) => (built ? smoothstep(clamp((tau - tUn - pc.delay) / T.unroll)) : 0));
 
-    // The ring pose (halo layer, spinning), in plant-local coordinates.
-    const snap = this.snap;
-    const kIdle = (snap.idle ?? 1) * (1 - e);
+    // The ring in plant-local coordinates (it keeps the halo's squish and tilt while it curls).
+    const kIdle = (snap.idle ?? 1) * (1 - curl);
     const sq = 1 - clamp(this.p.halo.squish, 0, 0.95) * kIdle;
-    const ringPl = { ox: snap.cx, oy: snap.cy, angle: Math.PI / 2 + rot + this.p.halo.tilt * deg * kIdle, scale: snap.R * (1.04 - 0.1 * e) } as Placement;
+    const ringPl = { ox: snap.cx, oy: snap.cy, angle: Math.PI / 2 + this.p.halo.tilt * deg * kIdle, scale: snap.R } as Placement;
     const plantPl = { ...pl, angle: pl.angle + tg.spinAngle };
     const ringLocal = (lx: number, ly: number) => {
       const [wx, wy] = toWorld(lx, ly * sq, ringPl);
       return toLocal(wx, wy, plantPl);
     };
+    const ringW = this.p.halo.ringWidth / sc;
+    const Sring = snap.R / sc; // a ring radius in plant units
+    const side = this.dir; // the coils curl toward the ring's inside, and keep that hand on the limb
+    const perp = (tx: number, ty: number) => ({ x: -ty * side, y: tx * side });
 
-    const point = (m: number, v: number) => {
-      const pc = pcs[m], sigma = sig[m];
-      const nrm = (sp: { tx: number; ty: number }) => ({ x: -sp.ty * pc.side, y: sp.tx * pc.side });
-      const baseAt = (vv: number) => {
-        const pe = after >= 0 ? 1 : clamp(plungeE - (0.02 / T.plunge) * vv); // the tip lags: a slight stretch
-        return pc.d0 + (D + drawBack) * (1 - easeInCubic(pe));
-      };
-      if (v <= sigma || sigma >= 0.999) {
-        const d = baseAt(v) + pc.L * v, sp = plant.limbAt(pc.k, d), n = nrm(sp);
-        return { x: sp.x, y: sp.y, tx: sp.tx, ty: sp.ty, nx: -n.x, ny: -n.y, flex: d * sigma, w: sp.w, Rc: pc.Rc, sigma };
+    /** Point v (0..1) of the ring arc of piece m, with its direction of travel. */
+    const ringAt = (m: number, v: number) => {
+      const th = this.thetaCut + this.dir * ((m + v) / K) * TAU, e = 0.002 * this.dir;
+      const [x, y] = ringLocal(Math.cos(th), Math.sin(th));
+      const [x2, y2] = ringLocal(Math.cos(th + e), Math.sin(th + e));
+      const l = Math.hypot(x2 - x, y2 - y) || 1;
+      return { x, y, tx: (x2 - x) / l, ty: (y2 - y) / l };
+    };
+    /** The spiral `sp`, `len` long, leaving (x, y) along (tx, ty): its point at fraction s (0..1). */
+    const coil = (x: number, y: number, tx: number, ty: number, len: number, sp: Spiral, s: number) => {
+      const f = clamp(s) * SAMPLES, j = Math.min(SAMPLES - 1, Math.floor(f)), w = f - j;
+      const lx = lerp(sp.X[j], sp.X[j + 1], w) * len, ly = lerp(sp.Y[j], sp.Y[j + 1], w) * len * side;
+      const a = lerp(sp.A[j], sp.A[j + 1], w) * side, co = Math.cos(a), si = Math.sin(a);
+      const ux = tx * co - ty * si, uy = tx * si + ty * co, n = perp(ux, uy);
+      return { x: x + tx * lx - ty * ly, y: y + ty * lx + tx * ly, tx: ux, ty: uy, nx: -n.x, ny: -n.y };
+    };
+    /** Offsets from the line, scaled for a coil `len` long (about its radius). */
+    const coilS = (len: number) => len / (TAU * TURNS) * 1.6;
+    const full = spiral(TURNS * TAU);
+    // Each piece: its length on the ring (plant units), its curled spiral, and where its limb starts.
+    const frames = pcs.map((pc, m) => {
+      const a = ringAt(m, 0), b = plant.limbAt(pc.k, pc.d0);
+      return { a, lA: (TAU * Sring) / K, b };
+    });
+    const headX = this.p.avatar.headX, headY = this.p.avatar.headY;
+    const spirals = pcs.map((_, m) => (sig[m] > 0 ? spiral(TURNS * TAU * Math.sqrt(1 - sig[m])) : curl < 1 ? spiral(TURNS * TAU * Math.sqrt(curl)) : full));
+
+    const pose = (m: number, v: number): Pose => {
+      const pc = pcs[m], fr = frames[m], flex = pc.d0 + pc.L * v;
+      if (sig[m] <= 0) {
+        // 1 + 2: it rolls up from its newer end (the rest still lies on the ring) and, at the same
+        // time, the whole piece glides to the limb's start: its start point goes round the head from
+        // the ring to there, turning to line up with the limb and growing to the frond's length.
+        const s0 = 1 - curl;
+        let S = lerp(Sring, coilS(fr.lA), curl);
+        let q: { x: number; y: number; tx: number; ty: number; nx: number; ny: number };
+        if (v <= s0 || curl <= 0) {
+          const a = ringAt(m, v), n = perp(a.tx, a.ty);
+          q = { x: a.x, y: a.y, tx: a.tx, ty: a.ty, nx: -n.x, ny: -n.y };
+        } else {
+          const a = ringAt(m, s0);
+          q = coil(a.x, a.y, a.tx, a.ty, fr.lA * curl, spirals[m], (v - s0) / curl);
+        }
+        if (move > 0) {
+          const A = fr.a, B = fr.b, k = lerp(1, pc.L / fr.lA, move);
+          const al = wrapPi(Math.atan2(B.ty, B.tx) - Math.atan2(A.ty, A.tx)) * move, c = Math.cos(al), si = Math.sin(al);
+          // The start's path: polar about the head, so it goes round it rather than across the face.
+          const [ax, ay] = toWorld(A.x, A.y, plantPl), [bx, by] = toWorld(B.x, B.y, plantPl);
+          const thA = Math.atan2(ay - headY, ax - headX), thB = Math.atan2(by - headY, bx - headX);
+          const th = thA + wrapPi(thB - thA) * move;
+          const rr = lerp(Math.hypot(ax - headX, ay - headY), Math.hypot(bx - headX, by - headY), move);
+          const [px, py] = toLocal(headX + Math.cos(th) * rr, headY + Math.sin(th) * rr, plantPl);
+          const rx = (q.x - A.x) * k, ry = (q.y - A.y) * k;
+          q = {
+            x: px + c * rx - si * ry, y: py + si * rx + c * ry,
+            tx: c * q.tx - si * q.ty, ty: si * q.tx + c * q.ty, nx: c * q.nx - si * q.ny, ny: si * q.nx + c * q.ny,
+          };
+          S *= k;
+        }
+        return { ...q, flex, w: lerp(ringW, fr.b.w, 0.3 * move), S };
       }
-      const dJ = baseAt(sigma) + pc.L * sigma, sp = plant.limbAt(pc.k, dJ), n = nrm(sp);
-      const q = Math.sqrt(1 - sigma), r = pc.Rc * q, om = (TAU * q * (v - sigma)) / (1 - sigma);
-      const co = Math.cos(om), si = Math.sin(om);
-      return {
-        x: sp.x + n.x * r * (1 - co) + sp.tx * r * si, y: sp.y + n.y * r * (1 - co) + sp.ty * r * si,
-        tx: sp.tx * co + n.x * si, ty: sp.ty * co + n.y * si,
-        nx: sp.tx * si - n.x * co, ny: sp.ty * si - n.y * co, flex: dJ * sigma, w: sp.w, Rc: pc.Rc, sigma,
-      };
+      // 3 unroll along the limb from where it leaves the avatar.
+      const sigma = sig[m], S = coilS(pc.L) * lerp(1, 0.6, sigma);
+      if (v <= sigma || sigma >= 0.999) {
+        const sp = plant.limbAt(pc.k, pc.d0 + pc.L * v), n = perp(sp.tx, sp.ty);
+        return { x: sp.x, y: sp.y, tx: sp.tx, ty: sp.ty, nx: -n.x, ny: -n.y, flex, w: lerp(ringW, sp.w, 0.3 + 0.7 * sigma), S };
+      }
+      const sp = plant.limbAt(pc.k, pc.d0 + pc.L * sigma);
+      const c = coil(sp.x, sp.y, sp.tx, sp.ty, pc.L * (1 - sigma), spirals[m], (v - sigma) / (1 - sigma));
+      return { ...c, flex, w: lerp(ringW, sp.w, 0.3 + 0.7 * sigma), S };
     };
 
-    const look = this.look(tau, after, tg);
-    look.alpha = fade;
-    // The plain ring line fades out early in the wind-up; the fronds' core lines carry on.
-    if (e < 0.3) hooks.ring(snap, snap.cx, snap.cy, snap.R * (1.04 - 0.1 * e), rot, { ...look }, (1 - e / 0.3) * fade, this.zeroAlpha, e);
-
+    // The halo's vine, riding on the ring line / frond.
     const src = snap.sk, sk = this.tmp;
     sk.reset();
-    const sigAvg = sig.reduce((a2, b2) => a2 + b2, 0) / K;
-    const sproutFade = after < 0 ? 1 : 1 - clamp(after / 0.15);
-    const runnerFade = after < 0 ? 1 : 1 - clamp(after / 0.25);
-    const scaleW = 1 / sc;
+    const N = Math.max(12, Math.round(96 / K)); // ring line points per piece
+    const total = src.n + K * (N + 1);
+    if (this.vis.length < total) {
+      this.vis = new Float32Array(total * 2);
+      this.lineAlpha = new Float32Array(total * 2);
+      this.decoAlpha = new Float32Array(total * 2);
+      this.ids = new Int32Array(total * 2);
+    }
+    const unrolled = sig.reduce((a, b) => a + b, 0) / K;
     for (let i = 0; i < src.n; i++) {
-      const a = this.anchor[i];
-      const sprout = a !== i;
-      const m = this.pieceOf[i];
-      const v = this.u[a] * K - m;
-      const q = point(m, clamp(v));
-      const wrap = after < 0 ? lerp(1, 0.6, q.sigma) : 0.6 * (1 - clamp(after / 0.25));
-      const ox = q.nx * this.off[a] * q.Rc * wrap, oy = q.ny * this.off[a] * q.Rc * wrap;
-      let x = q.x + ox + (sprout ? (q.tx * this.dtn[i] + q.nx * this.dnn[i]) * q.Rc : 0);
-      let y = q.y + oy + (sprout ? (q.ty * this.dtn[i] + q.ny * this.dnn[i]) * q.Rc : 0);
-      if (e < 1) {
-        const [rx, ry] = ringLocal(src.x[i], src.y[i]);
-        x = lerp(rx, x, e);
-        y = lerp(ry, y, e);
-      }
-      sk.add(x, y, this.pparent[i], q.flex, src.w[i] * scaleW, src.kind[i]);
+      const a = this.anchor[i], sprout = a !== i, m = this.pieceOf[i];
+      const q = pose(m, clamp(this.u[a] * K - m));
+      const o = this.off[a] * q.S;
+      const x = q.x + q.nx * o + (sprout ? (q.tx * this.dtn[i] + q.nx * this.dnn[i]) * q.S : 0);
+      const y = q.y + q.ny * o + (sprout ? (q.ty * this.dtn[i] + q.ny * this.dnn[i]) * q.S : 0);
+      sk.add(x, y, this.pparent[i], q.flex, src.w[i] / sc, src.kind[i]);
+      this.vis[i] = snap.vis[i];
+      this.ids[i] = snap.ids[i];
+      // Half the vine's shoots let go while it curls (a coil cannot hold them all), and a little
+      // more of it while it unrolls, so the frond is not a tangle on the limb.
       const h = hash1(snap.ids[i] * 3.7);
-      const thin = e < 1 ? (h > 0.5 ? 1 - e : 1) : h > lerp(0.5, 0.45, sigAvg) ? 0 : 1;
-      this.nodeAlpha[i] = snap.alpha[i] * thin * (sprout ? sproutFade : runnerFade) * fade;
+      const thin = h > 0.5 ? 1 - curl : h > lerp(0.5, 0.4, unrolled) ? 1 - 0.6 * smoothstep(unrolled) : 1;
+      this.lineAlpha[i] = snap.alpha[i] * thin * fade;
+      this.decoAlpha[i] = (snap.decoAlpha ?? snap.alpha)[i] * thin * fade;
+    }
+    // The ring line of each piece: it becomes the frond's core, then lies down on the limb.
+    for (let m = 0; m < K; m++) {
+      let prev = -1;
+      for (let j = 0; j <= N; j++) {
+        const q = pose(m, j / N), i = sk.n;
+        prev = sk.add(q.x, q.y, prev, q.flex, q.w, NodeKind.Runner);
+        this.vis[i] = 1;
+        this.ids[i] = -1 - i;
+        this.lineAlpha[i] = fade;
+        this.decoAlpha[i] = 0;
+      }
     }
     sk.computeChildren();
-    if (after < 0.3) hooks.strand(sk, snap.vis, this.nodeAlpha, snap.ids, tg.layer, look, snap, pl.scale);
-
-    // Core line of each frond, until the plant's own limbs take over at the impact.
-    if (after < 0) {
-      const N = Math.max(12, Math.round(72 / K));
-      const ringW = this.p.halo.ringWidth * scaleW;
-      for (let m = 0; m < K; m++) {
-        const at = (v: number) => {
-          const q = point(m, v);
-          if (e >= 1) return q;
-          const th = this.thetaCut + this.dir * ((m + v) / K) * TAU;
-          const [rx, ry] = ringLocal(Math.cos(th), Math.sin(th));
-          return { ...q, x: lerp(rx, q.x, e), y: lerp(ry, q.y, e) };
-        };
-        const wOf = (q: { w: number; sigma: number }) => lerp(ringW, q.w, q.sigma);
-        let a = at(0);
-        for (let j = 1; j <= N; j++) {
-          const b = at(j / N);
-          hooks.stroke(tg.layer, a.x, a.y, b.x, b.y, wOf(a), wOf(b), a.flex, b.flex, look);
-          a = b;
-        }
-      }
-    }
-  }
-
-  // ---- Impact effects ----------------------------------------------------------------------------
-
-  private spawnBurst(tg: CommitTarget) {
-    const c = this.p.commit;
-    const max = Math.round(c.burst);
-    if (max <= 0) return;
-    const sk = this.tmp, snap = this.snap;
-    // Prefer shoot tips, then anything; by hash so it is stable.
-    const order: number[] = [];
-    for (let i = 0; i < sk.n; i++) if (this.nodeAlpha[i] > 0.05) order.push(i);
-    order.sort((a, b) => {
-      const ta = sk.kind[a] === NodeKind.Sprout && sk.children[a] === 0 ? 0 : 1;
-      const tb = sk.kind[b] === NodeKind.Sprout && sk.children[b] === 0 ? 0 : 1;
-      return ta - tb || hash1(snap.ids[a] * 1.3) - hash1(snap.ids[b] * 1.3);
+    hooks.strand(sk, this.vis, this.lineAlpha, this.decoAlpha, this.ids, tg.layer, snap, sc, {
+      colour: built ? smoothstep(clamp(tau / tUn)) : 0,
+      look: built ? smoothstep(clamp(tau / this.handOver(K))) : 0,
+      alpha: fade,
     });
-    const pl = tg.place;
-    const [hx, hy] = [this.p.avatar.headX, this.p.layout.midOriginY];
-    const shapeOf = (h: number) =>
-      snap.theme === 'thorns' ? 1 : snap.theme === 'wreath' ? (h < 0.2 ? 2 : 3) : snap.theme === 'briar' ? (h < 0.35 ? 1 : 0)
-        : snap.theme === 'branches' ? -1 : 0;
-    for (const i of order.slice(0, max)) {
-      const h = hash1(snap.ids[i] * 5.1 + 2);
-      const [wx, wy] = toWorld(sk.x[i], sk.y[i], pl, tg.spinAngle);
-      // Out along the tree: away from the hub, a little to either side.
-      const dir = Math.atan2(wy - hy, wx - hx) + (h - 0.5) * 0.6;
-      const speed = lerp(1.2, 2.8, hash1(snap.ids[i] * 7.3));
-      this.particles.push({
-        x: wx, y: wy, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed,
-        spin: (h - 0.5) * 8, angle: dir, life: lerp(0.45, 0.65, hash1(snap.ids[i] * 2.9)),
-        shape: shapeOf(h), size: 0.07 * this.p.look.decoSize * (0.7 + 0.6 * h), seed: h,
-      });
-    }
-  }
-
-  private drawFx(t: number, tg: CommitTarget, hooks: CommitHooks) {
-    const after = this.sinceImpact(t);
-    if (after < 0) return;
-    const c = this.p.commit;
-    const col = mixRGB(tg.colour, [1, 1, 1], 0.5);
-    // Shock ring from the root, emerging from behind the avatar.
-    if (c.shockRing && c.impact > 0 && after < 0.45) {
-      const e = easeOutCubic(after / 0.45);
-      const R = lerp(0.3, 1.6, e) * Math.min(1.5, 0.5 + 0.5 * c.impact);
-      const w = lerp(0.012, 0.003, e), a = (1 - e) * (1 - e) * Math.min(1, c.impact);
-      const [ox, oy] = [tg.place.ox, tg.place.oy];
-      const N = 64;
-      for (let j = 0; j < N; j++) {
-        const a0 = (j / N) * TAU, a1 = ((j + 1) / N) * TAU;
-        hooks.fxStroke(ox + Math.cos(a0) * R, oy + Math.sin(a0) * R, ox + Math.cos(a1) * R, oy + Math.sin(a1) * R, w, col, a, 1.5);
-      }
-    }
-    // Burst: drag 5 /s, gravity 0.3, closed form so any frame rate places them alike.
-    const drag = 5, grav = 0.3;
-    for (const q of this.particles) {
-      if (after >= q.life) continue;
-      const s = (1 - Math.exp(-drag * after)) / drag;
-      const x = q.x + q.vx * s, y = q.y + q.vy * s - 0.5 * grav * after * after;
-      const a = Math.pow(1 - after / q.life, 1.5);
-      const ang = q.angle + q.spin * after;
-      if (q.shape < 0) {
-        const L = q.size * 0.6;
-        hooks.fxStroke(x, y, x + Math.cos(ang) * L, y + Math.sin(ang) * L, 0.003, tg.colour, a, 1);
-      } else hooks.fxSprite(x, y, ang, q.size, q.shape, tg.colour, a, q.seed);
-    }
   }
 }
