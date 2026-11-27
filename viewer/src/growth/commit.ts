@@ -107,7 +107,8 @@ interface Pose {
 }
 
 // Step lengths in seconds at commit.duration 1.
-const T = { curl: 1.0, move: 0.9, unroll: 1.5, settle: 0.6 };
+// It curls up and, from moveAt on, glides to the limb's start while it is still curling.
+const T = { curl: 1.2, moveAt: 0.25, move: 1.45, unroll: 1.5, settle: 0.6 };
 const STAGGER = 0.12;
 /** Turns of a fully curled frond. Its curvature grows fourfold toward the tip, so it is a
  *  tightening spiral (a fern's fiddlehead), not a loop. */
@@ -212,7 +213,7 @@ export class CommitAnimation {
 
   /** Seconds (at duration 1) from the start to the hand-over, for K fronds. */
   private handOver(K: number) {
-    return T.curl + T.move + T.unroll + STAGGER * (K - 1);
+    return T.moveAt + T.move + T.unroll + STAGGER * (K - 1);
   }
 
   /** Simulation step. Returns true on the frame of the hand-over. */
@@ -333,8 +334,8 @@ export class CommitAnimation {
     const sc = Math.max(0.05, pl.scale);
     // Progress of each step (held at the start until the tree is built).
     const curl = built ? easeInOutCubic(clamp(tau / T.curl)) : 0;
-    const move = built ? easeInOutCubic(clamp((tau - T.curl) / T.move)) : 0;
-    const tUn = T.curl + T.move;
+    const move = built ? easeInOutCubic(clamp((tau - T.moveAt) / T.move)) : 0;
+    const tUn = T.moveAt + T.move;
     const sig = pcs.map((pc) => (built ? smoothstep(clamp((tau - tUn - pc.delay) / T.unroll)) : 0));
 
     // The ring in plant-local coordinates (it keeps the halo's squish and tilt while it curls).
@@ -376,39 +377,41 @@ export class CommitAnimation {
       return { a, lA: (TAU * Sring) / K, b };
     });
     const headX = this.p.avatar.headX, headY = this.p.avatar.headY;
-    const spirals = pcs.map((_, m) => (move <= 0 ? spiral(TURNS * TAU * Math.sqrt(curl)) : sig[m] > 0 ? spiral(TURNS * TAU * Math.sqrt(1 - sig[m])) : full));
+    const spirals = pcs.map((_, m) => (sig[m] > 0 ? spiral(TURNS * TAU * Math.sqrt(1 - sig[m])) : curl < 1 ? spiral(TURNS * TAU * Math.sqrt(curl)) : full));
 
     const pose = (m: number, v: number): Pose => {
       const pc = pcs[m], fr = frames[m], flex = pc.d0 + pc.L * v;
-      if (move <= 0) {
-        // 1 curl: rolls up in place from its newer end; the rest still lies on the ring.
-        const s0 = 1 - curl, S = lerp(Sring, coilS(fr.lA), curl);
+      if (sig[m] <= 0) {
+        // 1 + 2: it rolls up from its newer end (the rest still lies on the ring) and, at the same
+        // time, the whole piece glides to the limb's start: its start point goes round the head from
+        // the ring to there, turning to line up with the limb and growing to the frond's length.
+        const s0 = 1 - curl;
+        let S = lerp(Sring, coilS(fr.lA), curl);
+        let q: { x: number; y: number; tx: number; ty: number; nx: number; ny: number };
         if (v <= s0 || curl <= 0) {
           const a = ringAt(m, v), n = perp(a.tx, a.ty);
-          return { x: a.x, y: a.y, tx: a.tx, ty: a.ty, nx: -n.x, ny: -n.y, flex, w: ringW, S };
+          q = { x: a.x, y: a.y, tx: a.tx, ty: a.ty, nx: -n.x, ny: -n.y };
+        } else {
+          const a = ringAt(m, s0);
+          q = coil(a.x, a.y, a.tx, a.ty, fr.lA * curl, spirals[m], (v - s0) / curl);
         }
-        const a = ringAt(m, s0);
-        const c = coil(a.x, a.y, a.tx, a.ty, fr.lA * curl, spirals[m], (v - s0) / curl);
-        return { ...c, flex, w: ringW, S };
-      }
-      if (sig[m] <= 0) {
-        // 2 move: the coil glides round the head to the limb's start, turning to line up with it.
-        const A = fr.a, B = fr.b;
-        /** The spiral's middle for a base frame and length. */
-        const mid = (x: number, y: number, tx: number, ty: number, len: number) =>
-          [x + (tx * full.cx - ty * full.cy * side) * len, y + (ty * full.cx + tx * full.cy * side) * len];
-        const cA = mid(A.x, A.y, A.tx, A.ty, fr.lA), cB = mid(B.x, B.y, B.tx, B.ty, pc.L);
-        // Centre path: polar about the head, so it goes round it rather than across the face.
-        const [ax, ay] = toWorld(cA[0], cA[1], plantPl), [bx, by] = toWorld(cB[0], cB[1], plantPl);
-        const thA = Math.atan2(ay - headY, ax - headX), thB = Math.atan2(by - headY, bx - headX);
-        const th = thA + wrapPi(thB - thA) * move;
-        const rr = lerp(Math.hypot(ax - headX, ay - headY), Math.hypot(bx - headX, by - headY), move);
-        const [cx, cy] = toLocal(headX + Math.cos(th) * rr, headY + Math.sin(th) * rr, plantPl);
-        const al = Math.atan2(A.ty, A.tx) + wrapPi(Math.atan2(B.ty, B.tx) - Math.atan2(A.ty, A.tx)) * move;
-        const tx = Math.cos(al), ty = Math.sin(al), len = lerp(fr.lA, pc.L, move);
-        const [ox, oy] = mid(0, 0, tx, ty, len);
-        const c = coil(cx - ox, cy - oy, tx, ty, len, full, v);
-        return { ...c, flex, w: lerp(ringW, B.w, 0.3 * move), S: coilS(len) };
+        if (move > 0) {
+          const A = fr.a, B = fr.b, k = lerp(1, pc.L / fr.lA, move);
+          const al = wrapPi(Math.atan2(B.ty, B.tx) - Math.atan2(A.ty, A.tx)) * move, c = Math.cos(al), si = Math.sin(al);
+          // The start's path: polar about the head, so it goes round it rather than across the face.
+          const [ax, ay] = toWorld(A.x, A.y, plantPl), [bx, by] = toWorld(B.x, B.y, plantPl);
+          const thA = Math.atan2(ay - headY, ax - headX), thB = Math.atan2(by - headY, bx - headX);
+          const th = thA + wrapPi(thB - thA) * move;
+          const rr = lerp(Math.hypot(ax - headX, ay - headY), Math.hypot(bx - headX, by - headY), move);
+          const [px, py] = toLocal(headX + Math.cos(th) * rr, headY + Math.sin(th) * rr, plantPl);
+          const rx = (q.x - A.x) * k, ry = (q.y - A.y) * k;
+          q = {
+            x: px + c * rx - si * ry, y: py + si * rx + c * ry,
+            tx: c * q.tx - si * q.ty, ty: si * q.tx + c * q.ty, nx: c * q.nx - si * q.ny, ny: si * q.nx + c * q.ny,
+          };
+          S *= k;
+        }
+        return { ...q, flex, w: lerp(ringW, fr.b.w, 0.3 * move), S };
       }
       // 3 unroll along the limb from where it leaves the avatar.
       const sigma = sig[m], S = coilS(pc.L) * lerp(1, 0.6, sigma);

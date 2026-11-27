@@ -20,6 +20,25 @@ The renderer only consumes `FeatureFrame` (`src/features.ts`). Setup → Connect
   goes the way "phrase end: tree" says. With "new branch each phrase" every phrase grows one
   branch of the take's tree and the oldest dries, droops and falls once more than "branches kept"
   are there. Off: one tree keeps growing and rests dimmer between phrases.
+- **3D leaves** (look.leaf3d, leaves3d.*; Look → Theme & leaves → 3D leaves): each leaf is two flat
+  halves sloping down from the midrib like a roof (a ridge: a valley lit from one side reads as lit
+  from the other, so leaves pointing different ways looked lit from different sides), turned about the midrib and tilted about its stalk in 3D; the
+  vertex shader turns and tilts it, the fragment shader solves the projection back to the flat leaf
+  for each pixel (the nearer half wins) and lights its normal (light direction, shade, shine, pale
+  underside). Falling leaves have their own settings too (falling.*).
+- **Look changes** (Generations.transition): a tree that has shown is never rebuilt in place.
+  When its shape settings change (a Look preset, a slider, the layout), once they have rested for
+  0.35 s the living trees go by growth.witherEffect and new ones grow back to where they were,
+  without waiting for the voice. A Look preset (several look settings at once, here or synced from
+  another viewer) does this at once, even when only colours or the theme change. Retiring trees
+  keep their look: main.ts keeps a copy of the look sections from before the change and draws those
+  trees with it swapped in (withLook). Live halos are replaced the same way: the old one fades out
+  over growth.fadeSeconds in its kept look (endingHalos, withParams) while a new one with the same
+  voice, size and motion regrows its vine. Only Look-preset settings count (presets.ts kindOf), so a
+  Reaction preset never replaces anything.
+- **Endings** are one withering effect (growth.witherEffect: ungrow, fade, fall; witherFromTips) and
+  a switch per length of silence (growth.onPause, onPhraseEnd, onStop). Older settings and presets
+  are converted on load (presets.ts migrateGrowth).
 - **Fill empty space** (growth.fillSpace): a new branch (new branch each phrase) also reaches into
   the empty space beside its slice, up to the nearest living branch; and a take that has been away
   for a while (silent, nothing of its tree left) leaves its territory to the new trees of the takes

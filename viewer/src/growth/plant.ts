@@ -38,6 +38,14 @@ export interface Mood {
 }
 export const NEUTRAL_MOOD: Mood = { effort: 0.5, pitch: 0.5, soft: 0, vibrato: 0 };
 
+/** The ending for a silence whose switch is `on` (growth.onPause, onPhraseEnd, onStop; true for a
+ *  replaced tree): growth.witherEffect, from the tips or all at once (growth.witherFromTips). */
+export function endActionOf(g: Params['growth'], on: boolean): EndAction {
+  if (!on) return 'keep';
+  const e = g.witherEffect ?? 'ungrow', tips = g.witherFromTips ?? true;
+  return e === 'fade' ? (tips ? 'fadeTips' : 'fade') : e === 'fall' ? (tips ? 'fallTips' : 'fall') : 'ungrow';
+}
+
 /** What branches do in a pause or at an ending (growth.onPause, onPhraseEnd, onStop). */
 export type EndAction = 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall';
 /** One stage acting on a tree this frame: its action and how far it has come (0..1). */
@@ -208,9 +216,15 @@ export class Plant {
    * Build for this placement, or rebuild after a shape setting or the territory changed. The
    * placement's angle, origin and scale are not part of the signature: re-layout never rebuilds.
    */
-  ensureBuilt(pl: Placement, p: Params, blocked: Blocked, takeCount = 1, loose = false) {
+  /** Built for other shape settings (or another layout) than these: a look change. */
+  isStale(pl: Placement, p: Params) {
+    return this.built && this.sigOf(pl, p) !== this.signature;
+  }
+
+  /** The shape signature these settings would build (compared with the one it was built with). */
+  sigOf(pl: Placement, p: Params) {
     const pp = p.plants, g = p.growth, a = p.avatar, L = p.look;
-    const sig = [
+    return [
       pl.kind, Math.round(pl.sectorLo * 1000), Math.round(pl.sectorHi * 1000), pl.lengthMul ?? 1,
       g.branching, g.lowBranches, g.reach, g.flatten, g.spread, pp.lift, pp.wildness, pp.taper, pp.clearance, pp.softDroop,
       pp.moodShaping, pp.step, pp.tipWidth, pp.maxWidth, pp.maxNodes, L.decoSize, L.variety, L.depthShade,
@@ -218,6 +232,10 @@ export class Plant {
       pp.originLimbs, pp.twist, pp.twistLength, pp.gnarl, pp.knots, pp.curl, pp.twistTighten, pp.twistTwigs, pp.twistDepth, pp.strandLay, pp.twistVoice,
       a.avoid, a.headX, a.headY, a.headR, a.bodyTopY, a.bodyBottomY, a.bodyR,
     ].join('|');
+  }
+
+  ensureBuilt(pl: Placement, p: Params, blocked: Blocked, takeCount = 1, loose = false) {
+    const sig = this.sigOf(pl, p);
     // growth.fillSpace: the territory to grow into (growLo / growHi) is fixed once the tree is
     // built, except while it has not shown yet (loose): then it follows, so takes that come back
     // together share the space fairly.

@@ -119,6 +119,19 @@ const RANGES: Record<string, Spec> = {
   'growth.dieAfter': { min: 0, max: 15 },
   'look.leafFall': { min: 0, max: 1 },
   'look.leafSheen': { min: 0, max: 1 },
+  'look.leaf3d': { min: 0, max: 1 },
+  'leaves3d.fold': { min: 0, max: 70 },
+  'leaves3d.cup': { min: 0, max: 1 },
+  'leaves3d.arch': { min: 0, max: 1 },
+  'leaves3d.turn': { min: 0, max: 85 },
+  'leaves3d.tilt': { min: 0, max: 75 },
+  'leaves3d.wind': { min: 0, max: 2 },
+  'leaves3d.shiver': { min: 0, max: 20 },
+  'leaves3d.lightAngle': { min: 0, max: 360 },
+  'leaves3d.lightHeight': { min: 5, max: 90 },
+  'leaves3d.shade': { min: 0, max: 1 },
+  'leaves3d.shine': { min: 0, max: 1 },
+  'leaves3d.underside': { min: 0, max: 1 },
   'look.leafRegrow': { min: 0.5, max: 10 },
   'motion.leafShake': { min: 0, max: 2 },
   'plants.twist': { min: 0, max: 1 },
@@ -143,9 +156,12 @@ const RANGES: Record<string, Spec> = {
   'halo.twist': { min: 0, max: 1 },
   'glow.shadow': { min: 0, max: 1 },
   'glow.tintFlat': { min: 0, max: 1 },
-  'growth.onPause': { options: { Keep: 'keep', Ungrow: 'ungrow', 'Fade, from the tips': 'fadeTips', 'Fade, all at once': 'fade', 'Fall away, from the tips': 'fallTips', 'Fall away, all at once': 'fall' } },
-  'growth.onPhraseEnd': { options: { Keep: 'keep', Ungrow: 'ungrow', 'Fade, from the tips': 'fadeTips', 'Fade, all at once': 'fade', 'Fall away, from the tips': 'fallTips', 'Fall away, all at once': 'fall' } },
-  'growth.onStop': { options: { Keep: 'keep', Ungrow: 'ungrow', 'Fade, from the tips': 'fadeTips', 'Fade, all at once': 'fade', 'Fall away, from the tips': 'fallTips', 'Fall away, all at once': 'fall' } },
+  'growth.witherEffect': { options: { Ungrow: 'ungrow', Fade: 'fade', 'Fall away': 'fall' } },
+  'falling.speed': { min: 0.2, max: 3 },
+  'falling.sway': { min: 0, max: 2 },
+  'falling.spin': { min: 0, max: 2 },
+  'falling.flutter': { min: 0, max: 1.5 },
+  'falling.time': { min: 0.3, max: 3 },
   'harmony.colour': { min: 0, max: 1 },
   'harmony.colourMode': { options: { 'Gradient from one to the other': 'gradient', 'Mix of the two': 'mix', 'The harmony colour': 'colour' } },
   'harmony.cross': { min: 0, max: 1 },
@@ -721,6 +737,7 @@ Key: ${key}`);
   /** Values from a preset file: v2 files carry one kind; older ones are split by key. */
   const addImportedPreset = (json: Record<string, unknown>, into: Kind | null) => {
     const raw = (json.values ?? {}) as Values;
+    migrateGrowth(raw.growth as Record<string, unknown> | undefined); // a preset saved by an older version
     const kinds: Kind[] = json.kind && KINDS.includes(json.kind as Kind) ? [json.kind as Kind] : into ? [into] : KINDS;
     let applied: Kind | null = null;
     for (const k of kinds) {
@@ -763,13 +780,17 @@ Key: ${key}`);
           // v1 settings file: one list of presets, split by kind.
           for (const pr of ps as Preset[])
             for (const k of ['visual', 'reactivity'] as Kind[]) {
+              migrateGrowth(pr.values?.growth as Record<string, unknown> | undefined);
               const values = diffOf(pr.values, k);
               if (Object.keys(values).length) store[k].user = [...store[k].user.filter((x) => x.id !== pr.id), { ...pr, values }];
             }
         } else if (ps && typeof ps === 'object') {
           const byKind = ps as Partial<PresetStore>;
           for (const k of KINDS)
-            for (const pr of byKind[k]?.user ?? []) store[k].user = [...store[k].user.filter((x) => x.id !== pr.id), pr];
+            for (const pr of byKind[k]?.user ?? []) {
+              migrateGrowth(pr.values?.growth as Record<string, unknown> | undefined);
+              store[k].user = [...store[k].user.filter((x) => x.id !== pr.id), pr];
+            }
         }
         for (const k of KINDS) active[k] = derive(k, active[k]);
       }
@@ -1114,8 +1135,9 @@ Shift-click: factory default ${fmt(d)}`));
     for (const k of ['branchesKept', 'branchWitherSeconds', 'branchDroopDeg', 'branchFallSeconds']) hide(`growth.${k}`, !p.growth.branchEachPhrase);
     for (const e of editors) e.ed.el.style.display = e.binding.hidden ? 'none' : '';
     hide('growth.witherDipSemitones', !p.growth.witherOnPitchDip);
-    hide('growth.witherDepth', p.growth.onPause === 'keep' && !p.growth.witherOnPitchDip);
-    hide('growth.fadeAfter', p.growth.onPhraseEnd === 'keep');
+    hide('growth.witherDepth', !p.growth.onPause && !p.growth.witherOnPitchDip);
+    hide('growth.fadeAfter', !p.growth.onPhraseEnd);
+    hide('growth.witherFromTips', p.growth.witherEffect === 'ungrow');
     hide('plants.trunkLean', !(p.plants.trunk > 0));
     hide('harmony.colourMode', p.harmony.colour <= 0);
     hide('harmony.colourValue', p.harmony.colour <= 0 || p.harmony.colourMode !== 'colour');

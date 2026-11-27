@@ -250,17 +250,27 @@ DAW project.
 
 ### Pauses and endings
 
-Reaction → **Pauses & endings** has one choice for each length of silence: a **short pause** acts
-on the outer twigs, the **phrase end** and the **full stop** on the whole tree.
+Reaction → **Pauses & endings**: one **withering effect** says how branches go, and a switch for
+each length of silence says whether it acts: a **short pause** on the outer twigs, the **phrase end**
+and the **full stop** on the whole tree. A switch that is off keeps the tree as it is.
 
-| Choice | What the branches do |
+| Withering effect | What the branches do |
 | --- | --- |
-| Keep | Nothing: they stay. |
 | Ungrow | They grow back into the tree from their tips. |
-| Fade, from the tips | They fade out, the tips first. |
-| Fade, all at once | Everything fades together. |
-| Fall away, from the tips | Pieces break off and fall, the tips first. |
-| Fall away, all at once | Everything lets go together. |
+| Fade | They fade out: from the tips first, or all at once ("from the tips first" off). |
+| Fall away | Pieces break off and fall: from the tips first, or all at once. |
+
+Look → Theme & leaves has two sub-folders: **3D leaves** (how far leaves fold, turn and tilt, where
+the light comes from, how dark the shade and how bright the glint) and **Falling leaves** (how fast
+leaves fall, sway, turn and flutter, and how long they last).
+
+The same effect takes away a tree that is replaced, and the trees after a **look change**: when a
+Look preset (or a tree-shape setting) changes, the trees are not rebuilt on the spot. Once the
+settings have rested for a moment, the old trees wither away and new ones grow back in the new look,
+without waiting for you to sing. The old trees keep their look (colours, theme, leaves) while they
+go, and so does the live halo: it fades out in its old look while a new one, in the new look, grows its
+vine round again. The glow and the 3D-leaf light are shared and change at once. A single slider that only
+changes colours or leaves acts at once.
 
 - "Short pause reaches in" is how deep a breath goes; "tree stays after singing" keeps a
   tree whole for that long after its take stopped singing, so old and new trees overlap into a

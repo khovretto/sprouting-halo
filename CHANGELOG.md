@@ -17,9 +17,9 @@ The first public version, published as Sprouting Halo (https://github.com/khovre
 - **Take trees:** every take grows its own tree into a shared canopy round the avatar (hub,
   territories, forking limbs, ivy shoots in free space). Trees grow with each phrase; a new tree or
   a new branch per phrase.
-- **Pauses and endings:** a short pause, the end of a phrase and a full stop each have their own
-  choice of what the branches do: keep, ungrow, fade or fall away, from the tips inward or all at
-  once. Leaves let go and fall, or go the way of their twig.
+- **Pauses and endings:** one withering effect (ungrow, fade or fall away, from the tips inward or
+  all at once) and a switch for each length of silence: a short pause, the end of a phrase, a full
+  stop. A look change lets the old trees wither the same way while new ones grow back. Leaves let go and fall, or go the way of their twig.
 - **Harmony:** two tracks singing a third, fourth, fifth or sixth apart are in harmony: their
   colours run into each other, the glow rises, and (optionally) their branches crisscross and
   blossoms open; theme parts can open in harmony.

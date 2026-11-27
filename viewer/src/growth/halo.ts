@@ -206,13 +206,16 @@ export class HaloVine {
       if (v.parent && v.parent.dead) v.parent = null;
       const pi = v.parent ? v.parent.index : -1;
       const tip = this.tips[v.runner];
-      const behind = tip.arc - v.arcAt;
+      // `lead` is the arc the visible tip has reached (the newest link grows out over its step), so
+      // leaves, widths and the tail fade move with it smoothly, not a step at a time (a slow vine
+      // showed them coming in at a few frames per second).
+      const lead = tip.arc - STEP + tip.budget;
+      const behind = lead - v.arcAt;
       // The runner's newest link grows out over its step instead of appearing whole (at idle
       // speed that showed as a line growing dot by dot), and the runner thins toward its tip.
       // `lead` is the arc the visible tip has reached, so widths move with it without a jump.
       const runner = v.kind === NodeKind.Runner;
       const newest = runner && v === tip.node && !!v.parent;
-      const lead = tip.arc - STEP + tip.budget;
       const w = runner ? v.w * (TIP_WIDTH + (1 - TIP_WIDTH) * ss(clamp((lead - v.arcAt) / TIP_TAPER))) : v.w;
       const j = sk.add(v.x, v.y, pi, v.flex, w, v.kind);
       v.index = j;
@@ -239,7 +242,9 @@ export class HaloVine {
     const fadeStart = tail * (1 - clamp(p.halo.tailFade, 0.01, 1));
     let best = 0;
     for (const tip of this.tips) {
-      const tipAngle = Math.atan2(tip.node.y, tip.node.x);
+      // Where the visible tip is (the newest link grows out over its step).
+      const pn = tip.node.parent, fr = clamp(tip.budget / STEP);
+      const tipAngle = pn ? Math.atan2(pn.y + (tip.node.y - pn.y) * fr, pn.x + (tip.node.x - pn.x) * fr) : Math.atan2(tip.node.y, tip.node.x);
       // Distance behind the tip along its direction of travel.
       let behind = ((tip.sign * (tipAngle - angle)) % TAU + TAU) % TAU;
       // Only up to the vine actually grown so far.

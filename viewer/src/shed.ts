@@ -16,6 +16,8 @@ export interface ShedStyle {
   /** World down in the layer's frame (per world unit). */
   downX: number;
   downY: number;
+  /** How they fall (params.falling): speed, side-to-side sway, turning, wind flutter, time. */
+  drop?: { speed: number; sway: number; spin: number; flutter: number; time: number };
   /** growth.fallDirection "away": they drift straight out from (originX, originY), no gravity. */
   fallAway?: boolean;
   originX?: number;
@@ -61,26 +63,32 @@ export class ShedPool {
       const o = k * N;
       const age = now - d[o];
       const h = d[o + 10];
-      const life = 1.1 + 0.6 * h;
+      const dp = st.drop ?? { speed: 1, sway: 1, spin: 1, flutter: 1, time: 1 };
+      const life = (1.1 + 0.6 * h) * Math.max(0.1, dp.time);
       if (age < 0 || age >= life) continue;
       alive++;
       const blossom = d[o + 5] === 5, away = !!st.fallAway;
       // terminal speed (world units / s), how fast it is reached
-      const vT = away ? (blossom ? 0.25 : 0.35) : blossom ? 0.35 : 0.55, kk = away ? 2 : 3;
+      const vT = (away ? (blossom ? 0.25 : 0.35) : blossom ? 0.35 : 0.55) * Math.max(0, dp.speed), kk = away ? 2 : 3;
       const fallD = vT * (age - (1 - Math.exp(-kk * age)) / kk); // closed form: any frame rate places it alike
-      const sway = 0.05 * Math.sin(age * (5 + 3 * h) + h * 6.28) * Math.min(1, age * 2);
+      const sway = 0.05 * dp.sway * Math.sin(age * (5 + 3 * h) + h * 6.28) * Math.min(1, age * 2);
       const [Dx, Dy] = fallDir(st.downX, st.downY, away, d[o + 1], d[o + 2], st.originX, st.originY);
       const x = d[o + 1] + Dx * fallD - Dy * sway;
       const y = d[o + 2] + Dy * fallD + Dx * sway;
-      const ang = d[o + 3] + (h - 0.5) * 6 * age + 0.6 * (Math.sin(age * 4 + h * 9) - Math.sin(h * 9));
+      const ang = d[o + 3] + dp.spin * ((h - 0.5) * 6 * age + 0.6 * (Math.sin(age * 4 + h * 9) - Math.sin(h * 9)));
       const u = age / life;
       const a = d[o + 12] * st.alpha * (u < 0.5 ? 1 : 1 - smooth((u - 0.5) * 2));
       if (a <= 0.01) continue;
       const m = 0.4 * Math.min(1, age / 0.8);
-      const px = d[o + 14] + (x - d[o + 1]), py = d[o + 15] + (y - d[o + 2]); // the pivot travels with it
-      out.sprite(x, y, ang, d[o + 4], d[o + 5], d[o + 9], h,
+      // The motion frame stays the one it hung on: the shaders take each leaf's random wind and
+      // flutter from its pivot point, so a moving pivot gave it new ones every frame (it stuttered).
+      // Its twig's bend fades out over the first half second (flex toward the pivot's), so it does
+      // not jump as it lets go.
+      const px = d[o + 14], py = d[o + 15];
+      const flex = lerp(d[o + 9], d[o + 16], smooth(age / 0.5));
+      out.sprite(x, y, ang, d[o + 4], d[o + 5], flex, h,
         lerp(d[o + 6], dry[0], m), lerp(d[o + 7], dry[1], m), lerp(d[o + 8], dry[2], m),
-        a, st.glow * d[o + 11], st.layer, d[o + 13], px, py, d[o + 16], d[o + 17], d[o + 18], d[o + 19]);
+        a, st.glow * d[o + 11], st.layer, d[o + 13], px, py, d[o + 16], d[o + 17], d[o + 18], d[o + 19], Math.max(0, dp.flutter));
     }
     if (!alive) this.count = this.head = 0;
   }

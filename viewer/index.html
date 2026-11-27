@@ -41,6 +41,9 @@
       #overlay { pointer-events: none; }
       #scope { position: fixed; left: 8px; bottom: 8px; inset: auto auto 8px 8px; display: none; border-radius: 6px; cursor: pointer; }
       #panel { position: fixed; top: 8px; right: 8px; width: 300px; max-height: calc(100vh - 16px); overflow-y: auto; }
+      /* The scrollbar's room is always kept, so nothing moves when the panel gets long enough to scroll;
+         a thin dark one, so the kept room is a narrow strip. */
+      #panel, #theme-panel { scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #4a4e58 transparent; }
       /* /controls: the panel and the voice scope only, nothing drawn. */
       html.controls body { background: #15161a; }
       html.controls #gl, html.controls #overlay { display: none; }

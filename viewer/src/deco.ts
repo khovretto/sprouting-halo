@@ -60,6 +60,8 @@ export interface DecoStyle {
   downY: number;
   /** growth.fallDirection "away": what lets go drifts straight out from (originX, originY). */
   fallAway?: boolean;
+  /** How leaves and petals that let go fall (params.falling). */
+  drop?: { speed: number; sway: number; spin: number; flutter: number; time: number };
   originX?: number;
   originY?: number;
   intensity: number;

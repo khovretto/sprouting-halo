@@ -69,10 +69,14 @@ export class TwigPool {
       const swing = Math.atan2(mx * Dy - my * Dx, mx * Dx + my * Dy);
       const th = 0.85 * swing * (1 - Math.exp(-1.8 * age)) + (h - 0.5) * 0.7 * age, c = Math.cos(th), s = Math.sin(th);
       const m = 0.5 * Math.min(1, age / 0.8);
+      // The motion frame stays put (the shaders take the random wind from the pivot point; a moving
+      // one stuttered); the branch's bend fades out over the first half second (flex toward the
+      // pivot's), so it does not jump as it lets go.
+      const fe = smooth(age / 0.5), pf = d[o + 20];
       out.stroke(px + c * ax - s * ay + dx, py + s * ax + c * ay + dy, px + c * bx - s * by + dx, py + s * bx + c * by + dy,
-        d[o + 8], d[o + 9], d[o + 10], d[o + 11],
+        d[o + 8], d[o + 9], lerp(d[o + 10], pf, fe), lerp(d[o + 11], pf, fe),
         lerp(d[o + 12], dry[0], m), lerp(d[o + 13], dry[1], m), lerp(d[o + 14], dry[2], m), a, d[o + 16] * (1 - u), layer, d[o + 22],
-        d[o + 17], d[o + 18] + dx, d[o + 19] + dy, d[o + 20], d[o + 21]);
+        d[o + 17], d[o + 18], d[o + 19], pf, d[o + 21]);
     }
     if (!alive) this.clear();
   }

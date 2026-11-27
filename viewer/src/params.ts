@@ -72,19 +72,22 @@ export const defaults = {
     spread: 1.0,
     /** Brightness of a tree between phrases (it rests, until a long silence ends it: dieAfter). */
     restBrightness: 0.55,
-    /** What the outer twigs (within witherDepth of the tips) do in a short pause; they grow back
-     *  when singing resumes. keep: nothing. ungrow: they grow back into the tree from the tips.
-     *  fadeTips / fade: they fade, from the tips inward or all together. fallTips / fall: pieces
-     *  break off and fall, from the tips inward or all at once. */
-    onPause: 'ungrow' as 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall',
-    /** What the whole tree does once its phrase has ended (fadeAfter seconds after its take stopped
-     *  singing, and never before response.phraseGap). Same choices; it acts on the whole tree,
-     *  trunk and all, and takes fadeSeconds. A tree that was not replaced comes back when its take
-     *  sings again. */
-    onPhraseEnd: 'ungrow' as 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall',
-    /** What the whole tree does at a full stop (a silence of dieAfter seconds); the next phrase
-     *  then starts a new tree. Same choices. */
-    onStop: 'ungrow' as 'keep' | 'ungrow' | 'fadeTips' | 'fade' | 'fallTips' | 'fall',
+    /** How branches go when a silence acts on them, and when a tree is replaced (a new phrase, a
+     *  look change): ungrow = they grow back into the tree from the tips; fade = they fade out;
+     *  fall = pieces break off and fall (growth.fallDirection). */
+    witherEffect: 'ungrow' as 'ungrow' | 'fade' | 'fall',
+    /** fade / fall: from the tips inward (on) or all at once (off). Ungrowing is always from the tips. */
+    witherFromTips: true,
+    /** A short pause acts on the outer twigs (within witherDepth of the tips); they grow back when
+     *  singing resumes. Off: pauses leave the tree as it is. */
+    onPause: true,
+    /** The end of a phrase acts on the whole tree, trunk and all (fadeAfter seconds after its take
+     *  stopped singing, and never before response.phraseGap), over fadeSeconds. A tree that was not
+     *  replaced comes back when its take sings again. Off: it stays (resting) until it is replaced. */
+    onPhraseEnd: true,
+    /** A full stop (a silence of dieAfter seconds) acts on every tree, and the next phrase starts a
+     *  new one. Off: full stops are like any phrase end. */
+    onStop: true,
     /** A silence this long is a full stop (s): onStop acts on every tree and the next phrase starts
      *  a new one. 0 = never. */
     dieAfter: 4,
@@ -136,6 +139,8 @@ export const defaults = {
     leafRegrow: 3,
     /** A faint light vein and edge on leaves, so near-black leaves keep their form (0 = off). */
     leafSheen: 0,
+    /** How three-dimensional the leaves look (the settings in leaves3d): 0 = flat, 1 = in full. */
+    leaf3d: 0,
     sheenColour: '#ffffff',
     /** Where each track's theme and amount come from: its Sprout Tap window, or theme and density
      *  below for every track. Taps on Auto always follow the look. */
@@ -429,6 +434,51 @@ export const defaults = {
     shiverDeg: 1,
     /** How strongly vibrato is read: higher = even light vibrato makes it tremble fully. */
     shiverSensitivity: 1,
+  },
+  /** 3D leaves (look.leaf3d is the amount): Look → Theme & leaves → 3D leaves. Each leaf is two
+   *  halves folded along the midrib, turned about the midrib and tilted about its stalk in 3D, and
+   *  lit. Angles in degrees. */
+  leaves3d: {
+    /** How far the halves slope down from the midrib, like a roof (a ridge, so the light reads the
+     *  same way on every leaf). */
+    fold: 25,
+    /** A little dome across the leaf (shading only). */
+    cup: 0.4,
+    /** A little arch along the leaf (shading only). */
+    arch: 0.35,
+    /** Most a leaf turns about its midrib (each leaf its own amount, both ways). */
+    turn: 45,
+    /** Most a leaf tilts toward or away from you about its stalk (it looks shorter). */
+    tilt: 35,
+    /** How much the turning and tilting move with the wind (0 = they hold still). */
+    wind: 1,
+    /** On vibrato, leaves also tremble in 3D: turned and tilted back and forth at the vibrato's rate,
+     *  this many times the shiver angle (motion.shiverDeg), so the light flickers over them. */
+    shiver: 8,
+    /** Where the light comes from on screen (0 = right, 90 = above, 135 = upper left). */
+    lightAngle: 135,
+    /** How high the light is above the picture (90 = straight from the front). */
+    lightHeight: 40,
+    /** How dark the side turned away from the light gets (0 = no shading: the leaves read as 3D
+     *  from their shape, glint and underside). */
+    shade: 0,
+    /** The glint where the light hits head-on. */
+    shine: 0.35,
+    /** How pale the underside looks when a leaf is turned over. */
+    underside: 0.35,
+  },
+  /** Leaves and petals that let go (Look → Theme & leaves → Falling leaves). */
+  falling: {
+    /** How fast they fall (1 = as before). */
+    speed: 1,
+    /** How far they swing from side to side as they fall (1 = as before). */
+    sway: 0.5,
+    /** How much they turn and rock as they fall (1 = as before). */
+    spin: 0.5,
+    /** How much the wind still flutters them while they fall (1 = like a leaf on its twig). */
+    flutter: 0.4,
+    /** How long they fall before they are gone (1 = about 1.1 to 1.7 s). */
+    time: 1,
   },
   glow: {
     /** A soft dark outline round everything, so light colours and glow stay readable on a bright

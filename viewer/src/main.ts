@@ -4,7 +4,7 @@
 
 import { buildUI, deepMerge, loadParams, saveParams, setSaveOverrides, UI, UIStatus } from './ui';
 import { defaults, Params } from './params';
-import { getPath, PATHS, setPath } from './presets';
+import { getPath, kindOf, migrateGrowth, PATHS, setPath } from './presets';
 import type { FeatureFrame, LayerFeatures, Theme } from './features';
 import { Batch, Instances, LayerUniforms, MAX_LAYERS, Renderer, STILL, View } from './render/renderer';
 import { Overlay, GuidePlant } from './overlay';
@@ -21,7 +21,7 @@ import { bakeGradient, parseGradient } from './gradient';
 import { addHotkeys, installHotkeys, toggleSheet } from './hotkeys';
 import { LiveSource, ViewerMessage } from './sources/live';
 import { HaloVine } from './growth/halo';
-import { Plant, Wilt } from './growth/plant';
+import { endActionOf, Plant, Wilt } from './growth/plant';
 import { plantMetrics } from './debug';
 import { inkMetrics, pixelMetrics } from './debug-ink';
 import { Generations } from './growth/generations';
@@ -31,6 +31,12 @@ import { HarmonyTracker } from './harmony';
 import { decorateRing, decorateTree, DecoStyle } from './deco';
 import { layoutTakes, outlineOf, Placement, plantArc, toWorld } from './layout';
 import { angleLerp, clamp, deg, hash1, hexToRgb, hsv2rgb, hueShift, lerp, RGB, TAU } from './math';
+
+/** The settings sections a tree keeps while a look change takes it away (main.ts withLook). */
+const LOOK_SECTIONS = ['look', 'plants', 'colBranch', 'colLeaf', 'colAccent', 'colHalo', 'palette', 'colours', 'leaves3d', 'falling', 'halo'] as const;
+type LookParams = Pick<Params, (typeof LOOK_SECTIONS)[number]>;
+/** The look a retiring tree keeps: its settings and its take's theme, amount and colours. */
+interface TreeLook { params: LookParams; theme: Theme; density: number; colour: string; ink?: string }
 
 interface Slot {
   id: string;
@@ -56,6 +62,12 @@ interface Slot {
   awayFor?: number;
   /** The territory the take's living boughs were built for (growth.fillSpace). */
   growFrozen?: [number, number];
+  /** Seconds its trees have been built for other shape settings than now (a look change waits for
+   *  the settings to rest). */
+  staleFor?: number;
+  staleSig?: string;
+  /** The look its trees had when a shape change began (kept by the trees it retires). */
+  staleLook?: TreeLook;
 }
 
 /** A deleted take: fades away while its leaves fall (no ungrowing). */
@@ -80,6 +92,10 @@ interface LiveHalo {
   look: { theme: Theme; density: number; colour: string; ink?: string };
   f?: LayerFeatures;
   motion: LayerMotion;
+  /** Replaced by a Look preset: the look settings it keeps while it fades out (main.ts withParams). */
+  kept?: LookParams;
+  /** Seconds it takes to fade out once ending (default transitions.liveEndSeconds). */
+  endSeconds?: number;
 }
 
 const errorBox = document.getElementById('error')!;
@@ -258,6 +274,16 @@ function start() {
   const applyPatch = (patch: Record<string, unknown>) => {
     const now = Date.now();
     let any = false;
+    // Settings from an older viewer (or kept by Sprout.exe from before) in the older words: in the
+    // current ones, so they are not dropped as the wrong type.
+    if (Object.keys(patch).some((k) => k.startsWith('growth.') && typeof patch[k] === 'string' && /^growth\.(onPause|onPhraseEnd|onStop|ending)$/.test(k))) {
+      const gr: Record<string, unknown> = {};
+      for (const k of Object.keys(patch)) if (k.startsWith('growth.')) gr[k.slice(7)] = patch[k];
+      migrateGrowth(gr);
+      patch = { ...patch };
+      for (const k of Object.keys(patch)) if (k.startsWith('growth.')) delete patch[k];
+      for (const [k, v] of Object.entries(gr)) patch['growth.' + k] = v;
+    }
     for (const [k, v] of Object.entries(patch)) {
       if (!SYNC_SET.has(k)) continue;
       const def = getPath(defaults, k);
@@ -565,7 +591,7 @@ function start() {
 
   let shown = new Uint8Array(0);
   /** Glow settings plus the leaf sheen, one object reused every frame. */
-  const glowArgs = { ...params.glow, sheen: 0, sheenColour: '#ffffff' };
+  const glowArgs = { ...params.glow, sheen: 0, sheenColour: '#ffffff', leaf3d: 0, leaves3d: params.leaves3d };
   /** Rope limbs of a take tree (plants.strands). */
   type Rope = { phase: ArrayLike<number>; strands: number; depth: number; k: number };
   const smoothstep01 = (a: number, b: number, x: number) => {
@@ -843,7 +869,7 @@ function start() {
     return {
       theme, density, layer, leaf: inks.leaf, accent: inks.accent, sScale, alpha: alpha * fadeOf(look), glow: look.glow * params.look.decoGlow, unit, seed, effort: d.effort,
       bloom: look.bloom * params.look.blossoms, fall, downX, downY, intensity: brighten(look), time: t, pitch: d.pitch,
-      harmony: d.harmony, fallAway: params.growth.fallDirection === 'away',
+      harmony: d.harmony, fallAway: params.growth.fallDirection === 'away', drop: params.falling,
     };
   }
 
@@ -937,10 +963,72 @@ function start() {
     },
   };
 
+  // ---- The look a tree keeps (Look presets) --------------------------------------------------------
+  // A tree that a look change replaces keeps the look it had while it withers away: its settings of
+  // these sections and its take's theme, amount and colours, drawn by swapping them in for that tree
+  // only (drawPlant). Frame-wide things (glow, 3D-leaf light, leaf sheen) are the new ones.
+  let lookJson = '';
+  let lookNow: LookParams | null = null;
+  /** The look settings as they were before this frame's changes. */
+  let lookBefore: LookParams | null = null;
+  const treeLookOf = (s: Slot, lp: LookParams | null): TreeLook | undefined =>
+    lp ? { params: lp, theme: s.theme, density: s.density, colour: s.colour, ink: s.ink } : undefined;
+  /** Look-preset settings (not Reaction ones) that differ between two settings trees: a Look
+   *  preset changes many at once. */
+  const countDiff = (a: unknown, b: unknown, path = ''): number => {
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+      let n = 0;
+      for (const k of new Set([...Object.keys(a), ...Object.keys(b)]))
+        n += countDiff((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], path ? path + '.' + k : k);
+      return n;
+    }
+    return a === b || kindOf(path) !== 'visual' ? 0 : 1;
+  };
+  /**
+   * Once per step: notice a change of the look settings. Several at once (a Look preset, here or
+   * from another viewer) replaces every take's trees at once, the old ones keeping their look. One
+   * setting alone (a slider) is live, except a shape setting, which replaces the trees once it rests
+   * (the slots loop).
+   */
+  function trackLook() {
+    const j = JSON.stringify(LOOK_SECTIONS.map((k) => params[k]));
+    lookBefore = lookNow;
+    if (j === lookJson) return;
+    const now = Object.fromEntries(LOOK_SECTIONS.map((k) => [k, structuredClone(params[k])])) as unknown as LookParams;
+    const before = lookNow;
+    lookJson = j;
+    lookNow = now;
+    if (!before || countDiff(before, now) < 3) return;
+    for (const s of slots) {
+      if (s.commit) continue;
+      s.gens.transition(params, treeLookOf(s, before));
+      s.staleFor = 0;
+      s.staleSig = undefined;
+    }
+    // The live halos the same way: each one fades out in the look it had (over growth.fadeSeconds),
+    // and a new one takes its place, its ring there at once (they cross-fade) and its vine growing
+    // round from the start again, in the new look. It carries on the old one's voice, size and
+    // motion.
+    halos = halos.map((h) => {
+      if (h.endT0 !== undefined) return h;
+      h.kept = before;
+      h.endT0 = t;
+      h.endSeconds = Math.max(0.3, params.growth.fadeSeconds);
+      endingHalos.push(h);
+      const nh = newHalo(h.id);
+      Object.assign(nh, {
+        drive: h.drive, motion: h.motion, open: h.open, cx: h.cx, cy: h.cy, R: h.R, f: h.f, look: { ...h.look },
+        spawnT0: t - Math.max(0.05, params.halo.spawnSeconds),
+      });
+      return nh;
+    });
+  }
+
   // ---- Simulation ------------------------------------------------------------------------------
   const pauseWilt: Wilt = { action: 'keep', amount: 0 }, endWilt: Wilt = { action: 'keep', amount: 0 };
   function simulate(dt: number, realDt: number): FeatureFrame {
     t += dt;
+    trackLook();
     wind.update(dt, params);
     const ff = pickFrame(dt);
     harmony.update(ff.layers, dt, params);
@@ -1013,7 +1101,7 @@ function start() {
       h.cx = lerp(hp.restX, 0, o);
       h.R = lerp(hp.restRadius, hp.openRadius, o) * nest;
     });
-    endingHalos = endingHalos.filter((h) => t - (h.endT0 ?? t) < params.transitions.liveEndSeconds);
+    endingHalos = endingHalos.filter((h) => t - (h.endT0 ?? t) < (h.endSeconds ?? params.transitions.liveEndSeconds));
 
     const first = halos[0];
     status.layers = lives.length + ' live + ' + n + (n === 1 ? ' take' : ' takes');
@@ -1071,6 +1159,30 @@ function start() {
       s.lean = lerp(s.lean ?? 0, toMate * 7 * deg * clamp(params.harmony.cross) * s.drive.harmony, 1 - Math.exp(-dt / 0.4));
       s.motion.update(s.drive, wind, dt, params, 1, false);
       const pending = !!s.commit && s.commit.stampedAt < 0;
+      // A change to the trees' shape (a Look preset, a slider, the layout): a tree that has shown is
+      // not rebuilt in place. Once the settings have rested for a moment the living trees go the way
+      // growth.witherEffect says and new ones grow back to where they were (Generations.transition).
+      // (Not while a planting is under way, the strand fading included: it is tied to its tree.)
+      const shown = s.gens.gens.find((x) => !x.retired && x.tree.built && x.reveal >= 0.03);
+      if (shown && !s.commit && shown.tree.isStale(tg, params)) {
+        // The settings have to rest: a slider still moving starts the wait again.
+        const sig = shown.tree.sigOf(tg, params);
+        if (sig !== s.staleSig) {
+          // The look before the change began (a slider still moving keeps the first one).
+          if (s.staleSig === undefined) s.staleLook = treeLookOf(s, lookBefore);
+          s.staleSig = sig;
+          s.staleFor = 0;
+        }
+        s.staleFor = (s.staleFor ?? 0) + realDt;
+        if (s.staleFor > 0.35) {
+          s.gens.transition(params, s.staleLook);
+          s.staleFor = 0;
+          s.staleSig = undefined;
+        }
+      } else {
+        s.staleFor = 0;
+        s.staleSig = undefined;
+      }
       if (!pending) s.gens.update(s.drive, dt, params);
       for (const g of s.gens.gens) {
         // Just planted: the rest of the tree grows out from the limbs quickly, then as usual.
@@ -1078,6 +1190,9 @@ function start() {
         // One new tree built per step: when several takes start a phrase together, the others wait
         // a frame (invisible) instead of making one long frame the growth then catches up on.
         if (!g.tree.built && newBuilds >= 1) continue;
+        // Only a tree that has not shown yet is (re)built; one that has keeps its shape (a look change
+        // replaces it instead, above).
+        const frozen = g.tree.built && (g.retired || g.reveal >= 0.03);
         // growth.fillSpace across takes: a tree grows into the territory of its take as handed out
         // now (wider while a neighbour is away), but only where trees are replaced as the song goes
         // on (a tree that stays for good would keep the space when the neighbour comes back). The
@@ -1091,13 +1206,14 @@ function start() {
             s.growFrozen = [tg.growLo ?? tg.sectorLo, tg.growHi ?? tg.sectorHi];
           tgB = { ...tg, growLo: s.growFrozen[0], growHi: s.growFrozen[1] };
         }
-        if (g.tree.ensureBuilt(tgB, params, blocked, n, g.reveal < 0.03 && !g.retired)) newBuilds++;
+        if (!frozen && g.tree.ensureBuilt(tgB, params, blocked, n, true)) newBuilds++;
         // A replaced tree keeps its withered twigs while it ends (they no longer grow back).
         const stays = params.look.woodStays;
-        // The wood stays: pauses and endings touch nothing (pauses shake leaves loose below instead).
-        if (stays) g.tree.computeReveal(g.reveal, s.drive.pitch, params, dt, t);
+        // The wood stays: pauses and endings touch nothing (pauses shake leaves loose below instead),
+        // except on a tree that is being replaced (a look change).
+        if (stays && !g.retired) g.tree.computeReveal(g.reveal, s.drive.pitch, params, dt, t);
         else {
-          pauseWilt.action = params.growth.onPause;
+          pauseWilt.action = endActionOf(params.growth, params.growth.onPause);
           pauseWilt.amount = g.wither;
           endWilt.action = g.endAction ?? 'keep';
           endWilt.amount = g.end ?? 0;
@@ -1187,14 +1303,15 @@ function start() {
       const pl = s.place;
       const angle = pl.angle + spin * pl.tierDir + (s.lean ?? 0);
       const weave = clamp(params.harmony.cross) * s.drive.harmony;
-      const inks = inksFor(layer, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false, s.ink, s.id);
-      // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
-      const base = inks.stroke.mid;
-      const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
-      look = { ...look, glow: look.glow * clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4) };
-      const slotL = layer;
-      const take = hexToRgb(s.colour), kTake = Math.max(0, slots.indexOf(s));
-      for (const g of s.gens.gens) {
+      const slotL = layer, look0 = look;
+      const drawGen = (g: (typeof s.gens.gens)[number]) => {
+        // Inks per tree: a tree that keeps an older look has its own colours (drawn with them swapped in).
+        const inks = inksFor(slotL, hexToRgb(s.colour), Math.max(0, slots.indexOf(s)), s.drive, false, s.ink, s.id);
+        // Every take colour glows about equally: yellow-green would otherwise clip long before blue.
+        const base = inks.stroke.mid;
+        const luma = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
+        const look = { ...look0, glow: look0.glow * clamp(0.5 / Math.max(0.05, luma), 0.65, 1.4) };
+        const take = hexToRgb(s.colour), kTake = Math.max(0, slots.indexOf(s));
         let a = alpha * g.alpha * (g.dim ?? 1), L = slotL, gInks = inks, ang = angle;
         const dry = g.dry ?? 0, gfall = g.fall ?? 0;
         if (g.bough && dry > 0 && layer < MAX_LAYERS - 5) {
@@ -1255,6 +1372,34 @@ function start() {
           { alpha: g.tree.leafLife, rank: g.tree.leafRank, tone: g.tree.tone, under: backUnder, order: g.tree.swing, bend: g.tree.bend,
             leafState: g.tree.leafState, leafGone: params.look.leafFall > 0 ? g.tree.leafGone : undefined, dt: drawDt, branchId: g.tree.branchId, branchDone: g.tree.branchDone, branchFront: g.tree.branchFront,
             shed: g.tree.shed, now: t, bloomState: g.tree.bloomState, retracting: g.tree.retracting, dry, dropped: g.tree.dropped });
+      };
+      for (const g of s.gens.gens) {
+        const tl = g.look as TreeLook | undefined;
+        if (tl) withLook(tl, s, () => drawGen(g));
+        else drawGen(g);
+      }
+    };
+    /** Draw with a tree's kept look swapped in (its settings sections and its take's appearance). */
+    const withLook = (tl: TreeLook, s: Slot, draw: () => void) => {
+      const keep = { theme: s.theme, density: s.density, colour: s.colour, ink: s.ink };
+      Object.assign(s, { theme: tl.theme, density: tl.density, colour: tl.colour, ink: tl.ink });
+      try {
+        withParams(tl.params, draw);
+      } finally {
+        Object.assign(s, keep);
+      }
+    };
+    /** Draw with older look settings swapped in (a tree or halo a Look preset is replacing). */
+    const withParams = (lp: LookParams, draw: () => void) => {
+      const p = params as unknown as Record<string, unknown>, saved: Record<string, unknown> = {};
+      for (const k of LOOK_SECTIONS) {
+        saved[k] = p[k];
+        p[k] = lp[k];
+      }
+      try {
+        draw();
+      } finally {
+        for (const k of LOOK_SECTIONS) p[k] = saved[k];
       }
     };
 
@@ -1288,6 +1433,7 @@ function start() {
     const hp = params.halo;
     const drawHalo = (h: LiveHalo, fade: number) => {
       if (layer >= MAX_LAYERS) return;
+      const hp = params.halo; // read here: a halo being replaced draws with its own (withParams)
       const spawn = Math.max(0.001, easeOutBack(clamp((t - h.spawnT0) / Math.max(0.05, hp.spawnSeconds))));
       const R = h.R * spawn;
       // Squish and tilt are for the small resting halo only; the recording halo opens round.
@@ -1314,7 +1460,11 @@ function start() {
       const L = s ? slotLayer.get(s.id) : undefined;
       c.draw(t, s && L !== undefined ? targetOf(s, L) : undefined, commitHooks);
     }
-    endingHalos.forEach((h) => drawHalo(h, 1 - smooth(clamp((t - (h.endT0 ?? t)) / Math.max(0.05, params.transitions.liveEndSeconds)))));
+    endingHalos.forEach((h) => {
+      const fade = 1 - smooth(clamp((t - (h.endT0 ?? t)) / Math.max(0.05, h.endSeconds ?? params.transitions.liveEndSeconds)));
+      if (h.kept) withParams(h.kept, () => drawHalo(h, fade));
+      else drawHalo(h, fade);
+    });
 
     // Render.
     // Render size: the window in device pixels, but never more than perf.maxMegapixels; CSS
@@ -1332,7 +1482,7 @@ function start() {
     const view: View = { s: Math.min(W, H) / 2 / params.scene.viewRadius, cx: params.scene.centerX, cy: params.scene.centerY, W, H };
     const tGpu0 = performance.now();
     perfAdd('build', tGpu0 - tDraw0);
-    Object.assign(glowArgs, params.glow, { sheen: params.look.leafSheen, sheenColour: params.look.sheenColour });
+    Object.assign(glowArgs, params.glow, { sheen: params.look.leafSheen, sheenColour: params.look.sheenColour, leaf3d: params.look.leaf3d, leaves3d: params.leaves3d });
     renderer.render(batches, layerU, view, wind.t, glowArgs);
     perfAdd('gpu', performance.now() - tGpu0);
     lastView = view;

@@ -10,11 +10,13 @@
 //
 // Three lengths of silence act on a tree, each with its own action (plant.ts, EndAction):
 // a short pause on the outer twigs (growth.onPause, `wither`), the end of the phrase on the whole
-// tree (growth.onPhraseEnd), and a full stop, growth.dieAfter seconds (growth.onStop).
+// tree (growth.onPhraseEnd), and a full stop, growth.dieAfter seconds (growth.onStop). Each is a
+// switch; how the branches go is one choice for all of them (growth.witherEffect, witherFromTips).
+// A look change replaces the trees the same way (transition).
 
 import type { Drive } from '../drive';
 import type { Params } from '../params';
-import type { EndAction } from './plant';
+import { endActionOf, type EndAction } from './plant';
 import type { Skeleton } from './skeleton';
 
 export interface Structure {
@@ -52,6 +54,12 @@ export interface Generation<T extends Structure> {
   /** A full stop ended it (growth.dieAfter): growth.onStop acts on it, and the next phrase
    *  starts a new tree. */
   ending?: boolean;
+  /** Replaced by a look change: it goes by growth.witherEffect at once, whatever the switches say. */
+  switching?: boolean;
+  /** After a look change: grow to this reveal without waiting for the voice. */
+  autoReveal?: number;
+  /** Replaced by a look change: the look it keeps until it is gone (main.ts TreeLook). */
+  look?: unknown;
 }
 
 const MAX_GENERATIONS = 5;
@@ -129,8 +137,48 @@ export class Generations<T extends Structure> {
     if (p.look.woodStays) (tree as unknown as { instant?: boolean }).instant = true;
     this.gens.push({ tree, seed, reveal: p.look.woodStays ? 1 : 0, alpha: 1, retired: false, idle: 0, wither: 0,
       bough: !!slice, range: slice ? [slice[0], slice[1]] : undefined, dry: 0, fall: 0 });
-    const cap = Math.max(MAX_GENERATIONS, keep + 3);
+    const cap = Math.max(MAX_GENERATIONS, 2 * keep + 3);
     while (this.gens.length > cap) this.gens.shift();
+  }
+
+  /**
+   * The trees' shape settings changed (a Look preset, a slider, the layout): the living trees are
+   * not rebuilt in place. They go the way growth.witherEffect says, at once, and new ones grow back
+   * to where they were without waiting for the voice (and keep their phrase's timing, so they end
+   * when those would have). A tree already ending just ends.
+   */
+  transition(p: Params, look?: unknown) {
+    // Every tree still on its way out keeps the look it had too (main.ts draws it so).
+    if (look !== undefined) for (const x of this.gens) if (x.retired) x.look ??= look;
+    const living = this.gens.filter((x) => !x.retired);
+    if (!living.length) return;
+    // What each tree was growing to: a tree still growing back from an earlier change counts at
+    // its target, so quick changes in a row do not shrink the tree.
+    const size = (x: Generation<T>) => Math.max(x.reveal, x.autoReveal ?? 0);
+    const whole = living.filter((x) => (x.end ?? 0) <= 0 && size(x) > 0.03);
+    const idle = whole.reduce((m, x) => Math.min(m, x.idle), Infinity);
+    const wither = whole.reduce((m, x) => Math.max(m, x.wither), 0);
+    for (const x of living) {
+      x.retired = true;
+      x.switching = true;
+      x.look ??= look; // it keeps the look it had (main.ts draws it so)
+    }
+    if (!whole.length) return;
+    // One new tree for each one replaced, oldest first, each growing back to the size its old one
+    // had (boughs too: a take with two boughs gets two back, not branchesKept full ones).
+    const each = p.growth.branchEachPhrase && !p.look.woodStays;
+    const olds = each ? whole.filter((x) => x.bough).slice(-Math.max(1, Math.round(p.growth.branchesKept))) : [whole[whole.length - 1]];
+    const list = olds.length ? olds : [whole[whole.length - 1]];
+    for (const old of list) {
+      this.regrow(p);
+      const cur = this.current!;
+      // It grows back, even where the wood stays (it would appear at once).
+      (cur.tree as unknown as { instant?: boolean }).instant = false;
+      cur.reveal = 0;
+      cur.autoReveal = size(old);
+      cur.idle = Number.isFinite(idle) ? idle : 0;
+      cur.wither = wither; // in a pause, its outer twigs stay withered too
+    }
   }
 
   update(d: Drive, dt: number, p: Params) {
@@ -158,18 +206,22 @@ export class Generations<T extends Structure> {
       cur.end = 0;
       cur.endAction = 'keep';
     }
+    // After a look change: grow back to where the replaced trees were, singing or not.
+    for (const x of this.gens)
+      if (!x.retired && x.autoReveal !== undefined && x.reveal < x.autoReveal)
+        x.reveal = Math.min(x.autoReveal, x.reveal + dt / Math.max(0.3, g.secondsToFull * 0.5));
     // Pauses act on the outer twigs gradually (growth.onPause); a pitch dip at once. Singing lets
     // them grow back. The living boughs of "new branch each phrase" are one tree: all of them (an
     // older bough used to keep the twigs a pause had taken, and looked half dead).
     for (const x of this.gens) {
       if (x !== cur && !(x.bough && !x.retired)) continue;
-      if (g.onPause !== 'keep' && !d.voice && d.silentFor > 0.12) x.wither = Math.min(1, x.wither + dt / Math.max(0.05, g.witherSeconds));
+      if (g.onPause && !d.voice && d.silentFor > 0.12) x.wither = Math.min(1, x.wither + dt / Math.max(0.05, g.witherSeconds));
       if (g.witherOnPitchDip && d.pitchDip) x.wither = Math.min(1, x.wither + 0.6);
       if (d.voice) x.wither = Math.max(0, x.wither - dt / 1.2);
     }
 
     // A full stop (a long silence) ends every tree by growth.onStop; the next phrase starts a new one.
-    if (g.dieAfter > 0 && g.onStop !== 'keep' && !stays && !d.voice && d.silentFor > g.dieAfter)
+    if (g.dieAfter > 0 && g.onStop && !stays && !d.voice && d.silentFor > g.dieAfter)
       for (const x of this.gens)
         if (!x.ending) {
           x.retired = true;
@@ -181,12 +233,13 @@ export class Generations<T extends Structure> {
     // singing), and never before the phrase is over. Until then it stays whole, so with a new tree
     // per phrase the old one stands next to the new one for a while.
     const phraseOver = Math.max(0, p.response.phraseGap, g.fadeAfter);
-    const boughsFade = g.onPhraseEnd === 'fade';
-    const dropping = this.gens.filter((x) => x.bough && x.retired && !x.ending).length;
+    // Old boughs fade where they are only with "fade, all at once"; otherwise they dry, droop and fall.
+    const boughsFade = g.witherEffect === 'fade' && !g.witherFromTips;
+    const dropping = this.gens.filter((x) => x.bough && x.retired && !x.ending && !x.switching).length;
     for (const gen of this.gens) {
       const growing = gen === cur && d.voice;
       if (!growing) gen.idle += dt;
-      if (gen.bough && gen.retired) {
+      if (gen.bough && gen.retired && !gen.switching) {
         if (boughsFade) {
           gen.alpha -= dt / fade; // fades where it is
           continue;
@@ -202,16 +255,16 @@ export class Generations<T extends Structure> {
       const lit = gen.bough ? d.voice || !d.phraseOver(p) : growing || (gen === cur && !d.phraseOver(p));
       const target = lit ? 1 : g.restBrightness;
       gen.alpha += (target - gen.alpha) * (1 - Math.exp(-dt / (target > gen.alpha ? 0.08 : Math.max(0.05, p.response.release))));
-      if (gen.bough) continue; // living boughs are one tree: no ending of their own
+      if (gen.bough && !gen.switching) continue; // living boughs are one tree: no ending of their own
 
-      // Which ending acts on it: the full stop's, or the phrase end's once its phrase is over. A
-      // replaced tree has to go: it takes the other ending if this one keeps it, else it fades.
+      // Which ending acts on it: a look change's at once; the full stop's, or the phrase end's once
+      // its phrase is over. A replaced tree has to go, whatever the switches say.
       let act: EndAction = 'keep';
-      if (!growing && !(stays && gen === cur)) {
-        if (gen.ending) act = g.onStop;
-        else if (gen.idle > phraseOver) act = g.onPhraseEnd;
-        if (act === 'keep' && gen.retired && gen.idle > phraseOver)
-          act = g.onPhraseEnd !== 'keep' ? g.onPhraseEnd : g.onStop !== 'keep' ? g.onStop : 'fade';
+      if (gen.switching) act = endActionOf(g, true);
+      else if (!growing && !(stays && gen === cur)) {
+        if (gen.ending) act = endActionOf(g, g.onStop);
+        else if (gen.idle > phraseOver) act = endActionOf(g, g.onPhraseEnd);
+        if (act === 'keep' && gen.retired && gen.idle > phraseOver) act = endActionOf(g, true);
       }
       if (act !== 'keep') {
         // Another ending takes over (the full stop after the phrase end): it starts from the beginning.
